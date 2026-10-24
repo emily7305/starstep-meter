@@ -1,4 +1,5 @@
 import type { HealthStatus, JobStatus, UploadResponse } from "./types/api";
+import type { BeatsFile } from "./types/beats";
 import type { TimingReport } from "./types/timingReport";
 
 export class ApiError extends Error {
@@ -42,12 +43,12 @@ function errorFromResponse(status: number, body: string): ApiError {
   return new ApiError(`http ${status}`, status);
 }
 
-async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   let text: string;
   let status: number;
   let ok: boolean;
   try {
-    const res = await fetch(path, { signal, headers: { accept: "application/json" } });
+    const res = await fetch(path, { ...init, headers: { accept: "application/json", ...init.headers } });
     status = res.status;
     ok = res.ok;
     text = await res.text();
@@ -63,6 +64,10 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   }
 }
 
+function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return requestJson<T>(path, { signal });
+}
+
 export function fetchHealth(signal?: AbortSignal): Promise<HealthStatus> {
   return getJson<HealthStatus>("/api/health", signal);
 }
@@ -73,6 +78,24 @@ export function fetchJobStatus(jobId: string, signal?: AbortSignal): Promise<Job
 
 export function fetchReport(jobId: string, signal?: AbortSignal): Promise<TimingReport> {
   return getJson<TimingReport>(`/api/jobs/${encodeURIComponent(jobId)}/report`, signal);
+}
+
+export function fetchBeats(jobId: string, signal?: AbortSignal): Promise<BeatsFile> {
+  return getJson<BeatsFile>(`/api/jobs/${encodeURIComponent(jobId)}/beats`, signal);
+}
+
+export function patchOffset(jobId: string, offsetMs: number, signal?: AbortSignal): Promise<TimingReport> {
+  return requestJson<TimingReport>(`/api/jobs/${encodeURIComponent(jobId)}/report`, {
+    method: "PATCH",
+    signal,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ beat_offset_ms: offsetMs }),
+  });
+}
+
+// the decoded wav the analysis ran on, so the waveform shares the report's timeline
+export function audioUrl(jobId: string): string {
+  return `/api/jobs/${encodeURIComponent(jobId)}/audio`;
 }
 
 function parseJobId(body: string): string | null {
