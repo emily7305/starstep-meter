@@ -3,6 +3,10 @@
 Each folder holds a beats.json and report.json the app wrote for a song whose chart has one
 constant tempo, timing data only. The tempo map runs on the beats again, without the audio,
 so the loudness and onset checks aren't part of these. A test skips when its song is missing.
+
+The notation suggestions run again from the band strengths a milestone 4 analysis stores in
+beats.json. A song analyzed before that has none, and its suggestion tests skip until it's
+analyzed again and its files are copied over.
 """
 
 import json
@@ -11,7 +15,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from backend.analysis.notation import suggest_from_files
 from backend.analysis.tempo_map import build_tempo_map
+from backend.schema.migrate import upgrade_beats, upgrade_report
+from backend.schema.models import BeatsFile, TimingReport
 
 REAL = Path(__file__).parent / "real"
 
@@ -30,6 +37,19 @@ def _song(name):
         times, downbeats, trim["start_ms"], trim["end_ms"], downbeats_known=beats["tracker"] == "madmom"
     )
     return result, trim, times
+
+
+def _suggestions(name):
+    folder = REAL / name
+    beats_path, report_path = folder / "beats.json", folder / "report.json"
+    if not (beats_path.exists() and report_path.exists()):
+        pytest.skip(f"tests/real/{name}/beats.json and report.json not present")
+    beats = BeatsFile.model_validate(upgrade_beats(json.loads(beats_path.read_text(encoding="utf-8"))))
+    report = TimingReport.model_validate(upgrade_report(json.loads(report_path.read_text(encoding="utf-8"))))
+    if not beats.grid_features:
+        pytest.skip(f"tests/real/{name}/beats.json has no grid_features, analyze the song again with milestone 4")
+    found = suggest_from_files(report.tempo_map, report.meter_map, beats, report.trim.start_ms, report.trim.end_ms)
+    return found, report
 
 
 # --- MisoilePunch♪, 270 with felt sections at 3/4 and 2/3 (milestone 3b) ---
@@ -53,6 +73,12 @@ def test_misoilepunch_keeps_its_felt_sections_as_ratio_merges():
     assert merges[0].end_ms == pytest.approx(58727.9, abs=223.0)
     assert merges[1].start_ms == pytest.approx(86281.0, abs=223.0)
     assert merges[1].end_ms == pytest.approx(91615.6, abs=223.0)
+
+
+def test_misoilepunch_gets_no_half_or_double_suggestions():
+    # the chart stays 270 all through, the slower feel from about 48 s included
+    found, _ = _suggestions("misoilepunch")
+    assert [s for s in found if s.kind in ("half", "double")] == []
 
 
 # --- ENDYMION, a steady 220 (charted as 440 and 220) that 3b split into 8 ---
@@ -116,3 +142,39 @@ def test_younithm_grid_is_on_the_beats_outside_the_runs():
     # milestone 3b had a p95 residual of 110.9 ms, half a beat
     assert np.median(np.abs(result.residuals_ms[~inside])) < 5.0
     assert np.percentile(np.abs(result.residuals_ms), 95) < 25.0
+
+
+# the chart's measure map, 4/4 with measure 1 on the first downbeat, in measures as charted. the
+# chart writes 130 in these and 260 between them, so in beats of the 260 grid a 130 measure is 8
+YOUNITHM_CHARTED_AT_130 = [(1, 21), (69, 79), (139, None)]
+
+
+def _younithm_measure_beat(measure):
+    # grid beats of 260 from the first downbeat to where this measure starts
+    beats, at = 0, 1
+    for first, last in YOUNITHM_CHARTED_AT_130:
+        if measure <= first:
+            break
+        beats += (first - at) * 4
+        if last is None or measure <= last:
+            return beats + (measure - first) * 8
+        beats += (last - first) * 8
+        at = last
+    return beats + (measure - at) * 4
+
+
+def test_younithm_suggestions_follow_the_measure_map():
+    found, report = _suggestions("younithm")
+    (segment,) = report.tempo_map
+    period = 60000.0 / segment.bpm
+    measure_ms = 8 * period
+
+    half = [s for s in found if s.kind == "half"]
+    assert [s for s in found if s.kind == "double"] == []
+    assert len(half) == len(YOUNITHM_CHARTED_AT_130)
+    for s, (first, last) in zip(half, YOUNITHM_CHARTED_AT_130):
+        start = segment.anchor_ms + _younithm_measure_beat(first) * period
+        end = segment.end_ms if last is None else segment.anchor_ms + _younithm_measure_beat(last) * period
+        assert abs(s.start_ms - start) <= measure_ms, f"half from {s.start_ms:.0f}, chart {start:.0f}"
+        assert abs(s.end_ms - end) <= measure_ms, f"half to {s.end_ms:.0f}, chart {end:.0f}"
+        assert s.suggested_bpm == pytest.approx(segment.bpm / 2)
