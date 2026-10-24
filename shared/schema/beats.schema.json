@@ -24,7 +24,7 @@
           "type": "number"
         },
         "residual_ms": {
-          "description": "time_ms minus its tempo segment's fitted grid at this beat",
+          "description": "time_ms minus its tempo segment's fitted grid at this beat. a beat in a ratio merged section or an off-beat run is measured against the subdivision it sits on, half a beat for an off-beat run",
           "title": "Residual Ms",
           "type": "number"
         },
@@ -70,8 +70,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "2.1",
-      "default": "2.1",
+      "const": "2.2",
+      "default": "2.2",
       "title": "Schema Version",
       "type": "string"
     },

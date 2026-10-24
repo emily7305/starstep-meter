@@ -130,6 +130,36 @@
       "title": "MeterSegment",
       "type": "object"
     },
+    "OffbeatRun": {
+      "additionalProperties": false,
+      "properties": {
+        "beats": {
+          "description": "tracked beats in the run",
+          "minimum": 1,
+          "title": "Beats",
+          "type": "integer"
+        },
+        "end_ms": {
+          "description": "last tracked beat of the run",
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "start_ms": {
+          "description": "first tracked beat of the run",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "beats"
+      ],
+      "title": "OffbeatRun",
+      "type": "object"
+    },
     "RatioMergedSection": {
       "additionalProperties": false,
       "properties": {
@@ -317,9 +347,17 @@
       "title": "Meter Map",
       "type": "array"
     },
+    "offbeat_runs": {
+      "description": "stretches where the analysis found the tracked beats half a beat off the tempo map's grid. the grid is on the real beats there, the tracker followed the off-beat. analysis output, edits don't change it",
+      "items": {
+        "$ref": "#/$defs/OffbeatRun"
+      },
+      "title": "Offbeat Runs",
+      "type": "array"
+    },
     "schema_version": {
-      "const": "2.1",
-      "default": "2.1",
+      "const": "2.2",
+      "default": "2.2",
       "title": "Schema Version",
       "type": "string"
     },
@@ -352,6 +390,7 @@
     "tempo_map",
     "meter_map",
     "sections",
+    "offbeat_runs",
     "edits"
   ],
   "title": "TimingReport",

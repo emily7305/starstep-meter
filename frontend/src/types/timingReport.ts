@@ -13,11 +13,27 @@ export type Numerator = number;
 export type Source = "auto" | "manual";
 export type StartBar = number;
 export type MeterMap = MeterSegment[];
-export type SchemaVersion = "2.1";
+/**
+ * tracked beats in the run
+ */
+export type Beats = number;
+/**
+ * last tracked beat of the run
+ */
 export type EndMs = number;
+/**
+ * first tracked beat of the run
+ */
+export type StartMs = number;
+/**
+ * stretches where the analysis found the tracked beats half a beat off the tempo map's grid. the grid is on the real beats there, the tracker followed the off-beat. analysis output, edits don't change it
+ */
+export type OffbeatRuns = OffbeatRun[];
+export type SchemaVersion = "2.2";
+export type EndMs1 = number;
 export type Label = string;
 export type Source1 = "auto" | "manual";
-export type StartMs = number;
+export type StartMs1 = number;
 export type Sections = Section[];
 /**
  * codec of the first audio stream as ffprobe names it, e.g. mp3, aac, vorbis
@@ -56,12 +72,12 @@ export type Confidence1 = number | null;
 /**
  * where it stops, the same value as the next segment's start_ms
  */
-export type EndMs1 = number;
+export type EndMs2 = number;
 /**
  * what the stretch fitted to on its own
  */
 export type Bpm1 = number;
-export type EndMs2 = number;
+export type EndMs3 = number;
 /**
  * share of its beats on the segment's grid (lines, halves, thirds) over the share on its own grid
  */
@@ -70,7 +86,7 @@ export type Fit = number;
  * its bpm over the segment's, near enough, e.g. 3/4 for a triplet feel or 2/3 for a dotted one
  */
 export type Ratio = string;
-export type StartMs1 = number;
+export type StartMs2 = number;
 /**
  * felt tempo sections (dotted, triplet feel) inside this segment that the analysis kept on its grid, splitting at a section's start_ms and end_ms gives it back its own tempo
  */
@@ -79,19 +95,20 @@ export type Source2 = "auto" | "manual";
 /**
  * where this tempo starts, the first segment starts at trim.start_ms
  */
-export type StartMs2 = number;
+export type StartMs3 = number;
 /**
  * end of the last audible sound
  */
-export type EndMs3 = number;
+export type EndMs4 = number;
 /**
  * first audible sound
  */
-export type StartMs3 = number;
+export type StartMs4 = number;
 
 export interface TimingReport {
   edits: Edits;
   meter_map: MeterMap;
+  offbeat_runs: OffbeatRuns;
   schema_version: SchemaVersion;
   sections: Sections;
   source: AudioSource;
@@ -111,11 +128,16 @@ export interface MeterSegment {
   source: Source;
   start_bar: StartBar;
 }
-export interface Section {
+export interface OffbeatRun {
+  beats: Beats;
   end_ms: EndMs;
+  start_ms: StartMs;
+}
+export interface Section {
+  end_ms: EndMs1;
   label: Label;
   source: Source1;
-  start_ms: StartMs;
+  start_ms: StartMs1;
 }
 export interface AudioSource {
   codec: Codec;
@@ -129,19 +151,19 @@ export interface TempoSegment {
   anchor_ms: AnchorMs;
   bpm: Bpm;
   confidence: Confidence1;
-  end_ms: EndMs1;
+  end_ms: EndMs2;
   ratio_merged: RatioMerged;
   source: Source2;
-  start_ms: StartMs2;
+  start_ms: StartMs3;
 }
 export interface RatioMergedSection {
   bpm: Bpm1;
-  end_ms: EndMs2;
+  end_ms: EndMs3;
   fit: Fit;
   ratio: Ratio;
-  start_ms: StartMs1;
+  start_ms: StartMs2;
 }
 export interface Trim {
-  end_ms: EndMs3;
-  start_ms: StartMs3;
+  end_ms: EndMs4;
+  start_ms: StartMs4;
 }

@@ -111,7 +111,7 @@ def test_minimal_report_round_trip_is_lossless():
 
     assert back == report
     assert back.model_dump_json(indent=2) == text
-    assert back.schema_version == "2.1"
+    assert back.schema_version == "2.2"
     assert back.tempo_map[0].confidence is None
     assert (back.meter_map, back.sections, back.edits) == ([], [], [])
 
@@ -120,7 +120,7 @@ def test_minimal_report_writes_nulls_and_empty_lists_explicitly():
     # the committed schema marks these required, so the file has to carry them
     payload = json.loads(minimal_report().model_dump_json())
 
-    assert payload["schema_version"] == "2.1"
+    assert payload["schema_version"] == "2.2"
     assert payload["tempo_map"][0]["confidence"] is None
     assert payload["meter_map"] == []
     assert payload["sections"] == []
@@ -145,7 +145,7 @@ def test_beats_file_round_trip_is_lossless():
 
     assert back == beats
     assert back.model_dump_json(indent=2) == text
-    assert back.schema_version == "2.1"
+    assert back.schema_version == "2.2"
     assert BeatsFile(sha256=SHA, tracker="librosa", octave="kept").beats == []
 
 

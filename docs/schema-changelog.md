@@ -52,3 +52,13 @@ Milestone 3b, felt tempo sections. Additive, but a 2.0 reader rejects the new fi
 - `BeatsFile` has no new fields. Its `schema_version` moves to 2.1 with the report's.
 
 2.0 reports and beats files are upgraded when they're read by changing the version only, every segment gets an empty `ratio_merged`. 1.1 files go through 2.0 first, as before.
+
+## 2.2
+
+Milestone 3c, off-beat runs. Additive, but 2.1 readers reject the new field, so the version moves.
+
+- The report gains `offbeat_runs`, a list of `{start_ms, end_ms, beats}`: stretches where the analysis found the tracked beats half a beat off the tempo map's grid, the tracker following the off-beat. The grid stays on the real beats there. It's analysis output, edits don't change it and a re-analysis replaces it.
+- A beat's `residual_ms` in the beats file is measured against the subdivision it sits on when it's in a ratio merged section or an off-beat run (half a beat for the latter). For a ratio merged section that was already so in 2.1, the description says it now.
+- `BeatsFile` has no new fields, its `schema_version` moves with the report's.
+
+2.1 reports and beats files are upgraded when they're read by changing the version only, with an empty `offbeat_runs`. Older ones go through the earlier steps first.

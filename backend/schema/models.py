@@ -1,4 +1,4 @@
-"""Timing report schema v2.1.
+"""Timing report schema v2.2.
 
 All times are milliseconds from the first sample of the decoded audio
 (ffmpeg's output, before any trimming). Bars are 0-based, beats inside
@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "2.1"
+SCHEMA_VERSION = "2.2"
 
 # every segment says where it came from, re-analysis only ever replaces "auto"
 SegmentSource = Literal["auto", "manual"]
@@ -121,6 +121,19 @@ class Section(_Strict):
         return self
 
 
+class OffbeatRun(_Strict):
+    # where the tracker followed the off-beat for a while, the grid stays on the beats there
+    start_ms: float = Field(ge=0, description="first tracked beat of the run")
+    end_ms: float = Field(ge=0, description="last tracked beat of the run")
+    beats: int = Field(ge=1, description="tracked beats in the run")
+
+    @model_validator(mode="after")
+    def _ordered(self) -> OffbeatRun:
+        if self.end_ms < self.start_ms:
+            raise ValueError("off-beat run end_ms is before start_ms")
+        return self
+
+
 class Edit(_Strict):
     field: str = Field(description="path of the changed value, e.g. tempo_map/0/bpm")
     old: JsonValue
@@ -129,13 +142,18 @@ class Edit(_Strict):
 
 
 class TimingReport(_Strict):
-    schema_version: Literal["2.1"] = SCHEMA_VERSION
+    schema_version: Literal["2.2"] = SCHEMA_VERSION
     source: AudioSource
     trim: Trim
     # contiguous, the first downbeat is tempo_map[0].anchor_ms. no player compensation, see docs/decisions.md
     tempo_map: list[TempoSegment] = Field(min_length=1)
     meter_map: list[MeterSegment] = Field(default_factory=list)
     sections: list[Section] = Field(default_factory=list)
+    offbeat_runs: list[OffbeatRun] = Field(
+        default_factory=list,
+        description="stretches where the analysis found the tracked beats half a beat off the tempo map's grid. "
+        "the grid is on the real beats there, the tracker followed the off-beat. analysis output, edits don't change it",
+    )
     # append-only, one entry per manual change
     edits: list[Edit] = Field(default_factory=list)
 
@@ -155,7 +173,10 @@ class Beat(_Strict):
         description="beat time as the tracker reported it, before bias correction and onset snap. "
         "halfway between two tracker beats when the octave check doubled the tempo",
     )
-    residual_ms: float = Field(description="time_ms minus its tempo segment's fitted grid at this beat")
+    residual_ms: float = Field(
+        description="time_ms minus its tempo segment's fitted grid at this beat. a beat in a ratio merged section "
+        "or an off-beat run is measured against the subdivision it sits on, half a beat for an off-beat run"
+    )
     bar: int = Field(ge=0)
     beat_in_bar: int = Field(ge=1)
     is_downbeat: bool
@@ -163,7 +184,7 @@ class Beat(_Strict):
 
 class BeatsFile(_Strict):
     # beats live in their own file next to report.json, a long song has thousands
-    schema_version: Literal["2.1"] = SCHEMA_VERSION
+    schema_version: Literal["2.2"] = SCHEMA_VERSION
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="same file as the report it belongs to")
     # librosa is the fallback when madmom isn't installed, it has no downbeats so bars are guessed
     tracker: Literal["madmom", "librosa"]

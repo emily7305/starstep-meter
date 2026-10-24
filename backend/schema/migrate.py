@@ -1,7 +1,7 @@
 """Bring a stored report or beats file from an older schema up to the current one.
 
-Works on the parsed json before validation, one version step at a time. 1.1
-and 2.0 can be upgraded, 1.0 reports have no codec or decoder padding and
+Works on the parsed json before validation, one version step at a time. 1.1,
+2.0 and 2.1 can be upgraded, 1.0 reports have no codec or decoder padding and
 those can only come from the original file, so they still need a fresh upload.
 """
 
@@ -11,13 +11,20 @@ from typing import Any
 
 
 def upgrade_report(data: Any) -> Any:
-    """A 1.1 or 2.0 report as 2.1. Anything else comes back untouched and fails validation as usual."""
-    return _report_2_0_to_2_1(_report_1_1_to_2_0(data))
+    """A 1.1, 2.0 or 2.1 report as 2.2. Anything else comes back untouched and fails validation as usual."""
+    return _version_step(_report_2_0_to_2_1(_report_1_1_to_2_0(data)), "2.1", "2.2")
 
 
 def upgrade_beats(data: Any) -> Any:
-    """A 1.1 or 2.0 beats file as 2.1."""
-    return _beats_2_0_to_2_1(_beats_1_1_to_2_0(data))
+    """A 1.1, 2.0 or 2.1 beats file as 2.2."""
+    return _version_step(_beats_2_0_to_2_1(_beats_1_1_to_2_0(data)), "2.1", "2.2")
+
+
+def _version_step(data: Any, old: str, new: str) -> Any:
+    # 2.1 -> 2.2: the report gains offbeat_runs, empty by default, the beats file only moves with it
+    if not isinstance(data, dict) or data.get("schema_version") != old:
+        return data
+    return {**data, "schema_version": new}
 
 
 def _report_1_1_to_2_0(data: Any) -> Any:

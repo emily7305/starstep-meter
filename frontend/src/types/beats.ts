@@ -8,7 +8,7 @@ export type IsDownbeat = boolean;
  */
 export type RawTimeMs = number;
 /**
- * time_ms minus its tempo segment's fitted grid at this beat
+ * time_ms minus its tempo segment's fitted grid at this beat. a beat in a ratio merged section or an off-beat run is measured against the subdivision it sits on, half a beat for an off-beat run
  */
 export type ResidualMs = number;
 /**
@@ -20,7 +20,7 @@ export type Beats = Beat[];
  * what the octave check did to the tracker's tempo, mixed when it differs between tempo segments, see docs/decisions.md
  */
 export type Octave = "kept" | "doubled" | "halved" | "mixed";
-export type SchemaVersion = "2.1";
+export type SchemaVersion = "2.2";
 /**
  * same file as the report it belongs to
  */
