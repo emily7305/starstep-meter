@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from backend.analysis.decode import load_mono
-from backend.analysis.trim import DEFAULT_THRESHOLD_DB, TrimError, find_trim
+from backend.analysis.trim import DEFAULT_THRESHOLD_DB, TrimError, find_trim, stretch_level
 from tests.synth import ClickTrackSpec, cached_click_wav, click_track
 
 # half a coarse window, anything past this is the fine pass not doing its job
@@ -104,3 +104,20 @@ def test_stricter_threshold_never_widens(strict_db, noise_floor_db):
 
     assert strict.start_ms >= loose.start_ms
     assert strict.end_ms <= loose.end_ms
+
+
+@pytest.mark.parametrize("sample_rate", [22050, 44100, 48000])
+def test_stretch_level_is_against_the_median_of_the_song(sample_rate):
+    # 60 s of noise, the last 10 s 20 db quieter, like a fade that has already gone down
+    rng = np.random.default_rng(0)
+    samples = rng.standard_normal(60 * sample_rate) * 0.1
+    samples[50 * sample_rate:] *= 0.1
+
+    level = stretch_level(samples, sample_rate, 0.0, 60000.0)
+
+    assert level(0.0, 50000.0) == pytest.approx(0.0, abs=0.5)
+    assert level(50000.0, 60000.0) == pytest.approx(-20.0, abs=0.5)
+    # a stretch right next to the change reads its own side of it
+    assert level(49000.0, 50000.0) == pytest.approx(0.0, abs=0.5)
+    assert level(50000.0, 51000.0) == pytest.approx(-20.0, abs=0.5)
+

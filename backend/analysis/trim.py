@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -14,6 +15,8 @@ HOP_MS = 5.0
 WINDOW_MS = 20.0
 # fine pass around each coarse boundary, 1 ms windows at every sample
 FINE_WINDOW_MS = 1.0
+# frames for the level of a stretch of song, coarse is fine for a median over seconds
+LEVEL_FRAME_MS = 50.0
 
 
 class TrimError(RuntimeError):
@@ -93,3 +96,31 @@ def find_trim(
         threshold_db=threshold_db,
         peak_rms=float(np.sqrt(peak_msq)),
     )
+
+
+def stretch_level(
+    samples: np.ndarray, sample_rate: int, start_ms: float, end_ms: float, frame_ms: float = LEVEL_FRAME_MS
+) -> Callable[[float, float], float]:
+    """level(a_ms, b_ms): median frame level of that stretch in db, against the median over [start_ms, end_ms].
+
+    The tempo map asks this about a first or last segment, a fade or a quiet intro is
+    where the tracker's beats stop meaning much.
+    """
+    frame = max(1, int(round(frame_ms / 1000.0 * sample_rate)))
+    # the frame's real length, the rounding to whole samples adds up over a whole song
+    step_ms = frame * 1000.0 / sample_rate
+    count = len(samples) // frame
+    msq = np.mean(samples[: count * frame].astype(np.float64).reshape(count, frame) ** 2, axis=1)
+    db = 10.0 * np.log10(np.maximum(msq, 1e-20))
+
+    def frames(a_ms: float, b_ms: float) -> np.ndarray:
+        a = min(max(int(a_ms / step_ms), 0), count - 1)
+        b = min(max(int(np.ceil(b_ms / step_ms)), a + 1), count)
+        return db[a:b]
+
+    reference = float(np.median(frames(start_ms, end_ms))) if count else 0.0
+
+    def level(a_ms: float, b_ms: float) -> float:
+        return float(np.median(frames(a_ms, b_ms))) - reference if count else 0.0
+
+    return level
