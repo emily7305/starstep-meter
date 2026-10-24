@@ -145,11 +145,12 @@ export function App() {
   useEffect(() => ensureJapaneseFont(file?.name), [file]);
   useEffect(() => ensureJapaneseFont(report?.source.filename), [report?.source.filename]);
 
-  // a merge or a fresh report can leave the selection past the end
+  // a merge or a fresh report can leave the selection past the end. not while a split is out,
+  // its selection points into the map that's coming back and would get pulled back to the end
   const segmentCount = report?.tempo_map.length ?? 0;
   useEffect(() => {
-    if (segmentCount > 0 && selected >= segmentCount) setSelected(segmentCount - 1);
-  }, [segmentCount, selected]);
+    if (!reshaping && segmentCount > 0 && selected >= segmentCount) setSelected(segmentCount - 1);
+  }, [reshaping, segmentCount, selected]);
 
   const hasReport = report !== null;
   useEffect(() => {
