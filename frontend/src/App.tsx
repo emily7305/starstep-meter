@@ -15,6 +15,7 @@ import { ReportView } from "./components/ReportView";
 import { StageTrack, trackFor, type TrackPosition } from "./components/StageTrack";
 import { Timeline } from "./components/Timeline";
 import { UploadPanel, type UploadProgress } from "./components/UploadPanel";
+import { ensureJapaneseFont } from "./fonts";
 import { failureText, stageLabel } from "./format";
 import { nudged, OFFSET_FIELD, OffsetSaver, type SaveState, withOffsetEdit } from "./offset";
 import { pollJob } from "./poll";
@@ -105,6 +106,9 @@ export function App() {
 
   // unmount stops the upload and the polling loop together
   useEffect(() => () => runAbort.current?.abort(), []);
+
+  useEffect(() => ensureJapaneseFont(file?.name), [file]);
+  useEffect(() => ensureJapaneseFont(report?.source.filename), [report?.source.filename]);
 
   const hasReport = report !== null;
   useEffect(() => {

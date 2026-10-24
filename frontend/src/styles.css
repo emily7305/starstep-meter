@@ -12,7 +12,8 @@
   --danger: #a3123f;
 
   --font-display: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* plex mono has no japanese, the rounded face covers song titles instead of a system font */
+  --font-mono: "IBM Plex Mono", "M PLUS Rounded 1c", ui-monospace, monospace;
 
   --ruler-h: 24px;
   --gutter: 24px;
