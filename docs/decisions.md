@@ -94,3 +94,13 @@ Fonts, self-hosted through `@fontsource` packages (no font CDN):
 Not used, on purpose: beige or cream backgrounds, orange, serif headings, gradients, glass effects, card grids, icon badges, the Vite starter look, the default Tailwind palette, and Inter/system-ui as the main face. Layout separation is hairlines and whitespace, not boxes.
 
 Copy is tool copy: lowercase labels, no exclamation marks. Stage names show as `decoding`, `trimming`, `estimating tempo`, and failures read like `analysis failed at decode — check that ffmpeg is on PATH`.
+
+## jobs and api
+
+- Jobs run on a `ThreadPoolExecutor` with one worker by default (`STARSTEP_WORKERS`). Analysis is CPU-bound and it's one person uploading, so a queue of one is fine. There's no Celery, Redis or database.
+- Each job's state lives in `data/jobs/<id>/status.json`, written atomically (temp file plus `os.replace`, retried briefly on Windows `PermissionError`). The report is written before the status flips to done, so done never shows without a report to fetch.
+- After a restart, finished jobs are still served. Jobs that were queued or running are marked failed with "server restarted before the job finished". Re-queueing queued jobs would be nicer and is a todo.
+- Ingest runs inside the upload request, not as a job stage. A wrong extension or a file ffprobe can't read gets a 415, a missing ffprobe gets a 503, and nothing is left on disk.
+- Upload size: FastAPI parses the multipart body before the route function runs, so a check inside the route would only fire after the whole file was spooled. A small custom route class checks `Content-Length` first and returns 413 when it's over the limit by more than 64 KiB of multipart slack. The byte count in ingest catches anything closer to the limit.
+- The server binds to 127.0.0.1. `--host` with anything else prints a warning. There's no CORS middleware because the Vite dev server proxies `/api`.
+- Job ids are `uuid4().hex` and are checked against `^[0-9a-f]{32}$` before they're used in a path.
