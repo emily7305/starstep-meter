@@ -74,6 +74,8 @@ An mp3 without a LAME header reports 0 even though it does carry encoder delay. 
 
 The tempo map's first segment keeps `start_ms = trim.start_ms` as in milestone 1. The grid phase comes only from `beat_offset_ms`, so editing the offset never has to touch the tempo map, and the two edits don't get coupled.
 
+Changed in milestone 3: `beat_offset_ms` moved into the tempo map as each segment's `anchor_ms`, so the first downbeat is now `tempo_map[0].anchor_ms`. The timeline and the no-compensation rule above still hold for every anchor. See "tempo map (milestone 3)" for why.
+
 Bars in the beats file: the first downbeat starts a bar. Beats before it (a pickup) are bar 0, as a pickup bar usually is in a score, and then the first downbeat is bar 1. Without a pickup, the first downbeat is bar 0.
 
 ## trim
@@ -107,6 +109,8 @@ This is a coarse estimate. Milestone 2 replaces it with a linear regression over
 Measured on synthetic click tracks (40 beats, 15 tempos from 60 to 233.3 BPM, 44.1 and 48 kHz, plain, -90 dBFS noise, and accented downbeats): the worst error is 0.017 BPM and there are no octave errors. librosa's raw estimate on the same tracks reported half tempo for 174 BPM and up at 44.1 kHz, and for 160 and 180 and up at 48 kHz. It was up to 0.99 BPM off on the rest. So the octave check and refinement are doing real work.
 
 Known limits: click tracks are the easy case. Real music with strong eighth notes will push the octave check towards double time, and swing or tempo drift isn't handled at all. 60–240 is a guess at a sane range for charts, and songs above 240 will come out at half tempo. `confidence` stays null until there's something meaningful to put there.
+
+Changed in milestone 3: the range is 60–320 and the candidates include thirds and 3:2, see "tempo range and half or double (milestone 3)".
 
 ## ui direction
 
@@ -146,7 +150,7 @@ Copy is tool copy: lowercase labels, no exclamation marks. Stage names show as `
 madmom's `RNNDownBeatProcessor` plus `DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)`, run on the trimmed region with 0.5 s of padding on each side. Beats more than 50 ms before the trim start or after the trim end are dropped. The tracker can only put a beat out there by guessing, because the padding is below the trim threshold.
 
 - madmom treats a numpy array's sample rate as a label and never resamples it, and its networks were trained at 44.1 kHz. So 48 kHz audio is resampled to 44.1 kHz with soxr (linear phase, so no time shift) before tracking. Beat times come back in seconds, so nothing else changes.
-- The DBN's tempo range is 55–240 bpm. madmom's default upper limit is 215, which would halve the faster rhythm game songs. 230 bpm clicks track correctly with the higher limit.
+- The DBN's tempo range is 55–240 bpm. madmom's default upper limit is 215, which would halve the faster rhythm game songs. 230 bpm clicks track correctly with the higher limit. (Milestone 3 made it 60–320 for every tempo path.)
 - Downbeats need something to find. On clicks where every beat sounds the same, madmom picks an arbitrary beat as beat 1, which is correct behaviour. The accuracy tests use accented downbeats, and `make_click_track.py --accent` makes them for the manual check.
 - If madmom isn't installed, or is installed but fails to import (the PyPI 0.16.1 build does that), `auto` falls back to librosa. Asking for `--tracker madmom` by name turns either case into an error instead.
 - The librosa fallback is `librosa.beat.beat_track` on the milestone 1 onset envelope with the milestone 1 bpm. It has no downbeats, so the first beat is taken as beat 1 of a 4/4 bar, and bar positions are counted on the fitted grid so a dropped beat doesn't slip the bar. The beats file says `tracker: "librosa"` and the confidence is halved.
@@ -167,6 +171,8 @@ For each tracked beat, compute a spectral flux only around that beat and move th
 Snapped beats land −0.71 to −0.77 ms from the click onsets, for both trackers, all codecs and both sample rates. So snapping removes madmom's one-frame lead and librosa's late bias alike.
 
 One thing to watch: madmom's worst raw beat was 17.6 ms early, which is only 2.4 ms inside the 20 ms window. If real songs push it further, the snap would miss the attack or catch an earlier one. Centering the window on the raw beat plus one frame would buy margin, but I want to see real songs first.
+
+Done in milestone 3 with the measured bias instead of one frame, see "madmom bias before snap (milestone 3)".
 
 ## tempo fit (milestone 2)
 
@@ -209,3 +215,139 @@ Offset edits:
 - Two things the API tests caught. NaN or Infinity in the body gave a 500, because FastAPI's 422 body echoes the input and a NaN can't be written as JSON. The 422 handler now leaves the input out. A numeric string like `"2100"` was also accepted through pydantic's lax mode, so the field is strict now.
 
 Japanese song titles: `@fontsource/m-plus-rounded-1c/400.css` splits the Japanese glyphs into about 120 slices, each with a `unicode-range`. The CSS for that is 144 KB, so it's a dynamic import (`fonts.ts`) that only runs once a filename has kana, kanji or fullwidth characters in it, and the first paint only loads the 10 KB main stylesheet. Then the browser only downloads the slices it needs (4 woff2 files, a few KB each, for a title of 11 Japanese characters). `japanese-400.css` would have been the wrong file, because it's one 900 KB font with no `unicode-range`. M PLUS Rounded 1c is also second in the mono stack, because IBM Plex Mono has no Japanese and filenames are set in mono. Checked in Chromium with Playwright: `CSS.getPlatformFontsForNode` on the picker, the report row and the timeline title reports 11 glyphs in "Rounded Mplus 1c" (the bundled face, not a system font) and 9 in IBM Plex Mono. Only weight 400 is loaded for Japanese, since filenames only ever show at that weight.
+
+## madmom bias before snap (milestone 3)
+
+madmom's raw beats are shifted by its median bias before the snap search, and the window stays at ±20 ms. `MADMOM_BIAS_MS` is −11.8, so every madmom beat moves 11.8 ms later before snapping. A beat that finds no onset keeps the shifted time, which is a better guess than the raw one.
+
+How it was measured: 48 accented click tracks with a random bpm between 70 and 300, a random lead between 0.05 and 2.5 s, half at 44.1 kHz and half at 48 kHz, every fifth in 3/4. madmom with the 60–320 range, the octave check applied, and beats the octave check inserted left out because they aren't tracker output. The error is the raw beat minus the nearest click onset, over 2480 beats. Median −11.83 ms, mean −11.89, 1st percentile −17.18, 99th −6.52, worst −18.15 and −3.74. After the shift the spread is about −6 to +8 ms, so there are 12 ms of margin left on both sides of the window.
+
+What went wrong first: the first run said −10.46. It used round tempos (80, 120, 150, 200 bpm) whose period is a whole number of 10 ms frames, and the region handed to madmom starts 0.5 s before the first click, so every click sat at the same frame phase and those tracks gave −10.45 on every beat. Real songs land at any phase, so the second run picks the bpm and lead at random.
+
+librosa's bias (+4.3 to +12.3 ms late, from milestone 2) isn't shifted. It's already well inside the window.
+
+The test feeds beats 18 to 25 ms early through the snap and through the whole pipeline (with the tracker swapped out). They all snap within 1.5 ms of the click. Without the shift, beats 21 to 25 ms early don't snap at all. A wider window would also have caught them, but on busy songs it can grab the wrong onset, so the window stays at 20.
+
+The eval script's `median_snap_move_ms` column is the same number on real songs (raw tracker beat to where it snapped, bias shift included). If it sits far from 0 there, the bias needs measuring again on real material.
+
+## tempo range and half or double (milestone 3)
+
+Every tempo path takes one `TempoRange`, 60–320 bpm by default. That covers the milestone 1 estimate the librosa fallback runs on, madmom's DBN, and the octave check below. It is set in `backend/analysis/tempo_range.py`, and can be changed with `--min-bpm`/`--max-bpm` on the CLI and the eval script, or `STARSTEP_MIN_BPM`/`STARSTEP_MAX_BPM` for the server. The hands-on case was a 270 bpm song that came out at 135.51 with the old 240 ceiling.
+
+Raising the ceiling wasn't enough on its own. What broke and how it was fixed:
+
+- madmom still tracked accented 250, 270 and 300 bpm click tracks at half tempo for some leads. It isn't the DBN, it's the network. Its beat activation on every other click is about 0.2 against 0.6 on the others, so it hears half time. Plain clicks without accents came out right.
+- The milestone 1 estimate gave 90 for 270 bpm clicks. librosa's coarse guess leans towards 120 and landed on a third, and the octave check only looked at half and double. It now also tries 1/3, 2/3, 3/2 and 3 times the guess. The rule is unchanged: the fastest candidate whose autocorrelation peak is at least half the strongest wins.
+- With 60 log-spaced tempo states over 60–320, one 3/4 click track came out in 4/4. `num_tempi=None` keeps every whole-frame beat interval (82 states at 100 fps) and costs the same time.
+- A track at 128, then 192, then 128 bpm came out as 128, 96, 128. madmom followed the middle part at half tempo, and an octave check over the whole song was outvoted by the rest. The check now runs on each rough tempo segment, found from the raw beats first.
+
+How the choice is made now. `backend/analysis/octave.py` looks at onset strength, the same short-window spectral flux the snap uses, on linear magnitude. It is read in three places: on the tracked beats, halfway between them, and on every other beat.
+
+- It halves when one parity of beats is under 0.4 of the other. That parity is offbeats the tracker took for beats.
+- It doubles when the midpoints reach 0.8 of the weaker beats (their 25th percentile, so accented downbeats don't hide a real pulse).
+- Each happens at most once, and only inside the range. In between, the tracker's choice stands.
+
+Measured on click tracks:
+
+- 87.5 to 230 bpm in 4/4 and 3/4 with both trackers: no octave change.
+- 250, 270 and 300 bpm at three leads each: right with both trackers. madmom's half-time picks were doubled back.
+- 120 bpm with offbeats at 25% of the beat level: madmom and librosa both said 240, and the check halved it back to 120.
+- 135 and 150 bpm with offbeats at 50% and 70%: madmom said 135 and 150, librosa said 270 and 304, and both were left alone. This is the ambiguous zone. At 90%, madmom's 135 and 150 were doubled.
+- 170 bpm with offbeats as loud as the beats stays at 170, because 340 is out of range.
+
+Where it's still ambiguous:
+
+- Real songs whose off-beat eighth notes (hats, synth stabs) reach 50 to 80% of the weaker beats' flux. There the answer depends on the tracker, and madmom and librosa can disagree.
+- Fast songs where every other beat is much quieter than the rest can still come out at half.
+- A song that switches to exactly half or double tempo on a steady beat doesn't show up in the beat times at all if the tracker keeps the old pulse. A 174 to 87 bpm click track came out at 87 throughout.
+
+All of these are what the ×2 and ÷2 buttons per segment are for. The thresholds are tuned on clicks only.
+
+## tempo map (milestone 3)
+
+`backend/analysis/tempo_map.py` splits the snapped beats into segments and fits each with the milestone 2 `fit_grid`, so every segment has its own bpm and its own anchor (its first downbeat, index 0 of its grid).
+
+Why the schema changed. A manual segment has to carry its whole grid. If the phase still came from one global `beat_offset_ms`, re-analysis would recompute it and move a manual segment's grid even though the segment itself was left alone. So each segment got `anchor_ms`, `beat_offset_ms` went away, and the first downbeat is `tempo_map[0].anchor_ms`. Segments also got an explicit `end_ms`. With an implicit end, a manual segment would grow or shrink whenever the auto segment after it was replaced. 1.1 reports are upgraded on read (`backend/schema/migrate.py`), so milestone 2 jobs still open with their edits.
+
+How boundaries are found:
+
+1. Rough beat indices from the gaps, each gap counting round(gap / running median gap) beats.
+2. Recursive two-line split. The cut that minimises the squared error of two lines (time against index, both sides at least `min_segment_beats`) is taken whenever the split is justified, or one line can't hold the grid in that range. A split is justified when:
+   - the bpm differs by more than `bpm_shift_ratio`, or
+   - the phase jumps by more than `residual_shift_ms`, folded onto the nearest whole beat, or
+   - one line drifts past `residual_shift_ms` and two lines fix that.
+
+   Each of those also has to be `shift_z` standard errors out, so a short noisy side can't fake one. One line "can't hold the grid" when the running median of its residuals (`smooth_beats` long) goes past `residual_shift_ms`.
+3. Merge. Every boundary is checked again against its final neighbours, and the weakest unjustified one is merged until all hold. A middle segment is merged into both its neighbours when the beats either side of it sit on one line together (unfolded). That's a fluctuation the song comes back out of onto the old grid. A real short section at another tempo leaves the grid after it shifted.
+4. Each boundary is placed again by the two-line cut between its final neighbours.
+5. The beats within two of each boundary are given to whichever line they sit on. Ties go to the new segment, so the bpm change lands on the first beat of the new tempo, where a chart puts it.
+
+A segment after the first starts at its first beat on its own grid. The first starts at `trim.start_ms` and the last ends at `trim.end_ms`.
+
+The thresholds are in `TempoMapConfig`:
+
+| setting | value |
+| --- | --- |
+| `residual_shift_ms` | 8 |
+| `bpm_shift_ratio` | 0.004 |
+| `shift_z` | 5 |
+| `smooth_beats` | 7 |
+| `min_segment_beats` | 8 |
+| `refine_beats` | 2 |
+
+Each has a test that flips its decision. They're tuned on synthetic beat lists and click tracks only. Real songs haven't been through this yet. `scripts/eval_local.py` is how they will be.
+
+What broke on the way:
+
+- The first version accepted a cut only if that one cut was justified. On a fast-slow-fast song the best single cut leaves one side mixed, nothing passes, and the middle section was missed. Now it splits generously and lets the merge pass decide.
+- Splitting generously made a 4-beat wobble its own 9-beat segment, because its slope really is different. That's what the fluctuation merge in step 3 is for.
+- The rough-index slip repair (two displaced beats next to each other can make the gap count one beat too many) fired on a mixed range that looked like a 2-beat slip. Now it only repairs ±1, and only if one line fits after the repair.
+- With three tempos in one range, the first cut landed between two changes, and the minimum length then forced the next cut 3 beats short of the real change. The boundary refinement only moves 2 beats, so it stayed wrong and then spoiled the line fit for the next boundary. Step 4 fixed that.
+
+Measured on synthetic beat lists:
+
+- 300 random tracks with one or two changes. The bpm was between 70 and 300 with every change at least 3%, each part 32 to 200 beats long, and the jitter up to 3 ms. All had the right number of segments. The worst change point was 0.005 beats off.
+- In the same set, the bpm error was 0.0103 at the 95th percentile and 0.0715 at worst. The worst ones are short segments with high jitter, which is the noise limit of a line fit (σ·√12/n^1.5 for the period), not a segmentation problem. Hitting 0.01 bpm needs a segment long enough for that formula.
+- 500 random steady tracks (60 to 320 bpm, 32 to 800 beats, jitter up to 4 ms, 2% of beats displaced by up to 18 ms) gave 2 false splits, both with about 3.9 ms jitter at 240 and 316 bpm.
+- Pauses of 30 ms and half a beat split. A 6 ms phase step, a 4 beat wobble 12 ms late, a 6 beat rubato, displaced, dropped and doubled beats don't.
+- An accelerando from 120 to 126 bpm over 200 beats becomes about 8 steps, and the grid stays within 8 ms.
+
+Measured through the whole pipeline with madmom on click tracks:
+
+- 150 to 200, 174 to 128 (mp3), 128 to 192 to 128, and 140 to 180 to 210 at 48 kHz. Every bpm is right to the 4 decimal rounding, and every change point is within the snap's 0.73 ms of the click. The tests check within one beat and within 5 ms.
+- Steady 128 and 270 bpm tracks with 2 ms jitter come out as one segment with both trackers.
+
+Limits:
+
+- A 0.5% step with 2 ms jitter can put the boundary up to 2 beats off. A 0.2% step is only found from the drift it builds up over many beats.
+- The librosa fallback can't follow tempo changes at all. `beat_track` runs at one tempo, and its confidence is low on such songs.
+
+## manual tempo edits (milestone 3)
+
+`PATCH /api/jobs/{id}/report` takes one operation: `set_anchor`, `set_bpm`, `split` or `merge`. The rules are in `backend/analysis/tempo_edit.py`.
+
+- source `manual` means the user touched the segment, its boundaries or its values, so re-analysis leaves it alone. confidence null means its bpm or anchor was set by hand.
+- `set_bpm` keeps the anchor and rebuilds the grid around it, which is what ×2 and ÷2 are. `set_anchor` is the 1 ms nudge from milestone 2 and also "anchor here" (the tracked beat in the zoomed view), which rebuilds the grid from that beat.
+- A split of a fitted segment refits both halves from the tracked beats in them. A split of a hand-set segment keeps its grid, and the right half's anchor moves to the first grid line at or after the split, so no line moves and a new bar starts there (the way rhythm game timing points restart bars). A merge of two fitted segments refits the union. If one of the two was set by hand, its grid wins, and if both were, the first's does.
+- The edit log says exactly what moved. `set_bpm` and `set_anchor` add one entry per changed field of that segment, so the first edit of an auto segment also logs `source` auto → manual and `confidence` → null. Split and merge log the whole `tempo_map` before and after.
+- Re-analysis (`POST /api/jobs/{id}/reanalyze`) runs the pipeline again on the stored upload. The manual segments come back exactly as they were, and the fresh auto segments fill only the time they don't cover, clipped at their edges. The edit log is kept, and re-analysis itself isn't logged since it isn't a manual change.
+
+Open problem: if a re-analysis fails, for example ffmpeg went missing, the job shows as failed and its report isn't served until a re-analysis succeeds. The file on disk is untouched.
+
+## reopening jobs (milestone 3)
+
+Hands-on testing showed manual edits looked lost after a reload, so this moved up from milestone 5.
+
+- The open job's id is in the url (`?job=<id>`), so a reload or back and forward reopens it.
+- The source column lists every job from `GET /api/jobs`, newest first, with the file name and date. Any of them can be reopened.
+- Before uploading, the browser hashes the file (`crypto.subtle`, which exists on 127.0.0.1 because it counts as a secure context) and asks `GET /api/jobs?sha256=`. If the same file was analysed before, it offers to reopen that job, with its edit count, before starting a new one. Without `crypto.subtle` the check is skipped and the upload goes ahead.
+- No accounts, everything stays in `data/`.
+
+## tempo bands in the ui (milestone 3)
+
+- Segments are drawn on the waveform as bands. Every other one has a faint ink tint, so boundaries read without a line of their own competing with the bar lines. The selected segment gets the accent tint at 9% and a 2 px accent edge along the bottom, since the accent means "where you are".
+- Each band has a label in the bottom strip, like `200.00 bpm · manual`, in the mono face. The label stays pinned to the left of the view while its band's start is scrolled off.
+- Clicking the waveform selects the segment under the click and puts the nearest tracked beat in the zoomed view. The controls on the right act on the selected segment.
+- Bar numbers keep counting across segments, and each later segment's bars start at its anchor.
+- Grid lines are thinned per segment, since a 240 bpm stretch crowds before a 120 one.
+- A line less than a quarter period before a boundary belongs to the next segment, so a bpm change on a beat draws one line there. The backend refits segments with the same rule.
