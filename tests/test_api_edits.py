@@ -37,6 +37,7 @@ EDIT_BODIES = {
     "set_bpm": {"op": "set_bpm", "segment": 1, "bpm": 90.0},
     "split": {"op": "split", "at_ms": 5000.0},
     "merge": {"op": "merge", "segment": 0},
+    "match": {"op": "match", "segment": 1, "side": "previous"},
 }
 
 # the ops that name a segment, to try an index the map doesn't have
@@ -44,6 +45,7 @@ SEGMENT_OPS = {
     "set_anchor": lambda i: {"op": "set_anchor", "segment": i, "anchor_ms": 8100.0},
     "set_bpm": lambda i: {"op": "set_bpm", "segment": i, "bpm": 90.0},
     "merge": lambda i: {"op": "merge", "segment": i},
+    "match": lambda i: {"op": "match", "segment": i, "side": "previous"},
 }
 
 
@@ -505,6 +507,9 @@ def test_anchor_slack_is_a_beat_of_the_segments_own_tempo(
         pytest.param({"op": "split", "at_ms": 6000.0, "segment": 0}, id="split with a segment"),
         pytest.param({"op": "merge", "segment": "0"}, id="numeric string merge"),
         pytest.param({"op": "merge", "segment": 0, "at_ms": 6000.0}, id="merge with a time"),
+        pytest.param({"op": "match", "segment": 1}, id="match without a side"),
+        pytest.param({"op": "match", "segment": 1, "side": "before"}, id="match with an unknown side"),
+        pytest.param({"op": "match", "segment": 1, "side": "previous", "bpm": 120.0}, id="match with a bpm"),
     ],
 )
 def test_bad_patch_body_is_422(client: TestClient, settings: Settings, body: dict) -> None:
@@ -833,6 +838,47 @@ def test_merge_joins_a_segment_with_the_next_and_logs_the_whole_map(client: Test
     assert edit["old"] == [s.model_dump(mode="json") for s in original.tempo_map]
     assert edit["new"] == body["tempo_map"]
     assert stored_report(settings, job_id) == TimingReport.model_validate(body)
+
+
+@pytest.mark.parametrize(
+    ("side", "kept", "span"),
+    [("previous", 0, (2000.0, 14000.0)), ("next", 2, (8000.0, TRIM_END_MS))],
+    ids=["previous", "next"],
+)
+def test_match_takes_the_neighbours_grid_as_one_edit(
+    client: TestClient, settings: Settings, side: str, kept: int, span: tuple[float, float]
+) -> None:
+    original = make_multi_report()
+    job_id = write_done_job(settings, original)
+
+    resp = patch_edit(client, job_id, {"op": "match", "segment": 1, "side": side})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    segments = TimingReport.model_validate(body).tempo_map
+    assert len(segments) == 2
+    matched = next(s for s in segments if s.start_ms == span[0])
+    neighbour = original.tempo_map[kept]
+    # the neighbour's grid as it was, nothing refit even with a beats file there
+    assert (matched.bpm, matched.anchor_ms) == (neighbour.bpm, neighbour.anchor_ms)
+    assert (matched.start_ms, matched.end_ms) == span
+    assert (matched.source, matched.confidence) == ("manual", None)
+
+    (edit,) = body["edits"]
+    assert edit["field"] == "tempo_map"
+    assert edit["old"] == [s.model_dump(mode="json") for s in original.tempo_map]
+    assert edit["new"] == body["tempo_map"]
+    assert stored_report(settings, job_id) == TimingReport.model_validate(body)
+
+
+@pytest.mark.parametrize(("segment", "side"), [(0, "previous"), (2, "next")])
+def test_match_without_that_neighbour_is_422(client: TestClient, settings: Settings, segment: int, side: str) -> None:
+    job_id = write_done_job(settings, make_multi_report())
+    before = snapshot(settings.jobs_dir)
+
+    resp = patch_edit(client, job_id, {"op": "match", "segment": segment, "side": side})
+    assert resp.status_code == 422, resp.text
+    assert resp.json() == {"detail": f"segment {segment} has no {side} segment to match"}
+    assert snapshot(settings.jobs_dir) == before
 
 
 @pytest.mark.parametrize(

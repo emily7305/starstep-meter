@@ -8,22 +8,30 @@ its boundaries or its values, so re-analysis leaves it alone. confidence
 null means its bpm and anchor were set by hand. A segment that still has a
 confidence was fitted, so split and merge can fit it again from the tracked
 beats instead of carrying a tempo that only made sense for the old extent.
+
+A segment's ratio_merged sections are felt tempo stretches the analysis kept
+on its grid. They're left out of every refit, the way the analysis left them
+out, and they follow the segment through splits and merges. Splitting at a
+section's start and end gives it back as its own segment.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
 from backend.analysis.grid_fit import MIN_BEATS, GridFitError, fit_grid
-from backend.schema.models import TempoSegment
+from backend.schema.models import RatioMergedSection, TempoSegment
 
 # a split this close to a segment edge, in beats of that segment, makes a sliver nobody meant
 MIN_SPLIT_BEATS = 0.5
 # a beat within this fraction of a period before a boundary already belongs to the next segment,
 # same rule the ui uses for drawing
 EDGE_FRACTION = 0.25
+# a ratio merged section within this of both its segment's edges is the segment itself
+SAME_EDGE_MS = 1.0
 
 
 class TempoEditError(ValueError):
@@ -76,17 +84,34 @@ def set_anchor(segments: list[TempoSegment], index: int, anchor_ms: float) -> li
     return out
 
 
-def _beats_in(tracked: TrackedTimes, start_ms: float, end_ms: float, period: float) -> tuple[np.ndarray, np.ndarray]:
+def _notes_within(notes: list[RatioMergedSection], start_ms: float, end_ms: float, period: float) -> list[RatioMergedSection]:
+    # the sections clipped to [start, end). one that covers all of it is the segment now, and a
+    # clipped piece shorter than a beat isn't a section anymore
+    out = []
+    for note in notes:
+        a, b = max(note.start_ms, start_ms), min(note.end_ms, end_ms)
+        if b - a < period or (a - start_ms <= SAME_EDGE_MS and end_ms - b <= SAME_EDGE_MS):
+            continue
+        out.append(note if (a, b) == (note.start_ms, note.end_ms) else note.model_copy(update={"start_ms": a, "end_ms": b}))
+    return out
+
+
+def _beats_in(
+    tracked: TrackedTimes, start_ms: float, end_ms: float, period: float, skip: list[RatioMergedSection] | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     edge = EDGE_FRACTION * period
     keep = (tracked.times_ms >= start_ms - edge) & (tracked.times_ms < end_ms - edge)
+    for note in skip or []:
+        keep &= ~((tracked.times_ms >= note.start_ms - edge) & (tracked.times_ms < note.end_ms - edge))
     return tracked.times_ms[keep], tracked.is_downbeat[keep]
 
 
 def _refit(seg: TempoSegment, tracked: TrackedTimes | None) -> TempoSegment | None:
-    # a fresh fit over the segment's own beats, None when there's too little to fit
+    # a fresh fit over the segment's own beats, None when there's too little to fit. the
+    # ratio merged sections are another pulse, they'd pull the fit off the notated one
     if tracked is None:
         return None
-    times, downbeats = _beats_in(tracked, seg.start_ms, seg.end_ms, period_ms(seg))
+    times, downbeats = _beats_in(tracked, seg.start_ms, seg.end_ms, period_ms(seg), seg.ratio_merged)
     if len(times) < MIN_BEATS:
         return None
     try:
@@ -118,8 +143,14 @@ def split(segments: list[TempoSegment], at_ms: float, tracked: TrackedTimes | No
         raise TempoEditError("a split has to be at least half a beat away from the segment's edges")
 
     at = _ms(at_ms)
-    left = _manual(seg, end_ms=at)
-    right = _manual(seg, start_ms=at, anchor_ms=_grid_line_at_or_after(seg, at))
+    period = period_ms(seg)
+    left = _manual(seg, end_ms=at, ratio_merged=_notes_within(seg.ratio_merged, seg.start_ms, at, period))
+    right = _manual(
+        seg,
+        start_ms=at,
+        anchor_ms=_grid_line_at_or_after(seg, at),
+        ratio_merged=_notes_within(seg.ratio_merged, at, seg.end_ms, period),
+    )
     if right.anchor_ms >= right.end_ms:
         right = right.model_copy(update={"anchor_ms": at})
     if seg.confidence is not None:
@@ -139,10 +170,34 @@ def merge(segments: list[TempoSegment], index: int, tracked: TrackedTimes | None
         raise TempoEditError(f"segment {index} is the last one, there's nothing after it to merge with")
     first, second = segments[index], segments[index + 1]
     keeps = second if first.confidence is not None and second.confidence is None else first
-    merged = _manual(keeps, start_ms=first.start_ms, end_ms=second.end_ms)
+    notes = [*first.ratio_merged, *second.ratio_merged]
+    merged = _manual(keeps, start_ms=first.start_ms, end_ms=second.end_ms, ratio_merged=notes)
     if first.confidence is not None and second.confidence is not None:
         merged = _refit(merged, tracked) or merged.model_copy(update={"confidence": None})
     return [*segments[:index], merged, *segments[index + 2:]]
+
+
+def match(segments: list[TempoSegment], index: int, side: Literal["previous", "next"]) -> list[TempoSegment]:
+    """Segment index takes the grid of the segment before or after it and becomes part of it.
+
+    For a stretch that is the neighbour's tempo felt differently, or that the analysis got a
+    little off. The neighbour's bpm and anchor carry over as they are, nothing is refit, and
+    the result is one manual segment with no confidence since its extent was set by hand.
+    """
+    _check_index(segments, index)
+    other = index - 1 if side == "previous" else index + 1
+    if not 0 <= other < len(segments):
+        raise TempoEditError(f"segment {index} has no {side} segment to match")
+    lo, hi = min(index, other), max(index, other)
+    notes = [*segments[lo].ratio_merged, *segments[hi].ratio_merged]
+    matched = _manual(
+        segments[other],
+        start_ms=segments[lo].start_ms,
+        end_ms=segments[hi].end_ms,
+        confidence=None,
+        ratio_merged=notes,
+    )
+    return [*segments[:lo], matched, *segments[hi + 1:]]
 
 
 def _pieces(fresh: list[TempoSegment], start_ms: float, end_ms: float) -> list[TempoSegment]:
@@ -154,7 +209,10 @@ def _pieces(fresh: list[TempoSegment], start_ms: float, end_ms: float) -> list[T
     pieces = [s.model_copy(update={"start_ms": max(s.start_ms, start_ms), "end_ms": min(s.end_ms, end_ms)}) for s in inside]
     pieces[0] = pieces[0].model_copy(update={"start_ms": start_ms})
     pieces[-1] = pieces[-1].model_copy(update={"end_ms": end_ms})
-    return pieces
+    return [
+        p.model_copy(update={"ratio_merged": _notes_within(p.ratio_merged, p.start_ms, p.end_ms, period_ms(p))})
+        for p in pieces
+    ]
 
 
 def keep_manual_segments(previous: list[TempoSegment], fresh: list[TempoSegment]) -> list[TempoSegment]:

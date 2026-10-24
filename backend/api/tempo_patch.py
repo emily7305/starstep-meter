@@ -2,8 +2,8 @@
 
 The edit log has to say exactly what moved. A value edit (bpm, anchor) adds
 one entry per field that changed in that segment, the flip to manual and the
-dropped confidence included. Split and merge change the shape of the list, so
-they log the whole tempo_map before and after.
+dropped confidence included. Split, merge and match change the shape of the
+list, so they log the whole tempo_map before and after.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from backend.analysis import tempo_edit
 from backend.analysis.tempo_edit import TempoEditError, TrackedTimes
-from backend.api.models import Merge, SetAnchor, SetBpm, Split, TempoEdit
+from backend.api.models import Match, Merge, SetAnchor, SetBpm, Split, TempoEdit
 from backend.schema.models import BeatsFile, Edit, TempoSegment, TimingReport
 
 
@@ -55,6 +55,8 @@ def apply_tempo_edit(report: TimingReport, body: TempoEdit, beats: BeatsFile | N
         new_map = tempo_edit.split(old_map, body.at_ms, tracked_times(beats))
     elif isinstance(body, Merge):
         new_map = tempo_edit.merge(old_map, body.segment, tracked_times(beats))
+    elif isinstance(body, Match):
+        new_map = tempo_edit.match(old_map, body.segment, body.side)
     else:  # pragma: no cover, the union is closed
         raise TypeError(f"unknown tempo edit {body!r}")
 

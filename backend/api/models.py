@@ -85,4 +85,11 @@ class Merge(_Op):
     segment: _Index
 
 
-TempoEdit = Annotated[SetAnchor | SetBpm | Split | Merge, Field(discriminator="op")]
+class Match(_Op):
+    # this segment takes the previous or next segment's grid and joins it
+    op: Literal["match"]
+    segment: _Index
+    side: Literal["previous", "next"]
+
+
+TempoEdit = Annotated[SetAnchor | SetBpm | Split | Merge | Match, Field(discriminator="op")]

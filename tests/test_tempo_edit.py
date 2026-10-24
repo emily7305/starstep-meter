@@ -8,12 +8,13 @@ from backend.analysis.tempo_edit import (
     TempoEditError,
     TrackedTimes,
     keep_manual_segments,
+    match,
     merge,
     set_anchor,
     set_bpm,
     split,
 )
-from backend.schema.models import AudioSource, TempoSegment, TimingReport, Trim
+from backend.schema.models import AudioSource, RatioMergedSection, TempoSegment, TimingReport, Trim
 
 BPM_TOLERANCE = 0.01
 ANCHOR_TOLERANCE_MS = 0.01
@@ -23,10 +24,20 @@ STEADY_BEATS = 40
 STEADY_PERIOD_MS = 480.0
 
 
-def _seg(start, end, bpm=120.0, anchor=None, confidence=0.9, source="auto"):
+def _seg(start, end, bpm=120.0, anchor=None, confidence=0.9, source="auto", notes=()):
     return TempoSegment(
-        start_ms=start, end_ms=end, bpm=bpm, anchor_ms=start if anchor is None else anchor, confidence=confidence, source=source
+        start_ms=start,
+        end_ms=end,
+        bpm=bpm,
+        anchor_ms=start if anchor is None else anchor,
+        confidence=confidence,
+        source=source,
+        ratio_merged=list(notes),
     )
+
+
+def _note(start, end, bpm=202.5, ratio="3/4"):
+    return RatioMergedSection(start_ms=start, end_ms=end, bpm=bpm, ratio=ratio, fit=1.0)
 
 
 def _hand(start, end, bpm, confidence=None):
@@ -151,6 +162,7 @@ CALLS = {
     "set_anchor": lambda segments: set_anchor(segments, 1, 6000.0),
     "split": lambda segments: split(segments, 3000.0),
     "merge": lambda segments: merge(segments, 1),
+    "match": lambda segments: match(segments, 1, "next"),
 }
 
 
@@ -169,6 +181,7 @@ AT_INDEX = {
     "set_bpm": lambda segments, index: set_bpm(segments, index, 90.0),
     "set_anchor": lambda segments, index: set_anchor(segments, index, 6000.0),
     "merge": lambda segments, index: merge(segments, index),
+    "match": lambda segments, index: match(segments, index, "previous"),
 }
 
 
@@ -395,6 +408,100 @@ def test_merge_with_a_hand_set_segment_keeps_its_grid(first_confidence, second_c
 def test_merging_the_last_segment_is_refused(count):
     with pytest.raises(TempoEditError):
         merge(_three()[:count], count - 1)
+
+
+# --- match ---
+
+
+@pytest.mark.parametrize(("side", "kept", "span"), [("previous", 0, (1000.0, 9000.0)), ("next", 2, (5000.0, 13000.0))])
+def test_match_carries_the_neighbours_grid_over(side, kept, span):
+    segments = _three()
+
+    out = match(segments, 1, side)
+
+    assert len(out) == 2
+    matched = next(s for s in out if s.start_ms == span[0])
+    assert (matched.bpm, matched.anchor_ms) == (segments[kept].bpm, segments[kept].anchor_ms)
+    assert (matched.start_ms, matched.end_ms) == span
+    assert (matched.source, matched.confidence) == ("manual", None)
+    _assert_valid_map(out)
+
+
+@pytest.mark.parametrize(("index", "side"), [(0, "previous"), (2, "next")])
+def test_match_without_that_neighbour_is_refused(index, side):
+    with pytest.raises(TempoEditError, match=f"no {side} segment"):
+        match(_three(), index, side)
+
+
+# --- ratio merged sections ---
+
+
+def _felt_song():
+    # 270 with a 202.5 stretch from beat 96 to 120, folded in by the analysis
+    period, felt = 60000.0 / 270.0, 60000.0 / 202.5
+    gaps = [period] * 96 + [felt] * 24 + [period] * 96
+    times = 1000.0 + np.concatenate(([0.0], np.cumsum(gaps[:-1])))
+    note = _note(round(times[96], 3), round(times[120], 3))
+    segment = _seg(1000.0, round(times[-1] + 100.0, 3), bpm=270.0, anchor=1000.0, notes=[note])
+    return segment, note, _tracked(times)
+
+
+def test_splitting_at_both_ends_of_a_section_gives_it_back():
+    segment, note, tracked = _felt_song()
+
+    out = split([segment], note.start_ms, tracked)
+    out = split(out, note.end_ms, tracked)
+
+    assert [round(s.bpm, 2) for s in out] == [270.0, 202.5, 270.0]
+    assert (out[1].start_ms, out[1].end_ms) == (note.start_ms, note.end_ms)
+    # the middle is the section now, nothing left to note anywhere
+    assert [s.ratio_merged for s in out] == [[], [], []]
+    _assert_valid_map(out)
+
+
+def test_a_refit_leaves_the_sections_beats_out():
+    segment, note, tracked = _felt_song()
+
+    # split well before the section, the right side still has it inside
+    left, right = split([segment], 10000.0, tracked)
+
+    assert left.ratio_merged == []
+    assert right.ratio_merged == [note]
+    # with the 202.5 beats in, the fit would land somewhere between
+    assert right.bpm == pytest.approx(270.0, abs=BPM_TOLERANCE)
+    assert right.confidence == 1.0
+
+
+def test_a_split_inside_a_section_clips_it_on_both_sides():
+    segment, note, tracked = _felt_song()
+    middle = (note.start_ms + note.end_ms) / 2.0
+
+    left, right = split([segment], middle, tracked)
+
+    assert [(n.start_ms, n.end_ms) for n in left.ratio_merged] == [(note.start_ms, round(middle, 3))]
+    assert [(n.start_ms, n.end_ms) for n in right.ratio_merged] == [(round(middle, 3), note.end_ms)]
+    assert left.ratio_merged[0].bpm == right.ratio_merged[0].bpm == note.bpm
+
+
+def test_merge_and_match_keep_both_segments_sections():
+    first = _seg(1000.0, 5000.0, notes=[_note(2000.0, 3000.0)])
+    second = _seg(5000.0, 9000.0, notes=[_note(6000.0, 7000.0, bpm=180.0, ratio="3/2")])
+
+    for out in (merge([first, second], 0), match([first, second], 1, "previous")):
+        (joined,) = out
+        assert joined.ratio_merged == [*first.ratio_merged, *second.ratio_merged]
+        _assert_valid_map(out)
+
+
+def test_reanalysis_clips_a_fresh_section_at_a_manual_segment():
+    fresh = [_seg(1000.0, 12000.0, notes=[_note(4000.0, 8000.0)])]
+    previous = [_seg(1000.0, 6000.0, bpm=100.0, source="manual"), _seg(6000.0, 12000.0)]
+
+    out = keep_manual_segments(previous, fresh)
+
+    assert out[0] == previous[0]
+    assert [(n.start_ms, n.end_ms) for n in out[1].ratio_merged] == [(6000.0, 8000.0)]
+    _assert_valid_map(out)
 
 
 # --- keep_manual_segments ---
