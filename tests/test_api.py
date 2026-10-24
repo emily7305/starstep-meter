@@ -23,7 +23,7 @@ from backend.schema.models import TimingReport
 from tests.synth import ClickTrackSpec, cached_click_wav
 
 POLL_TIMEOUT_S = 60.0
-STAGE_ORDER = ["queued", "decode", "trim", "tempo", "done"]
+STAGE_ORDER = ["queued", "decode", "trim", "beats", "snap", "tempo", "done"]
 
 
 @pytest.fixture
@@ -122,13 +122,16 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert report.source.sha256 == hashlib.sha256(data).hexdigest()
     assert report.source.sample_rate == 44100
     assert abs(report.trim.start_ms - track.content_start_ms) <= 10
-    assert report.beat_offset_ms is None
+    # unaccented clicks, so which click is beat 1 is up to the tracker, but it has to be a click
+    assert report.beat_offset_ms is not None
+    phase = (report.beat_offset_ms - track.content_start_ms + 250.0) % 500.0 - 250.0
+    assert abs(phase) <= 5.0
 
     assert len(report.tempo_map) == 1
     segment = report.tempo_map[0]
-    assert abs(segment.bpm - 120) <= 1.0
+    assert abs(segment.bpm - 120) <= 0.01
     assert segment.source == "auto"
-    assert segment.confidence is None
+    assert segment.confidence is not None and segment.confidence > 0
     assert segment.start_ms == report.trim.start_ms
 
     assert report.meter_map == []
@@ -138,6 +141,7 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     job_dir = settings.jobs_dir / job_id
     assert (job_dir / "status.json").is_file()
     assert (job_dir / "report.json").is_file()
+    assert (job_dir / "beats.json").is_file()
     assert (job_dir / "job.json").is_file()
     assert TimingReport.model_validate_json((job_dir / "report.json").read_text(encoding="utf-8")) == report
     stored_job = json.loads((job_dir / "job.json").read_text(encoding="utf-8"))

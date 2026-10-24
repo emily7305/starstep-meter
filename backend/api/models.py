@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from backend.analysis.pipeline import Stage
 
 # where a job can have broken, done and failed are outcomes, not places
-ErrorStage = Literal["queued", "decode", "trim", "tempo"]
+ErrorStage = Literal["queued", "decode", "trim", "beats", "snap", "tempo"]
 
 
 class JobError(BaseModel):

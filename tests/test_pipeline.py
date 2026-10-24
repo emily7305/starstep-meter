@@ -19,7 +19,7 @@ def _copy_wav(tmp_path, spec: ClickTrackSpec):
 
 
 @pytest.mark.ffmpeg
-def test_run_analysis_builds_the_milestone_1_report(tmp_path):
+def test_run_analysis_builds_the_report_and_beats(tmp_path):
     src, track = _copy_wav(tmp_path, ClickTrackSpec(bpm=120, lead_silence_s=2.0))
     sha256 = hashlib.sha256(src.read_bytes()).hexdigest()
     work = tmp_path / "work"
@@ -28,7 +28,7 @@ def test_run_analysis_builds_the_milestone_1_report(tmp_path):
 
     out = run_analysis(src, work, filename="song.wav", sha256=sha256, on_stage=stages.append)
 
-    assert stages == ["decode", "trim", "tempo"]
+    assert stages == ["decode", "trim", "beats", "snap", "tempo"]
     assert (work / "decoded.wav").exists()
     assert out.decoded.path == work / "decoded.wav"
 
@@ -45,17 +45,27 @@ def test_run_analysis_builds_the_milestone_1_report(tmp_path):
     assert report.trim.start_ms == pytest.approx(track.content_start_ms, abs=10.0)
     assert report.trim.end_ms == pytest.approx(track.content_end_ms, abs=10.0)
 
-    # one auto segment from the first sound, nothing else is filled in until milestone 2
+    # one auto segment from the first sound, the grid phase is in beat_offset_ms
     assert len(report.tempo_map) == 1
     segment = report.tempo_map[0]
     assert segment.source == "auto"
     assert segment.start_ms == report.trim.start_ms
-    assert segment.confidence is None
-    assert segment.bpm == pytest.approx(120.0, abs=1.0)
-    assert report.beat_offset_ms is None
+    assert segment.confidence is not None and segment.confidence > 0
+    assert segment.bpm == pytest.approx(120.0, abs=0.01)
+    # unaccented clicks, any click can be the downbeat but it has to be one of them
+    assert report.beat_offset_ms is not None
+    assert np.min(np.abs(track.onsets_ms - report.beat_offset_ms)) <= 5.0
     assert report.meter_map == []
     assert report.sections == []
     assert report.edits == []
+
+    beats = out.beats
+    assert beats.sha256 == sha256
+    assert len(beats.beats) == len(track.onsets_ms)
+    assert beats.beats[0].time_ms == pytest.approx(track.onsets_ms[0], abs=5.0)
+    assert all(abs(b.residual_ms) < 1.0 for b in beats.beats)
+    downbeats = [b for b in beats.beats if b.is_downbeat]
+    assert downbeats and downbeats[0].time_ms == pytest.approx(report.beat_offset_ms, abs=1.0)
 
 
 @pytest.mark.ffmpeg
@@ -87,13 +97,13 @@ def test_silent_wav_fails_at_trim(tmp_path):
 
 
 @pytest.mark.ffmpeg
-def test_too_short_to_tempo_fails_at_tempo(tmp_path):
-    # about half a second of clicks between the trim points, under the 3 s minimum
+def test_two_clicks_fail_at_beats(tmp_path):
+    # about half a second of clicks between the trim points, too few beats to track
     src, _ = _copy_wav(tmp_path, ClickTrackSpec(beats=2, lead_silence_s=0.5, tail_silence_s=0.5))
     stages = []
 
     with pytest.raises(StageError) as err:
         run_analysis(src, tmp_path, filename="song.wav", sha256="0" * 64, on_stage=stages.append)
 
-    assert err.value.stage == "tempo"
-    assert stages == ["decode", "trim", "tempo"]
+    assert err.value.stage == "beats"
+    assert stages == ["decode", "trim", "beats"]

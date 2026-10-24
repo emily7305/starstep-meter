@@ -14,11 +14,12 @@ from pydantic import BaseModel
 
 from backend.analysis.ingest import ALLOWED_EXTENSIONS
 from backend.api.models import JobStatus
-from backend.schema.models import TimingReport
+from backend.schema.models import BeatsFile, TimingReport
 
 JOB_FILE = "job.json"
 STATUS_FILE = "status.json"
 REPORT_FILE = "report.json"
+BEATS_FILE = "beats.json"
 
 _JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 _REPLACE_TRIES = 5
@@ -142,3 +143,6 @@ class JobStore:
     def read_report(self, job_id: str) -> TimingReport:
         text = (self.job_dir(job_id) / REPORT_FILE).read_text(encoding="utf-8")
         return TimingReport.model_validate_json(text)
+
+    def write_beats(self, job_id: str, beats: BeatsFile) -> None:
+        _write_atomic(self.job_dir(job_id) / BEATS_FILE, beats.model_dump_json(indent=2) + "\n")

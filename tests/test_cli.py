@@ -36,7 +36,7 @@ def test_cli_verbose_logs_to_stderr_and_keeps_work_dir(capsys, tmp_path):
     assert code == 0
     # stdout has to stay pipeable with -v on
     TimingReport.model_validate(json.loads(captured.out))
-    for stage in ("decode", "trim", "tempo"):
+    for stage in ("decode", "trim", "beats", "snap", "tempo"):
         assert stage in captured.err
     assert (work / "original.wav").exists()
     assert (work / "decoded.wav").exists()

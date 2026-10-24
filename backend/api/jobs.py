@@ -14,7 +14,7 @@ from backend.api.storage import JobStore
 log = logging.getLogger("starstep.jobs")
 
 RESTART_MESSAGE = "server restarted before the job finished"
-_ERROR_STAGES = ("queued", "decode", "trim", "tempo")
+_ERROR_STAGES = ("queued", "decode", "trim", "beats", "snap", "tempo")
 
 
 def _error_stage(stage: str) -> ErrorStage:
@@ -25,7 +25,7 @@ def _error_stage(stage: str) -> ErrorStage:
 class JobRunner:
     def __init__(self, store: JobStore, settings: Settings) -> None:
         self._store = store
-        self._config = AnalysisConfig(trim_threshold_db=settings.trim_threshold_db)
+        self._config = AnalysisConfig(trim_threshold_db=settings.trim_threshold_db, snap_window_ms=settings.snap_window_ms)
         # no celery or redis, the job dirs on disk are the only state
         self._executor = ThreadPoolExecutor(max_workers=settings.workers, thread_name_prefix="analysis")
 
@@ -85,7 +85,8 @@ class JobRunner:
                 on_stage=on_stage,
                 config=self._config,
             )
-            # report first, so "done" is never visible without something to fetch
+            # beats and report first, so "done" is never visible without something to fetch
+            self._store.write_beats(job_id, out.beats)
             self._store.write_report(job_id, out.report)
             self._store.write_status(job_id, JobStatus(status="done", stage="done"))
         except StageError as exc:
