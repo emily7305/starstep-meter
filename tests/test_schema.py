@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from backend.schema.export_schema import SCHEMA_PATH, main, render_schema
+from backend.schema.export_schema import BEATS_SCHEMA_PATH, SCHEMA_PATH, main, render_schema
 from backend.schema.models import (
     AudioSource,
     Beat,
@@ -23,7 +23,14 @@ SHA = "ab12" * 16
 
 def full_report() -> TimingReport:
     return TimingReport(
-        source=AudioSource(filename="song name (final v2).mp3", sha256=SHA, duration_ms=215432.125, sample_rate=48000),
+        source=AudioSource(
+            filename="song name (final v2).mp3",
+            sha256=SHA,
+            duration_ms=215432.125,
+            sample_rate=48000,
+            codec="mp3",
+            decoder_padding_samples=1105,
+        ),
         trim=Trim(start_ms=1234.5, end_ms=210000.25),
         beat_offset_ms=-12.75,
         tempo_map=[
@@ -54,9 +61,11 @@ def full_report() -> TimingReport:
 
 
 def minimal_report() -> TimingReport:
-    # what milestone 1 writes: one auto segment at the trim start, everything else empty
+    # one auto segment at the trim start, everything else empty
     return TimingReport(
-        source=AudioSource(filename="click.wav", sha256=SHA, duration_ms=22000.0, sample_rate=44100),
+        source=AudioSource(
+            filename="click.wav", sha256=SHA, duration_ms=22000.0, sample_rate=44100, codec="pcm_f32le", decoder_padding_samples=0
+        ),
         trim=Trim(start_ms=2000.0, end_ms=21520.0),
         beat_offset_ms=None,
         tempo_map=[TempoSegment(start_ms=2000.0, bpm=120.0, confidence=None, source="auto")],
@@ -104,7 +113,7 @@ def test_minimal_report_round_trip_is_lossless():
 
     assert back == report
     assert back.model_dump_json(indent=2) == text
-    assert back.schema_version == "1.0"
+    assert back.schema_version == "1.1"
     assert back.beat_offset_ms is None
     assert back.tempo_map[0].confidence is None
     assert (back.meter_map, back.sections, back.edits) == ([], [], [])
@@ -114,7 +123,7 @@ def test_minimal_report_writes_nulls_and_empty_lists_explicitly():
     # the committed schema marks these required, so the file has to carry them
     payload = json.loads(minimal_report().model_dump_json())
 
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == "1.1"
     assert payload["beat_offset_ms"] is None
     assert payload["tempo_map"][0]["confidence"] is None
     assert payload["meter_map"] == []
@@ -125,11 +134,12 @@ def test_minimal_report_writes_nulls_and_empty_lists_explicitly():
 def test_beats_file_round_trip_is_lossless():
     beats = BeatsFile(
         sha256=SHA,
+        tracker="madmom",
         beats=[
-            Beat(time_ms=1234.5, bar=0, beat_in_bar=1, is_downbeat=True),
-            Beat(time_ms=1579.3, bar=0, beat_in_bar=2, is_downbeat=False),
-            Beat(time_ms=1924.1, bar=0, beat_in_bar=3, is_downbeat=False),
-            Beat(time_ms=2268.9, bar=1, beat_in_bar=1, is_downbeat=True),
+            Beat(time_ms=1234.5, raw_time_ms=1230.0, residual_ms=0.25, bar=0, beat_in_bar=1, is_downbeat=True),
+            Beat(time_ms=1579.3, raw_time_ms=1570.0, residual_ms=-0.5, bar=0, beat_in_bar=2, is_downbeat=False),
+            Beat(time_ms=1924.1, raw_time_ms=1920.0, residual_ms=0.0, bar=0, beat_in_bar=3, is_downbeat=False),
+            Beat(time_ms=2268.9, raw_time_ms=2260.0, residual_ms=1.125, bar=1, beat_in_bar=1, is_downbeat=True),
         ],
     )
 
@@ -138,11 +148,18 @@ def test_beats_file_round_trip_is_lossless():
 
     assert back == beats
     assert back.model_dump_json(indent=2) == text
-    assert BeatsFile(sha256=SHA).beats == []
+    assert back.schema_version == "1.1"
+    assert BeatsFile(sha256=SHA, tracker="librosa").beats == []
+
+
+@pytest.mark.parametrize("tracker", ["aubio", "", "Madmom"])
+def test_beats_file_tracker_is_madmom_or_librosa(tracker):
+    with pytest.raises(ValidationError, match="tracker"):
+        BeatsFile(sha256=SHA, tracker=tracker)
 
 
 def test_single_beat_round_trip():
-    beat = Beat(time_ms=0.0, bar=0, beat_in_bar=1, is_downbeat=True)
+    beat = Beat(time_ms=0.0, raw_time_ms=0.0, residual_ms=-0.75, bar=0, beat_in_bar=1, is_downbeat=True)
     assert Beat.model_validate_json(beat.model_dump_json()) == beat
 
 
@@ -154,6 +171,14 @@ def test_committed_schema_matches_the_model():
 
     assert render_schema() == committed, (
         "shared/schema/timing_report.schema.json is out of date, run python -m backend.schema.export_schema"
+    )
+
+
+def test_committed_beats_schema_matches_the_model():
+    committed = BEATS_SCHEMA_PATH.read_text(encoding="utf-8")
+
+    assert render_schema(BeatsFile) == committed, (
+        "shared/schema/beats.schema.json is out of date, run python -m backend.schema.export_schema"
     )
 
 
@@ -281,6 +306,9 @@ def test_aware_timestamp_with_z_suffix_is_accepted():
     "change",
     [
         ("schema_version", "2.0"),
+        # 1.0 reports have no codec or padding, they don't load as 1.1
+        ("schema_version", "1.0"),
+        ("source/decoder_padding_samples", -1),
         ("tempo_map/0/bpm", 0),
         ("tempo_map/0/bpm", -120.0),
         ("tempo_map/0/confidence", 1.5),
@@ -308,13 +336,15 @@ def test_out_of_range_values_are_rejected(change):
 @pytest.mark.parametrize(
     "beat",
     [
-        {"time_ms": -1.0, "bar": 0, "beat_in_bar": 1, "is_downbeat": True},
-        {"time_ms": 0.0, "bar": -1, "beat_in_bar": 1, "is_downbeat": True},
+        {"time_ms": -1.0, "raw_time_ms": 0.0, "residual_ms": 0.0, "bar": 0, "beat_in_bar": 1, "is_downbeat": True},
+        {"time_ms": 0.0, "raw_time_ms": -1.0, "residual_ms": 0.0, "bar": 0, "beat_in_bar": 1, "is_downbeat": True},
+        {"time_ms": 0.0, "raw_time_ms": 0.0, "residual_ms": 0.0, "bar": -1, "beat_in_bar": 1, "is_downbeat": True},
         # beats inside a bar are 1-based
-        {"time_ms": 0.0, "bar": 0, "beat_in_bar": 0, "is_downbeat": True},
-        {"time_ms": 0.0, "bar": 0, "beat_in_bar": 1, "is_downbeat": True, "extra": 1},
+        {"time_ms": 0.0, "raw_time_ms": 0.0, "residual_ms": 0.0, "bar": 0, "beat_in_bar": 0, "is_downbeat": True},
+        {"time_ms": 0.0, "raw_time_ms": 0.0, "bar": 0, "beat_in_bar": 1, "is_downbeat": True},
+        {"time_ms": 0.0, "raw_time_ms": 0.0, "residual_ms": 0.0, "bar": 0, "beat_in_bar": 1, "is_downbeat": True, "extra": 1},
     ],
-    ids=["negative-time", "negative-bar", "zero-beat-in-bar", "unknown-field"],
+    ids=["negative-time", "negative-raw-time", "negative-bar", "zero-beat-in-bar", "missing-residual", "unknown-field"],
 )
 def test_bad_beat_is_rejected(beat):
     with pytest.raises(ValidationError):

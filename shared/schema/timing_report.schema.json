@@ -3,6 +3,17 @@
     "AudioSource": {
       "additionalProperties": false,
       "properties": {
+        "codec": {
+          "description": "codec of the first audio stream as ffprobe names it, e.g. mp3, aac, vorbis",
+          "title": "Codec",
+          "type": "string"
+        },
+        "decoder_padding_samples": {
+          "description": "samples a decoder that ignores gapless info plays before ffmpeg's first sample, 0 if not applicable",
+          "minimum": 0,
+          "title": "Decoder Padding Samples",
+          "type": "integer"
+        },
         "duration_ms": {
           "description": "length of the decoded audio",
           "minimum": 0,
@@ -31,7 +42,9 @@
         "filename",
         "sha256",
         "duration_ms",
-        "sample_rate"
+        "sample_rate",
+        "codec",
+        "decoder_padding_samples"
       ],
       "title": "AudioSource",
       "type": "object"
@@ -252,8 +265,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "1.0",
-      "default": "1.0",
+      "const": "1.1",
+      "default": "1.1",
       "title": "Schema Version",
       "type": "string"
     },

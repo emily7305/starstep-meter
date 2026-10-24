@@ -14,12 +14,20 @@ export type Numerator = number;
 export type Source = "auto" | "manual";
 export type StartBar = number;
 export type MeterMap = MeterSegment[];
-export type SchemaVersion = "1.0";
+export type SchemaVersion = "1.1";
 export type EndMs = number;
 export type Label = string;
 export type Source1 = "auto" | "manual";
 export type StartMs = number;
 export type Sections = Section[];
+/**
+ * codec of the first audio stream as ffprobe names it, e.g. mp3, aac, vorbis
+ */
+export type Codec = string;
+/**
+ * samples a decoder that ignores gapless info plays before ffmpeg's first sample, 0 if not applicable
+ */
+export type DecoderPaddingSamples = number;
 /**
  * length of the decoded audio
  */
@@ -80,6 +88,8 @@ export interface Section {
   start_ms: StartMs;
 }
 export interface AudioSource {
+  codec: Codec;
+  decoder_padding_samples: DecoderPaddingSamples;
   duration_ms: DurationMs;
   filename: Filename;
   sample_rate: SampleRate;

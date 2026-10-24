@@ -115,8 +115,10 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert resp.status_code == 200, resp.text
     report = TimingReport.model_validate(resp.json())
 
-    assert report.schema_version == "1.0"
+    assert report.schema_version == "1.1"
     assert report.source.filename == "click 120.wav"
+    assert report.source.codec == "pcm_f32le"
+    assert report.source.decoder_padding_samples == 0
     assert report.source.sha256 == hashlib.sha256(data).hexdigest()
     assert report.source.sample_rate == 44100
     assert abs(report.trim.start_ms - track.content_start_ms) <= 10

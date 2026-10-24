@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.routing import APIRoute
+from pydantic import ValidationError
 
 from backend.analysis.ffmpeg_tools import ToolNotFoundError, find_tool
 from backend.analysis.ingest import FileTooLargeError, UnsupportedFileError, check_extension, ingest_stream
@@ -16,7 +17,7 @@ from backend.api.jobs import JobRunner
 from backend.api.models import Health, JobCreated, JobStatus
 from backend.api.settings import Settings
 from backend.api.storage import JobStore
-from backend.schema.models import TimingReport
+from backend.schema.models import SCHEMA_VERSION, TimingReport
 
 # multipart boundaries and part headers add a few hundred bytes on top of the file
 # only reject on the header when it's over the limit by more than that, ingest counts the real bytes
@@ -113,7 +114,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(409, f"job failed at {where}")
         if status.status != "done":
             raise HTTPException(409, f"report not ready, job is at {status.stage}")
-        return store.read_report(job_id)
+        try:
+            return store.read_report(job_id)
+        except ValidationError as exc:
+            # a job from before a schema bump, the report can't be read as the current version
+            raise HTTPException(409, f"stored report doesn't match schema {SCHEMA_VERSION}, upload the file again") from exc
 
     @router.get("/health", response_model=Health)
     def health() -> Health:

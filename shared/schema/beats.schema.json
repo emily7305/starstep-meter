@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "Beat": {
+      "additionalProperties": false,
+      "properties": {
+        "bar": {
+          "minimum": 0,
+          "title": "Bar",
+          "type": "integer"
+        },
+        "beat_in_bar": {
+          "minimum": 1,
+          "title": "Beat In Bar",
+          "type": "integer"
+        },
+        "is_downbeat": {
+          "title": "Is Downbeat",
+          "type": "boolean"
+        },
+        "raw_time_ms": {
+          "description": "beat time as the tracker reported it, before onset snap",
+          "minimum": 0,
+          "title": "Raw Time Ms",
+          "type": "number"
+        },
+        "residual_ms": {
+          "description": "time_ms minus the fitted grid at this beat",
+          "title": "Residual Ms",
+          "type": "number"
+        },
+        "time_ms": {
+          "description": "beat time after onset snap",
+          "minimum": 0,
+          "title": "Time Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "time_ms",
+        "raw_time_ms",
+        "residual_ms",
+        "bar",
+        "beat_in_bar",
+        "is_downbeat"
+      ],
+      "title": "Beat",
+      "type": "object"
+    }
+  },
+  "$id": "beats.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "beats": {
+      "items": {
+        "$ref": "#/$defs/Beat"
+      },
+      "title": "Beats",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.1",
+      "default": "1.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sha256": {
+      "description": "same file as the report it belongs to",
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "tracker": {
+      "enum": [
+        "madmom",
+        "librosa"
+      ],
+      "title": "Tracker",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "sha256",
+    "tracker",
+    "beats"
+  ],
+  "title": "BeatsFile",
+  "type": "object"
+}

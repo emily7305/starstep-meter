@@ -3,16 +3,25 @@ import { fileURLToPath } from "node:url";
 import { compileFromFile } from "json-schema-to-typescript";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const schemaDir = path.resolve(here, "..", "..", "shared", "schema");
+const typesDir = path.resolve(here, "..", "src", "types");
 
-export const schemaPath = path.resolve(here, "..", "..", "shared", "schema", "timing_report.schema.json");
-export const typesPath = path.resolve(here, "..", "src", "types", "timingReport.ts");
+// one entry per committed json schema, both scripts loop over this list
+export const targets = [
+  { schema: "timing_report.schema.json", types: "timingReport.ts" },
+  { schema: "beats.schema.json", types: "beats.ts" },
+].map((t) => ({
+  schemaPath: path.join(schemaDir, t.schema),
+  typesPath: path.join(typesDir, t.types),
+  schemaName: t.schema,
+  typesName: t.types,
+}));
 
 // both scripts go through this one function so the options can't drift apart
-export async function renderTypes() {
-  return compileFromFile(schemaPath, {
-    bannerComment:
-      "/* generated from shared/schema/timing_report.schema.json by npm run gen:types, don't edit by hand */",
-    cwd: path.dirname(schemaPath),
+export async function renderTypes(target) {
+  return compileFromFile(target.schemaPath, {
+    bannerComment: `/* generated from shared/schema/${target.schemaName} by npm run gen:types, don't edit by hand */`,
+    cwd: schemaDir,
     // JsonValue is an empty schema, unknown is the honest type for it
     unknownAny: true,
     additionalProperties: false,

@@ -48,6 +48,8 @@ def build_report(filename: str, sha256: str, decoded: DecodedAudio, trim: TrimRe
             sha256=sha256,
             duration_ms=round(decoded.duration_ms, 3),
             sample_rate=decoded.sample_rate,
+            codec=decoded.codec,
+            decoder_padding_samples=decoded.decoder_padding_samples,
         ),
         trim=Trim(start_ms=round(trim.start_ms, 3), end_ms=round(trim.end_ms, 3)),
         beat_offset_ms=None,

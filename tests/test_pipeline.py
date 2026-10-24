@@ -39,6 +39,8 @@ def test_run_analysis_builds_the_milestone_1_report(tmp_path):
     assert report.source.filename == "song.wav"
     assert report.source.sha256 == sha256
     assert report.source.sample_rate == 44100
+    assert report.source.codec == "pcm_f32le"
+    assert report.source.decoder_padding_samples == 0
     assert report.source.duration_ms == pytest.approx(track.duration_ms, abs=0.01)
     assert report.trim.start_ms == pytest.approx(track.content_start_ms, abs=10.0)
     assert report.trim.end_ms == pytest.approx(track.content_end_ms, abs=10.0)

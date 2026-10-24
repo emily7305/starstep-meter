@@ -1,4 +1,4 @@
-"""Timing report schema v1.0.
+"""Timing report schema v1.1.
 
 All times are milliseconds from the first sample of the decoded audio
 (ffmpeg's output, before any trimming). Bars are 0-based, beats inside
@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 # every segment says where it came from, re-analysis only ever replaces "auto"
 SegmentSource = Literal["auto", "manual"]
@@ -28,6 +28,11 @@ class AudioSource(_Strict):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="sha256 of the original file, not the decoded wav")
     duration_ms: float = Field(ge=0, description="length of the decoded audio")
     sample_rate: int = Field(gt=0, description="sample rate of the decoded audio in Hz")
+    codec: str = Field(description="codec of the first audio stream as ffprobe names it, e.g. mp3, aac, vorbis")
+    decoder_padding_samples: int = Field(
+        ge=0,
+        description="samples a decoder that ignores gapless info plays before ffmpeg's first sample, 0 if not applicable",
+    )
 
 
 class Trim(_Strict):
@@ -83,9 +88,10 @@ class Edit(_Strict):
 
 
 class TimingReport(_Strict):
-    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    schema_version: Literal["1.1"] = SCHEMA_VERSION
     source: AudioSource
     trim: Trim
+    # first downbeat on the decoded timeline, no player compensation, see docs/decisions.md
     beat_offset_ms: float | None = None
     tempo_map: list[TempoSegment] = Field(default_factory=list)
     meter_map: list[MeterSegment] = Field(default_factory=list)
@@ -95,7 +101,9 @@ class TimingReport(_Strict):
 
 
 class Beat(_Strict):
-    time_ms: float = Field(ge=0)
+    time_ms: float = Field(ge=0, description="beat time after onset snap")
+    raw_time_ms: float = Field(ge=0, description="beat time as the tracker reported it, before onset snap")
+    residual_ms: float = Field(description="time_ms minus the fitted grid at this beat")
     bar: int = Field(ge=0)
     beat_in_bar: int = Field(ge=1)
     is_downbeat: bool
@@ -103,7 +111,8 @@ class Beat(_Strict):
 
 class BeatsFile(_Strict):
     # beats live in their own file next to report.json, a long song has thousands
-    # todo: nothing writes this until milestone 2, export its json schema then
-    schema_version: Literal["1.0"] = SCHEMA_VERSION
+    schema_version: Literal["1.1"] = SCHEMA_VERSION
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="same file as the report it belongs to")
+    # librosa is the fallback when madmom isn't installed, it has no downbeats so bars are guessed
+    tracker: Literal["madmom", "librosa"]
     beats: list[Beat] = Field(default_factory=list)
