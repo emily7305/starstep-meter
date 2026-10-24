@@ -21,6 +21,7 @@ import numpy as np
 
 from backend.analysis.beats import FALLBACK_BEATS_PER_BAR, TrackedBeats
 from backend.analysis.snap import onset_strengths
+from backend.analysis.tempo_map import felt_sections, related
 from backend.analysis.tempo_range import TempoRange
 
 OctaveChoice = Literal["kept", "doubled", "halved"]
@@ -90,13 +91,11 @@ def check_octave(
     tracked: TrackedBeats,
     tempo_range: TempoRange = TempoRange(),
     shift_ms: float = 0.0,
-    allow_change: bool = True,
 ) -> tuple[TrackedBeats, OctaveCheck]:
     """Double or halve the tracked beats once if the onsets clearly call for it.
 
     shift_ms is the tracker's bias correction, the same one snap uses, so the
-    strengths are read around where the beats really are. allow_change=False
-    only measures, the beats stay as tracked.
+    strengths are read around where the beats really are.
     """
     times = tracked.times_ms
     if len(times) < MIN_BEATS:
@@ -116,8 +115,6 @@ def check_octave(
     def result(choice: OctaveChoice) -> OctaveCheck:
         return OctaveCheck(choice, bpm, midpoint_ratio, parity_ratio)
 
-    if not allow_change:
-        return tracked, result("kept")
     # halve first, an offbeat the tracker took for a beat also looks like a strong midpoint
     if parity_ratio < HALVE_SUPPORT and tempo_range.contains(bpm / 2.0):
         return _halved(tracked, 0 if even >= odd else 1), result("halved")
@@ -130,6 +127,10 @@ def _slice(tracked: TrackedBeats, first: int, stop: int) -> TrackedBeats:
     return replace(tracked, times_ms=tracked.times_ms[first:stop], positions=tracked.positions[first:stop])
 
 
+# what each choice does to a tempo
+_FACTOR = {"kept": 1.0, "doubled": 2.0, "halved": 0.5}
+
+
 def check_octave_per_segment(
     samples: np.ndarray,
     sample_rate: int,
@@ -137,31 +138,36 @@ def check_octave_per_segment(
     ranges: list[tuple[int, int]],
     tempo_range: TempoRange = TempoRange(),
     shift_ms: float = 0.0,
-    felt: list[bool] | None = None,
+    rough_bpm: list[float] | None = None,
+    ratio_tolerance: float = 0.005,
 ) -> tuple[TrackedBeats, list[OctaveCheck]]:
     """check_octave on each [first, stop) range of beats, joined back together.
 
     The ranges come from a rough tempo map of the raw beats. A range that stays as it was
     keeps the tracker's bar positions, a doubled or halved one gets them counted again.
-    A range marked felt (a dotted or triplet section, see tempo_map.felt_sections) is only
-    measured. Its beats can look like an octave off, a 3-3-2 rhythm leaves every other one
-    without an onset, but the ratio check is what folds it back into the notated tempo.
+
+    rough_bpm is each range's fitted tempo from that map. A range between two others at a
+    dotted or triplet ratio of both (tempo_map.felt_sections) only changes octave when that
+    keeps it at the same tempo as both neighbours, or at a ratio of them. A 3-3-2 rhythm
+    leaves every other tracked beat without an onset, and halving it lands on 3/8 of the
+    tempo around it, where the ratio check can't fold it back in. A section the tracker took
+    at half time, 96 between two 128s, still doubles to 192.
     """
-    parts: list[TrackedBeats] = []
-    checks: list[OctaveCheck] = []
-    felt = felt or [False] * len(ranges)
-    for (first, stop), leave in zip(ranges, felt):
-        part, check = check_octave(
-            samples, sample_rate, _slice(tracked, first, stop), tempo_range, shift_ms, allow_change=not leave
-        )
-        parts.append(part)
-        checks.append(check)
+    checked = [
+        check_octave(samples, sample_rate, _slice(tracked, first, stop), tempo_range, shift_ms) for first, stop in ranges
+    ]
+    if rough_bpm is not None:
+        after = [bpm * _FACTOR[check.choice] for bpm, (_, check) in zip(rough_bpm, checked)]
+        for k, felt in enumerate(felt_sections(rough_bpm, ratio_tolerance)):
+            check = checked[k][1]
+            if felt and check.choice != "kept" and not all(related(after[k], after[j], ratio_tolerance) for j in (k - 1, k + 1)):
+                checked[k] = (_slice(tracked, *ranges[k]), replace(check, choice="kept"))
     joined = replace(
         tracked,
-        times_ms=np.concatenate([p.times_ms for p in parts]),
-        positions=np.concatenate([p.positions for p in parts]),
+        times_ms=np.concatenate([p.times_ms for p, _ in checked]),
+        positions=np.concatenate([p.positions for p, _ in checked]),
     )
-    return joined, checks
+    return joined, [c for _, c in checked]
 
 
 def summary(checks: list[OctaveCheck]) -> OctaveSummary:

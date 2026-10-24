@@ -307,10 +307,10 @@ def test_ratio_fit_min_decides_how_much_of_the_section_has_to_land():
 
 def test_felt_sections_are_the_ones_between_two_dotted_or_triplet_ratios():
     times, _ = _beats([(135.0, 64), (202.5, 32), (270.0, 128), (135.0, 32), (270.0, 64)])
-    segments = _map(times, consolidate=False).segments
+    bpms = [s.fit.bpm for s in _map(times, consolidate=False).segments]
 
     # 202.5 is 3/2 of 135 and 3/4 of 270. the 135 between two 270s is half time, the octave check's
-    assert felt_sections(segments, TempoMapConfig().ratio_tolerance) == [False, True, False, False, False]
+    assert felt_sections(bpms, TempoMapConfig().ratio_tolerance) == [False, True, False, False, False]
 
 
 def _intro_artefact():

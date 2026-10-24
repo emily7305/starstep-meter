@@ -21,7 +21,7 @@ from backend.analysis.decode import DecodedAudio, decode_to_wav, load_mono
 from backend.analysis.octave import OctaveCheck, check_octave_per_segment, summary
 from backend.analysis.snap import DEFAULT_WINDOW_MS, SnapResult, snap_to_onsets
 from backend.analysis.tempo_edit import keep_manual_segments
-from backend.analysis.tempo_map import TempoMapConfig, TempoMapResult, build_tempo_map, felt_sections
+from backend.analysis.tempo_map import TempoMapConfig, TempoMapResult, build_tempo_map
 from backend.analysis.tempo_range import TempoRange
 from backend.analysis.trim import DEFAULT_THRESHOLD_DB, TrimResult, find_trim, stretch_level
 from backend.schema.models import AudioSource, Beat, BeatsFile, RatioMergedSection, TempoSegment, TimingReport, Trim
@@ -189,9 +189,15 @@ def run_analysis(
             consolidate=False,
         )
         ranges = [(s.first, s.stop) for s in rough.segments]
-        felt = felt_sections(rough.segments, config.tempo_map.ratio_tolerance)
         tracked, octave = check_octave_per_segment(
-            samples, sample_rate, tracked, ranges, config.tempo_range, shift_ms=shift, felt=felt
+            samples,
+            sample_rate,
+            tracked,
+            ranges,
+            config.tempo_range,
+            shift_ms=shift,
+            rough_bpm=[s.fit.bpm for s in rough.segments],
+            ratio_tolerance=config.tempo_map.ratio_tolerance,
         )
 
         enter("snap")

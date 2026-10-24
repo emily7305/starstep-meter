@@ -662,20 +662,24 @@ class _Consolidator:
 _FELT_RATIOS = tuple(r for r in RATIOS if r not in (Fraction(1, 2), Fraction(2, 1)))
 
 
-def felt_sections(segments: list[SegmentFit], tolerance: float) -> list[bool]:
-    """Which segments sit between two others at a dotted or triplet ratio of both.
+def felt_sections(bpms: list[float], tolerance: float) -> list[bool]:
+    """Which of these neighbouring segments sit between two others at a dotted or triplet ratio of both.
 
-    The octave check leaves these as tracked. Halving or doubling one can push it off every
-    ratio the ratio check knows (3/4 halved is 3/8), and then it can't be folded back in.
+    bpms are the segments' fitted tempos in order. The octave check is careful with these:
+    halving or doubling one can push it off every ratio the ratio check knows (3/4 halved is
+    3/8), and then it can't be folded back in.
     """
-    felt = [False] * len(segments)
-    for k in range(1, len(segments) - 1):
-        bpm = segments[k].fit.bpm
+    felt = [False] * len(bpms)
+    for k in range(1, len(bpms) - 1):
         felt[k] = all(
-            any(abs(bpm / segments[j].fit.bpm / float(r) - 1.0) <= tolerance for r in _FELT_RATIOS)
-            for j in (k - 1, k + 1)
+            any(abs(bpms[k] / bpms[j] / float(r) - 1.0) <= tolerance for r in _FELT_RATIOS) for j in (k - 1, k + 1)
         )
     return felt
+
+
+def related(bpm: float, other: float, tolerance: float) -> bool:
+    """bpm is other's tempo, or one of the ratios a felt section can have to it."""
+    return any(abs(bpm / other / float(r) - 1.0) <= tolerance for r in (Fraction(1), *RATIOS))
 
 
 def build_tempo_map(

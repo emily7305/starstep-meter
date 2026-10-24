@@ -1,8 +1,11 @@
 """Octave check on click tracks, with the tracked beats built by hand so no tracker is needed."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
+from backend.analysis import octave
 from backend.analysis.beats import TrackedBeats
 from backend.analysis.octave import (
     DOUBLE_SUPPORT,
@@ -132,21 +135,44 @@ def test_each_rough_segment_gets_its_own_check():
     assert np.abs(out.times_ms - onsets[: len(out.times_ms)]).max() < 1.0
 
 
-def test_a_felt_range_is_measured_but_left_as_tracked():
-    # same as above, but the rough map called the 96 part a felt section of its neighbours
-    spec = ClickTrackSpec(bpm=128, beats=160, accent_downbeats=True, tempo_changes=((64, 192.0),))
+def test_a_felt_range_still_doubles_onto_a_ratio_of_its_neighbours():
+    # 128, 192, 128 with the tracker on every other click of the 192 part. 96 is 3/4 of 128, a
+    # felt section by its ratios, but doubling it gives 192, which is still a ratio of 128
+    spec = ClickTrackSpec(bpm=128, beats=200, accent_downbeats=True, tempo_changes=((64, 192.0), (160, 128.0)))
     track = click_track(spec)
     onsets = track.onsets_ms
-    tracked = _tracked(np.concatenate((onsets[:64], onsets[64::2])))
+    tracked = _tracked(np.concatenate((onsets[:64], onsets[64:160:2], onsets[160:])))
+    ranges = [(0, 64), (64, 112), (112, len(tracked.times_ms))]
 
-    out, checks = check_octave_per_segment(
-        track.samples, track.sample_rate, tracked, [(0, 64), (64, len(tracked.times_ms))], felt=[False, True]
-    )
+    _, checks = check_octave_per_segment(track.samples, track.sample_rate, tracked, ranges, rough_bpm=[128.0, 96.0, 128.0])
 
-    assert [c.choice for c in checks] == ["kept", "kept"]
-    # it still says what it saw, a click on every midpoint
-    assert checks[1].midpoint_ratio >= DOUBLE_SUPPORT
+    assert [c.choice for c in checks] == ["kept", "doubled", "kept"]
+
+
+def test_a_felt_range_is_left_as_tracked_when_its_octave_change_lands_off_every_ratio(monkeypatch):
+    # the 3-3-2 case: the middle looks like it should be halved, which would make it 3/8 of 270
+    tracked = _tracked(np.arange(30) * 222.0)
+    middle = tracked.times_ms[10]
+
+    def fake_check(samples, sample_rate, part, tempo_range, shift_ms):
+        if part.times_ms[0] != middle:
+            return part, OctaveCheck("kept", 270.0, 0.0, 1.0)
+        halved = replace(part, times_ms=part.times_ms[0::2], positions=part.positions[0::2])
+        return halved, OctaveCheck("halved", 202.5, 0.0, 0.0)
+
+    monkeypatch.setattr(octave, "check_octave", fake_check)
+    ranges = [(0, 10), (10, 20), (20, 30)]
+
+    out, checks = check_octave_per_segment(np.zeros(1), 44100, tracked, ranges, rough_bpm=[270.0, 202.5, 270.0])
+
+    assert [c.choice for c in checks] == ["kept", "kept", "kept"]
+    # it still says what it saw
+    assert checks[1].parity_ratio == 0.0
     assert np.array_equal(out.times_ms, tracked.times_ms)
+    # without the rough tempos there's nothing to call it felt, and it's halved
+    out, checks = check_octave_per_segment(np.zeros(1), 44100, tracked, ranges)
+    assert checks[1].choice == "halved"
+    assert len(out.times_ms) == 25
 
 
 @pytest.mark.parametrize(
