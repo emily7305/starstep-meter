@@ -90,11 +90,13 @@ def check_octave(
     tracked: TrackedBeats,
     tempo_range: TempoRange = TempoRange(),
     shift_ms: float = 0.0,
+    allow_change: bool = True,
 ) -> tuple[TrackedBeats, OctaveCheck]:
     """Double or halve the tracked beats once if the onsets clearly call for it.
 
     shift_ms is the tracker's bias correction, the same one snap uses, so the
-    strengths are read around where the beats really are.
+    strengths are read around where the beats really are. allow_change=False
+    only measures, the beats stay as tracked.
     """
     times = tracked.times_ms
     if len(times) < MIN_BEATS:
@@ -114,6 +116,8 @@ def check_octave(
     def result(choice: OctaveChoice) -> OctaveCheck:
         return OctaveCheck(choice, bpm, midpoint_ratio, parity_ratio)
 
+    if not allow_change:
+        return tracked, result("kept")
     # halve first, an offbeat the tracker took for a beat also looks like a strong midpoint
     if parity_ratio < HALVE_SUPPORT and tempo_range.contains(bpm / 2.0):
         return _halved(tracked, 0 if even >= odd else 1), result("halved")
@@ -133,16 +137,23 @@ def check_octave_per_segment(
     ranges: list[tuple[int, int]],
     tempo_range: TempoRange = TempoRange(),
     shift_ms: float = 0.0,
+    felt: list[bool] | None = None,
 ) -> tuple[TrackedBeats, list[OctaveCheck]]:
     """check_octave on each [first, stop) range of beats, joined back together.
 
     The ranges come from a rough tempo map of the raw beats. A range that stays as it was
     keeps the tracker's bar positions, a doubled or halved one gets them counted again.
+    A range marked felt (a dotted or triplet section, see tempo_map.felt_sections) is only
+    measured. Its beats can look like an octave off, a 3-3-2 rhythm leaves every other one
+    without an onset, but the ratio check is what folds it back into the notated tempo.
     """
     parts: list[TrackedBeats] = []
     checks: list[OctaveCheck] = []
-    for first, stop in ranges:
-        part, check = check_octave(samples, sample_rate, _slice(tracked, first, stop), tempo_range, shift_ms)
+    felt = felt or [False] * len(ranges)
+    for (first, stop), leave in zip(ranges, felt):
+        part, check = check_octave(
+            samples, sample_rate, _slice(tracked, first, stop), tempo_range, shift_ms, allow_change=not leave
+        )
         parts.append(part)
         checks.append(check)
     joined = replace(

@@ -132,6 +132,23 @@ def test_each_rough_segment_gets_its_own_check():
     assert np.abs(out.times_ms - onsets[: len(out.times_ms)]).max() < 1.0
 
 
+def test_a_felt_range_is_measured_but_left_as_tracked():
+    # same as above, but the rough map called the 96 part a felt section of its neighbours
+    spec = ClickTrackSpec(bpm=128, beats=160, accent_downbeats=True, tempo_changes=((64, 192.0),))
+    track = click_track(spec)
+    onsets = track.onsets_ms
+    tracked = _tracked(np.concatenate((onsets[:64], onsets[64::2])))
+
+    out, checks = check_octave_per_segment(
+        track.samples, track.sample_rate, tracked, [(0, 64), (64, len(tracked.times_ms))], felt=[False, True]
+    )
+
+    assert [c.choice for c in checks] == ["kept", "kept"]
+    # it still says what it saw, a click on every midpoint
+    assert checks[1].midpoint_ratio >= DOUBLE_SUPPORT
+    assert np.array_equal(out.times_ms, tracked.times_ms)
+
+
 @pytest.mark.parametrize(
     "choices, expected",
     [
