@@ -73,6 +73,9 @@ def _analyze(src: Path, work_dir: Path, args: argparse.Namespace) -> int:
     )
     for i, seg in enumerate(tempo.segments):
         log(f"  [{i}]   {seg.start_ms:.3f} -> {seg.end_ms:.3f} ms, {seg.fit.bpm:.4f} bpm, anchor {seg.anchor_ms:.3f} ms, {seg.stop - seg.first} beats")
+        # its beats aren't on the lines, so they count as outliers above
+        for m in seg.ratio_merges:
+            log(f"        kept {m.start_ms:.3f} -> {m.end_ms:.3f} ms on this grid, {m.bpm:.4f} bpm on its own ({m.ratio}), fit {m.fit:.2f}")
     if args.beats is not None:
         args.beats.write_text(out.beats.model_dump_json(indent=2) + "\n", encoding="utf-8")
         log(f"wrote   {args.beats}")

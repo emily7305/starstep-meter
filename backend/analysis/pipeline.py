@@ -21,10 +21,10 @@ from backend.analysis.decode import DecodedAudio, decode_to_wav, load_mono
 from backend.analysis.octave import OctaveCheck, check_octave_per_segment, summary
 from backend.analysis.snap import DEFAULT_WINDOW_MS, SnapResult, snap_to_onsets
 from backend.analysis.tempo_edit import keep_manual_segments
-from backend.analysis.tempo_map import TempoMapConfig, TempoMapResult, build_tempo_map
+from backend.analysis.tempo_map import TempoMapConfig, TempoMapResult, build_tempo_map, felt_sections
 from backend.analysis.tempo_range import TempoRange
-from backend.analysis.trim import DEFAULT_THRESHOLD_DB, TrimResult, find_trim
-from backend.schema.models import AudioSource, Beat, BeatsFile, TempoSegment, TimingReport, Trim
+from backend.analysis.trim import DEFAULT_THRESHOLD_DB, TrimResult, find_trim, stretch_level
+from backend.schema.models import AudioSource, Beat, BeatsFile, RatioMergedSection, TempoSegment, TimingReport, Trim
 
 Stage = Literal["queued", "decode", "trim", "beats", "snap", "tempo", "done", "failed"]
 STAGES: tuple[Stage, ...] = ("queued", "decode", "trim", "beats", "snap", "tempo", "done", "failed")
@@ -77,6 +77,16 @@ def tempo_segments(tempo: TempoMapResult) -> list[TempoSegment]:
             anchor_ms=_ms(s.anchor_ms),
             confidence=round(s.fit.confidence, 3),
             source="auto",
+            ratio_merged=[
+                RatioMergedSection(
+                    start_ms=_ms(m.start_ms),
+                    end_ms=_ms(m.end_ms),
+                    bpm=round(m.bpm, 4),
+                    ratio=f"{m.ratio.numerator}/{m.ratio.denominator}",
+                    fit=round(m.fit, 3),
+                )
+                for m in s.ratio_merges
+            ],
         )
         # each end is the same float as the next start, so they round the same and stay contiguous
         for s in tempo.segments
@@ -167,7 +177,8 @@ def run_analysis(
         # the tracker's bias comes out before anything reads onsets around its beats
         shift = bias_correction_ms(tracked.tracker)
         # rough segments from the raw beats first, so a section the tracker took at half
-        # time gets its own octave check instead of being outvoted by the rest of the song
+        # time gets its own octave check instead of being outvoted by the rest of the song.
+        # not consolidated, a half time section would get folded in by the ratio check
         rough = build_tempo_map(
             tracked.times_ms + shift,
             tracked.positions == 1,
@@ -175,9 +186,13 @@ def run_analysis(
             trim.end_ms,
             downbeats_known=tracked.downbeats_known,
             config=config.tempo_map,
+            consolidate=False,
         )
         ranges = [(s.first, s.stop) for s in rough.segments]
-        tracked, octave = check_octave_per_segment(samples, sample_rate, tracked, ranges, config.tempo_range, shift_ms=shift)
+        felt = felt_sections(rough.segments, config.tempo_map.ratio_tolerance)
+        tracked, octave = check_octave_per_segment(
+            samples, sample_rate, tracked, ranges, config.tempo_range, shift_ms=shift, felt=felt
+        )
 
         enter("snap")
         snap = snap_to_onsets(samples, sample_rate, tracked.times_ms, window_ms=config.snap_window_ms, shift_ms=shift)
@@ -190,6 +205,7 @@ def run_analysis(
             trim.end_ms,
             downbeats_known=tracked.downbeats_known,
             config=config.tempo_map,
+            loudness=stretch_level(samples, sample_rate, trim.start_ms, trim.end_ms),
         )
     except Exception as exc:
         # keep whatever the stage said, the ui shows it as is
