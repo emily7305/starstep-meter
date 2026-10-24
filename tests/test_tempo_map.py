@@ -223,6 +223,9 @@ def test_shift_z_keeps_a_noisy_short_side_from_faking_a_change():
         {"edge_max_share": 0.6},
         {"edge_fit_min": 0.0},
         {"run_fit_min": 1.5},
+        {"offbeat_band": 0.5},
+        {"offbeat_min_beats": 0},
+        {"offbeat_phase_ratio": 1.0},
     ],
     ids=lambda k: next(iter(k)),
 )
@@ -399,7 +402,7 @@ def test_consolidate_false_stops_after_segmentation():
     assert len(_map(_felt(), consolidate=False).segments) == 3
 
 
-# --- milestone 3c: sixths, edges, runs of short segments ---
+# --- milestone 3c: sixths, edges, runs of short segments, off-beat runs ---
 
 
 def test_a_six_fifths_section_folds_in_on_the_sixths():
@@ -521,6 +524,100 @@ def test_run_fit_min_decides_how_well_the_far_side_has_to_sit_on_the_grid():
 
     assert len(_map(times).segments) > 1
     assert len(_map(times, TempoMapConfig(run_fit_min=0.4)).segments) == 1
+
+
+def _on_lines(time_ms, origin_ms, period):
+    phase = ((time_ms - origin_ms) / period) % 1.0
+    return min(phase, 1.0 - phase) < 1e-6
+
+
+def _offbeat_section(at=100, count=20, bpm=260.0, beats=300):
+    # the tracker on the off-beat for count beats, the grid itself never moves
+    period = 60000.0 / bpm
+    times = 1000.0 + period * np.arange(beats)
+    times[at:at + count] += period / 2.0
+    return times, period
+
+
+def test_an_off_beat_section_is_reported_and_left_out_of_the_fit():
+    times, period = _offbeat_section()
+
+    result = _map(times)
+
+    (seg,) = result.segments
+    assert seg.fit.bpm == pytest.approx(260.0, abs=BPM_TOLERANCE)
+    # the grid stays on the beats
+    assert _on_lines(seg.anchor_ms, 1000.0, period)
+    (run,) = seg.offbeat_runs
+    assert (run.start_ms, run.end_ms, run.beats) == (times[100], times[119], 20)
+    # measured against the half lines they sit on
+    assert np.abs(result.residuals_ms).max() < 0.01
+    assert not result.inliers[100:120].any()
+
+
+def test_offbeat_min_beats_decides_how_long_a_run_has_to_be():
+    times, _ = _offbeat_section(count=10)
+
+    assert len(_map(times).segments[0].offbeat_runs) == 1
+    assert _map(times, TempoMapConfig(offbeat_min_beats=12)).segments[0].offbeat_runs == ()
+
+
+def test_offbeat_band_decides_how_close_to_half_a_beat_counts():
+    times, period = _offbeat_section()
+    # a third of a beat over instead of a half
+    times[100:120] += period / 3.0 - period / 2.0
+
+    assert _map(times).segments[0].offbeat_runs == ()
+    assert len(_map(times, TempoMapConfig(offbeat_band=0.2)).segments[0].offbeat_runs) == 1
+
+
+def _onsets_on(lines_from, period, strong=2.0, weak=1.0):
+    # strong onsets on the grid that starts at lines_from, weak ones half a beat over
+    def strengths(times):
+        phase = ((times - lines_from) / period) % 1.0
+        return np.where(np.minimum(phase, 1.0 - phase) < 0.05, strong, weak)
+
+    return strengths
+
+
+def test_the_onsets_move_the_grid_onto_the_real_beats():
+    # every tracked beat is on the off-beat, the strong onsets are half a beat earlier
+    period = 60000.0 / 260.0
+    times = 1000.0 + period / 2.0 + period * np.arange(200)
+
+    result = _map(times, onsets=_onsets_on(1000.0, period))
+
+    (seg,) = result.segments
+    assert seg.half_shifted
+    assert _on_lines(seg.anchor_ms, 1000.0, period)
+    assert sum(run.beats for run in seg.offbeat_runs) == 200
+    # without the audio the tracked beats decide
+    assert not _map(times).segments[0].half_shifted
+
+
+def test_offbeat_phase_ratio_decides_how_much_stronger_the_half_lines_have_to_be():
+    period = 60000.0 / 260.0
+    times = 1000.0 + period / 2.0 + period * np.arange(200)
+    onsets = _onsets_on(1000.0, period, strong=1.4)
+
+    assert not _map(times, onsets=onsets).segments[0].half_shifted
+    assert _map(times, TempoMapConfig(offbeat_phase_ratio=1.3), onsets=onsets).segments[0].half_shifted
+
+
+def test_an_off_beat_emphasis_section_keeps_the_grid_on_the_beats():
+    # the off-beat is the stronger one inside the section, the beats everywhere else
+    times, period = _offbeat_section(at=100, count=40)
+
+    def onsets(t):
+        phase = ((t - 1000.0) / period) % 1.0
+        on_beat = np.minimum(phase, 1.0 - phase) < 0.05
+        inside = (t >= times[100]) & (t <= times[139])
+        return np.where(on_beat != inside, 2.0, 1.0)
+
+    (seg,) = _map(times, onsets=onsets).segments
+    assert not seg.half_shifted
+    assert _on_lines(seg.anchor_ms, 1000.0, period)
+    assert [(r.start_ms, r.beats) for r in seg.offbeat_runs] == [(times[100], 40)]
 
 
 # --- the rest of the result ---

@@ -30,6 +30,7 @@ from backend.analysis.grid_fit import (
     CONFIDENCE_TOLERANCE_MS,
     MIN_BEATS,
     NO_DOWNBEAT_CONFIDENCE_SCALE,
+    OUTLIER_FLOOR_MS,
     GridFit,
     GridFitError,
     fit_grid,
@@ -83,6 +84,15 @@ class TempoMapConfig:
     # two or more short segments in a row fold in when the segment after them sits on the lines
     # of the one before (or the other way round), this share of what its own lines catch
     run_fit_min: float = 0.8
+    # off-beat runs: at least offbeat_min_beats beats in a row within offbeat_band of a period
+    # from half a beat off the grid, the tracker following the off-beat for a while. two bars,
+    # a tracker drifting a whole beat passes through the half in fewer
+    offbeat_band: float = 0.15
+    offbeat_min_beats: int = 8
+    # with the audio there, a segment's grid moves half a beat when the onsets on its half lines
+    # are this much stronger than on its lines, so it lands on the real beats whatever most of
+    # the tracked beats did
+    offbeat_phase_ratio: float = 1.5
 
     def __post_init__(self) -> None:
         if self.residual_shift_ms <= 0 or self.bpm_shift_ratio <= 0 or self.shift_z <= 0:
@@ -106,6 +116,8 @@ class TempoMapConfig:
             raise ValueError("edge thresholds are out of range")
         if not 0 < self.run_fit_min <= 1:
             raise ValueError("run_fit_min is out of range")
+        if not 0 < self.offbeat_band < 0.5 or self.offbeat_min_beats < 1 or self.offbeat_phase_ratio <= 1:
+            raise ValueError("off-beat thresholds are out of range")
 
 
 @dataclass(frozen=True)
@@ -123,6 +135,15 @@ class RatioMerge:
 
 
 @dataclass(frozen=True)
+class OffbeatRun:
+    """Beats in a row that sit half a beat off their segment's grid."""
+
+    start_ms: float
+    end_ms: float
+    beats: int
+
+
+@dataclass(frozen=True)
 class SegmentFit:
     # beats[first:stop] belong to this segment
     first: int
@@ -131,6 +152,9 @@ class SegmentFit:
     end_ms: float
     fit: GridFit
     ratio_merges: tuple[RatioMerge, ...] = ()
+    offbeat_runs: tuple[OffbeatRun, ...] = ()
+    # the grid was moved half a beat from the tracked beats, the onsets said they were off-beat
+    half_shifted: bool = False
 
     @property
     def anchor_ms(self) -> float:
@@ -508,6 +532,43 @@ def _residuals(
     return residuals
 
 
+def _moved(fit: GridFit, t: np.ndarray, first: int, shift: float, keep: np.ndarray,
+           subdivided: list[tuple[int, int, int]], downbeats_known: bool) -> GridFit:
+    """The same period with the grid moved by shift, every beat measured again against it."""
+    period, offset = fit.period_ms, fit.offset_ms + shift
+    indices = np.round((t - offset) / period).astype(np.int64)
+    residuals = _residuals(t, first, offset, period, indices, subdivided)
+    inliers = keep & (np.abs(residuals) <= OUTLIER_FLOOR_MS)
+    share = float(np.mean(np.abs(residuals[keep]) <= CONFIDENCE_TOLERANCE_MS)) if keep.any() else 0.0
+    return GridFit(
+        period_ms=period,
+        offset_ms=offset,
+        indices=indices,
+        residuals_ms=residuals,
+        inliers=inliers,
+        residual_rms_ms=float(np.sqrt(np.mean(residuals[inliers] ** 2))) if inliers.any() else 0.0,
+        confidence=share if downbeats_known else share * NO_DOWNBEAT_CONFIDENCE_SCALE,
+    )
+
+
+def _runs(mask: np.ndarray, min_beats: int) -> list[tuple[int, int]]:
+    # [start, stop) of every stretch of true, a single false beat inside doesn't end it
+    hits = np.flatnonzero(mask)
+    runs: list[tuple[int, int]] = []
+    if len(hits) == 0:
+        return runs
+    start = prev = int(hits[0])
+    for i in hits[1:]:
+        if i - prev > 2:
+            if prev + 1 - start >= min_beats:
+                runs.append((start, prev + 1))
+            start = int(i)
+        prev = int(i)
+    if prev + 1 - start >= min_beats:
+        runs.append((start, prev + 1))
+    return runs
+
+
 def _off_subdivision(times: np.ndarray, offset: float, period: float, numerator: int) -> np.ndarray:
     # signed ms to the nearest line, half or third of a grid, or 1/numerator of the ratio it was
     # felt at. a dotted rhythm lands on the halves of the notated beat, a triplet feel on the
@@ -621,6 +682,30 @@ class _Consolidator:
                 if abs(pieces[j].fit.bpm / pieces[other].fit.bpm - 1.0) <= self.config.short_bpm_ratio:
                     return j
         return None
+
+    def offbeat_fold(self, pieces: list[_Piece]) -> bool:
+        # a segment at its neighbours' tempo that sits on their half lines: the tracker took the
+        # off-beat for a while. it goes into the longer neighbour, and the off-beat pass marks it.
+        # only between two neighbours, a phase that moves half a beat and stays is a real change
+        for k in range(1, len(pieces) - 1):
+            s = pieces[k]
+            sides = [k - 1, k + 1]
+            if any(abs(s.fit.bpm / pieces[j].fit.bpm - 1.0) > self.config.bpm_shift_ratio for j in sides):
+                continue
+            own = self.own_share(s)
+            if own <= 0.0:
+                continue
+            beats = self.own_beats(s)
+            scores = []
+            for j in sides:
+                n = pieces[j]
+                d = (beats - n.fit.offset_ms) / n.fit.period_ms - 0.5
+                scores.append(_hit_share((d - np.round(d)) * n.fit.period_ms, self.config.ratio_hit_ms) / own)
+            if min(scores) >= self.config.ratio_fit_min:
+                into = max(sides, key=lambda j: pieces[j].stop - pieces[j].first)
+                self.absorb(pieces, k, into, None)
+                return True
+        return False
 
     def ratio_merge(self, pieces: list[_Piece]) -> bool:
         best: tuple[float, int, int, Fraction] | None = None
@@ -773,12 +858,55 @@ class _Consolidator:
                 return True
         return False
 
+    def offbeat(
+        self, pieces: list[_Piece], k: int, onsets: Callable[[np.ndarray], np.ndarray] | None
+    ) -> tuple[_Piece, tuple[OffbeatRun, ...], bool]:
+        """The piece with its off-beat runs left out of the fit, the runs, and whether the grid moved half a beat."""
+        p = pieces[k]
+        t = self.times[p.first:p.stop]
+        keep = _kept(p.first, p.stop, p.excluded)
+        fit, shifted = p.fit, False
+        if onsets is not None:
+            # the phase comes from where the strong onsets are, lines or half lines. the tracked
+            # beats can sit on the off-beat for most of a song with a strong off-beat
+            start, end = self.span(pieces, k)
+            period = fit.period_ms
+            lines = np.arange(fit.offset_ms + period * np.ceil((start - fit.offset_ms) / period), end, period)
+            if len(lines) >= MIN_BEATS:
+                on = float(np.median(onsets(lines)))
+                half = float(np.median(onsets(lines + period / 2.0)))
+                if half > 0.0 and half >= self.config.offbeat_phase_ratio * on:
+                    fit = _moved(fit, t, p.first, period / 2.0, keep, p.subdivided, self.downbeats_known)
+                    shifted = True
+        res = fit.residuals_ms
+        # every beat but the ratio merged ones, which sit on subdivisions on purpose. beats the
+        # short rule or the off-beat fold left out of the fit can be an off-beat run too
+        free = np.ones(p.stop - p.first, dtype=bool)
+        for a, b, _ in p.subdivided:
+            free[a - p.first:b - p.first] = False
+        near = free & (np.abs(np.abs(res) - fit.period_ms / 2.0) <= self.config.offbeat_band * fit.period_ms)
+        runs = [(p.first + a, p.first + b) for a, b in _runs(near, self.config.offbeat_min_beats)]
+        notes = tuple(OffbeatRun(float(self.times[a]), float(self.times[b - 1]), b - a) for a, b in runs)
+        if not runs:
+            return _Piece(p.first, p.stop, fit, p.excluded, p.subdivided, p.merges), notes, shifted
+        # the run's beats are measured against the half lines and left out of the fit
+        excluded = [r for r in p.excluded if not any(a <= r[0] and r[1] <= b for a, b in runs)] + runs
+        subdivided = p.subdivided + [(a, b, 2) for a, b in runs]
+        if not shifted:
+            return self.piece(p.first, p.stop, excluded, subdivided, p.merges), notes, shifted
+        # moved by the onsets: the period came from all the tracked beats and holds, most of them
+        # are the off-beat runs now, so there's nothing left to fit the phase from
+        keep = _kept(p.first, p.stop, excluded)
+        moved = _moved(fit, t, p.first, 0.0, keep, subdivided, self.downbeats_known)
+        return _Piece(p.first, p.stop, moved, excluded, subdivided, p.merges), notes, shifted
+
     def run(self, ranges: list[tuple[int, int]], fits: list[GridFit]) -> list[_Piece]:
         pieces = [_Piece(a, b, fit) for (a, b), fit in zip(ranges, fits)]
         # each step changes the neighbours of the next, so go round until nothing moves
         for _ in range(4 * len(pieces)):
             steps = (
                 self.same_grid,
+                self.offbeat_fold,
                 self.ratio_merge,
                 self.edge_fold,
                 self.short_run,
@@ -823,12 +951,15 @@ def build_tempo_map(
     config: TempoMapConfig = TempoMapConfig(),
     loudness: Callable[[float, float], float] | None = None,
     consolidate: bool = True,
+    onsets: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> TempoMapResult:
     """Segments over [start_ms, end_ms], usually the trim points, with one fit per segment.
 
     loudness(start_ms, end_ms) gives a stretch's median level in db against the whole song,
-    for the weak edge rule. consolidate=False stops after segmentation, with felt tempos and
-    short edges still split, which is what the octave check wants to look at.
+    for the weak edge rule. onsets(times_ms) gives the onset strength at each time, for
+    deciding whether a segment's grid belongs on the tracked beats or half a beat over.
+    consolidate=False stops after segmentation, with felt tempos, short edges and off-beat
+    runs left as they are, which is what the octave check wants to look at.
     """
     times = np.asarray(times_ms, dtype=np.float64)
     downbeats = np.asarray(is_downbeat, dtype=bool)
@@ -861,17 +992,20 @@ def build_tempo_map(
                 fits.pop()
                 k -= 1
 
+    marked: list[tuple[_Piece, tuple[OffbeatRun, ...], bool]]
     if consolidate:
-        pieces = _Consolidator(times, downbeats, start_ms, end_ms, downbeats_known, config, loudness).run(ranges, fits)
+        cons = _Consolidator(times, downbeats, start_ms, end_ms, downbeats_known, config, loudness)
+        pieces = cons.run(ranges, fits)
+        marked = [cons.offbeat(pieces, k, onsets) for k in range(len(pieces))]
     else:
-        pieces = [_Piece(a, b, fit) for (a, b), fit in zip(ranges, fits)]
+        marked = [(_Piece(a, b, fit), (), False) for (a, b), fit in zip(ranges, fits)]
 
     segments: list[SegmentFit] = []
-    for k, p in enumerate(pieces):
+    for k, (p, offbeat, shifted) in enumerate(marked):
         fit = p.fit
         # a later segment starts on its own grid at its first beat, where a chart would put the bpm change
         seg_start = start_ms if k == 0 else fit.offset_ms + fit.period_ms * float(fit.indices[0])
-        segments.append(SegmentFit(p.first, p.stop, seg_start, end_ms, fit, tuple(p.merges)))
+        segments.append(SegmentFit(p.first, p.stop, seg_start, end_ms, fit, tuple(p.merges), offbeat, shifted))
     for k in range(len(segments) - 1):
         segments[k] = replace(segments[k], end_ms=segments[k + 1].start_ms)
 
