@@ -947,21 +947,14 @@ body {
   }
 }
 
-/* controls column in the detail strip */
-
-.detail__controls {
-  display: grid;
-  gap: 24px;
-  align-content: start;
-  min-width: 0;
-}
-
-/* meter control in the detail strip */
+/* meter control, under the zoomed view */
 
 .meter {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
+  max-width: 420px;
+  margin-top: 28px;
 }
 
 .meter__head {

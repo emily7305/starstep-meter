@@ -326,25 +326,7 @@ export function Timeline(props: Props) {
                 </button>
               ))}
             </div>
-          </div>
-
-          <div className="detail__controls">
-            {segment !== null && tempoMap !== null && anchorMs !== null && (
-              <SegmentControl
-                segment={segment}
-                index={selected}
-                count={tempoMap.length}
-                anchorMs={anchorMs}
-                beatMs={beatMs}
-                saveState={saveState}
-                offbeatRuns={(offbeatRuns ?? []).filter((run) => run.end_ms >= segment.start_ms && run.start_ms < segment.end_ms)}
-                disabled={!ready || !editable}
-                onNudge={onNudge}
-                onEdit={onEdit}
-                onRetry={onRetry}
-              />
-            )}
-
+            {/* under the zoomed view, it acts on the meter at the beat in there */}
             {meter !== null && (
               <MeterControl
                 meter={meter}
@@ -356,6 +338,22 @@ export function Timeline(props: Props) {
               />
             )}
           </div>
+
+          {segment !== null && tempoMap !== null && anchorMs !== null && (
+            <SegmentControl
+              segment={segment}
+              index={selected}
+              count={tempoMap.length}
+              anchorMs={anchorMs}
+              beatMs={beatMs}
+              saveState={saveState}
+              offbeatRuns={(offbeatRuns ?? []).filter((run) => run.end_ms >= segment.start_ms && run.start_ms < segment.end_ms)}
+              disabled={!ready || !editable}
+              onNudge={onNudge}
+              onEdit={onEdit}
+              onRetry={onRetry}
+            />
+          )}
 
           <SuggestionList
             suggestions={suggestions ?? []}
