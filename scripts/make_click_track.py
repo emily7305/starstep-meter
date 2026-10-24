@@ -1,7 +1,7 @@
 """Write a synthetic click track for checking the tool by hand.
 
 Usage: python scripts/make_click_track.py click-120.wav [--bpm 120] [--lead 2.0] [--tail 2.0] [--beats 40] [--accent]
-       [--change BEAT:BPM ...] [--rhythm BEAT:COUNT:POSITIONS ...]
+       [--change BEAT:BPM ...] [--meter BEAT:BEATS_PER_BAR ...] [--rhythm BEAT:COUNT:POSITIONS ...]
 
 Prints the ground truth (first click, first downbeat, end of the last
 click) so the result in the UI can be compared against it.
@@ -27,6 +27,14 @@ def _change(text: str) -> tuple[int, float]:
         raise argparse.ArgumentTypeError(f"expected BEAT:BPM like 64:200, got {text!r}") from None
 
 
+def _meter(text: str) -> tuple[int, int]:
+    beat, _, beats_per_bar = text.partition(":")
+    try:
+        return int(beat), int(beats_per_bar)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected BEAT:BEATS_PER_BAR like 64:7, got {text!r}") from None
+
+
 def _rhythm(text: str) -> tuple[int, int, tuple[float, ...]]:
     beat, count, positions = (text.split(":") + ["", ""])[:3]
     try:
@@ -49,6 +57,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--beats-per-bar", type=int, default=4)
     # click BEAT (counted from 0) is the first one at the new tempo
     parser.add_argument("--change", type=_change, action="append", default=[], metavar="BEAT:BPM", help="tempo change, repeatable")
+    # click BEAT (counted from 0) is a downbeat and bars from it on have the new length
+    parser.add_argument(
+        "--meter", type=_meter, action="append", default=[], metavar="BEAT:BEATS_PER_BAR", help="bar length change, repeatable"
+    )
     # COUNT beats from click BEAT where the clicks play POSITIONS (in beats) of every 4 beat bar
     # instead, the tempo underneath doesn't change. 0,1.5,3 is a dotted 3-3-2 bar
     parser.add_argument(
@@ -57,6 +69,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if any(not 0 < beat < args.beats for beat, _ in args.change):
         parser.error("a --change beat has to be between 1 and --beats - 1")
+    if any(not 0 < beat < args.beats for beat, _ in args.meter):
+        parser.error("a --meter beat has to be between 1 and --beats - 1")
+    if any(beats_per_bar < 1 for _, beats_per_bar in args.meter):
+        parser.error("a --meter bar length has to be at least 1")
     if any(beat < 0 or count < 1 or beat + count > args.beats for beat, count, _ in args.rhythm):
         parser.error("a --rhythm section has to fit inside --beats")
 
@@ -70,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         accent_downbeats=args.accent,
         beats_per_bar=args.beats_per_bar,
         tempo_changes=tuple(args.change),
+        meter_changes=tuple(args.meter),
         patterns=tuple(args.rhythm),
     )
     track = click_track(spec)
@@ -85,7 +102,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  rhythm      {','.join(f'{p:g}' for p in positions)} from beat {beat} to {beat + count}, about {start:.1f} to {start + count * period_ms:.1f} ms")
     print(f"  first click {track.content_start_ms:.3f} ms")
     if args.accent:
-        print(f"  downbeats   every {spec.beats_per_bar} clicks from the first one")
+        until = ", until the first meter change" if spec.meter_changes else ""
+        print(f"  downbeats   every {spec.beats_per_bar} clicks from the first one{until}")
+        for beat, beats_per_bar in sorted(spec.meter_changes):
+            print(f"  meter       {beats_per_bar} beats per bar from click {beat}, at {track.onsets_ms[beat]:.3f} ms")
     print(f"  last click  ends at {track.content_end_ms:.1f} ms")
     print(f"  duration    {track.duration_ms:.1f} ms")
     return 0
