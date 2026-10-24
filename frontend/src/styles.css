@@ -946,3 +946,238 @@ body {
     transition: none;
   }
 }
+
+/* controls column in the detail strip */
+
+.detail__controls {
+  display: grid;
+  gap: 24px;
+  align-content: start;
+  min-width: 0;
+}
+
+/* meter control in the detail strip */
+
+.meter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.meter__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+}
+
+.meter__label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.meter__source {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.meter__source[data-manual="true"] {
+  color: var(--accent);
+}
+
+.meter__range {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.meter__now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin: 8px 0 0;
+}
+
+.meter__value {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.meter__confidence {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.meter__set,
+.meter__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.meter__slash {
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+
+.meter__input,
+.meter__select {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.meter__input {
+  width: 6ch;
+  text-align: right;
+}
+
+.meter__input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.meter__input:disabled,
+.meter__select:disabled {
+  color: var(--ink-faint);
+  cursor: not-allowed;
+}
+
+.meter__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* notation suggestions under the detail strip */
+
+.suggestions {
+  grid-column: 1 / -1;
+}
+
+.suggestions__label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.suggestions__note {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.suggestions__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.suggestions__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 16px;
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent;
+  font-size: 12px;
+}
+
+.suggestions__item[data-selected="true"] {
+  border-left-color: var(--accent);
+}
+
+/* the whole row is the button, so the mouse and the keyboard get the same target */
+.suggestions__go {
+  display: grid;
+  grid-template-columns: 18ch minmax(0, 1fr) auto 5ch;
+  align-items: baseline;
+  gap: 4px 16px;
+  min-width: 0;
+  padding: 8px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.suggestions__go:hover:not(:disabled) {
+  background: var(--bg-sunk);
+}
+
+.suggestions__go:disabled {
+  cursor: default;
+}
+
+.suggestions__go:focus-visible {
+  outline-offset: -2px;
+}
+
+.suggestions__kind {
+  color: var(--ink);
+}
+
+.suggestions__range {
+  color: var(--ink-soft);
+}
+
+.suggestions__bpm {
+  color: var(--ink);
+  text-align: right;
+}
+
+.suggestions__from {
+  color: var(--ink-faint);
+}
+
+.suggestions__score {
+  color: var(--ink-soft);
+  text-align: right;
+}
+
+.suggestions__actions {
+  display: flex;
+  gap: 6px;
+  padding-right: 8px;
+}
+
+/* the row buttons are smaller than the segment control's */
+.suggestions__actions .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.suggestions__decided,
+.suggestions__empty {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+@media (max-width: 699px) {
+  .suggestions__item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .suggestions__go {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .suggestions__actions {
+    padding: 0 8px 8px;
+  }
+}

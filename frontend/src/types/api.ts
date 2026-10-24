@@ -2,10 +2,10 @@
 
 export type JobState = "queued" | "running" | "done" | "failed";
 
-export type JobStage = "queued" | "decode" | "trim" | "beats" | "snap" | "tempo" | "done" | "failed";
+export type JobStage = "queued" | "decode" | "trim" | "beats" | "snap" | "tempo" | "meter" | "done" | "failed";
 
 // a job can't fail "at" done or failed, so those two are left out
-export type FailedStage = "queued" | "decode" | "trim" | "beats" | "snap" | "tempo";
+export type FailedStage = "queued" | "decode" | "trim" | "beats" | "snap" | "tempo" | "meter";
 
 export interface JobError {
   stage: FailedStage;
@@ -46,11 +46,18 @@ export interface JobSummary {
   edits: number | null;
 }
 
-// one tempo map edit per request, same shapes as the patch bodies
+// one edit per request, same shapes as the patch bodies
 export type TempoEditOp =
   | { op: "set_anchor"; segment: number; anchor_ms: number }
   | { op: "set_bpm"; segment: number; bpm: number }
   | { op: "split"; at_ms: number }
   | { op: "merge"; segment: number }
   // this segment takes the neighbour's bpm and anchor and joins it
-  | { op: "match"; segment: number; side: "previous" | "next" };
+  | { op: "match"; segment: number; side: "previous" | "next" }
+  // segment indexes the meter map here, bars restart at a split
+  | { op: "set_meter"; segment: number; numerator: number; denominator: number }
+  | { op: "split_meter"; at_ms: number }
+  | { op: "merge_meter"; segment: number }
+  // suggestion indexes notation_suggestions
+  | { op: "apply_suggestion"; suggestion: number }
+  | { op: "dismiss_suggestion"; suggestion: number };
