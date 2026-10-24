@@ -8,6 +8,7 @@ file, so editing the generator regenerates them.
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -113,5 +114,8 @@ def cached_click_wav(spec: ClickTrackSpec = ClickTrackSpec(), fixtures_dir: Path
     track = click_track(spec)
     path = fixtures_dir / spec.cache_name()
     if not path.exists():
-        write_wav(track, path)
+        # temp name + rename, two test runs at once could otherwise read a half-written wav
+        tmp = path.with_name(f".{path.stem}.{os.getpid()}.tmp.wav")
+        write_wav(track, tmp)
+        os.replace(tmp, path)
     return path, track
