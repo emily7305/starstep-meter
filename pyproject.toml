@@ -29,6 +29,8 @@ madmom = [
 dev = [
     "pytest>=8",
     "httpx>=0.27",
+    # librosa already pulls it in, listed because the decode tests cross-correlate with it
+    "scipy>=1.10",
 ]
 
 [tool.setuptools.packages.find]
