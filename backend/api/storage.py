@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +16,7 @@ from pydantic import BaseModel
 
 from backend.analysis.ingest import ALLOWED_EXTENSIONS
 from backend.api.models import JobStatus
+from backend.analysis.pipeline import DECODED_NAME
 from backend.schema.models import BeatsFile, TimingReport
 
 JOB_FILE = "job.json"
@@ -83,6 +86,10 @@ def _write_atomic(path: Path, text: str) -> None:
 class JobStore:
     def __init__(self, jobs_dir: Path) -> None:
         self.jobs_dir = jobs_dir
+        # one lock for every report read-modify-write. holding a key down in the ui sends
+        # patches faster than they finish, and two of them reading the same old report
+        # would silently drop an edit
+        self._report_lock = threading.Lock()
 
     def create(self) -> tuple[str, Path]:
         job_id = new_job_id()
@@ -144,5 +151,18 @@ class JobStore:
         text = (self.job_dir(job_id) / REPORT_FILE).read_text(encoding="utf-8")
         return TimingReport.model_validate_json(text)
 
+    def update_report(self, job_id: str, change: Callable[[TimingReport], TimingReport]) -> TimingReport:
+        with self._report_lock:
+            updated = change(self.read_report(job_id))
+            self.write_report(job_id, updated)
+            return updated
+
     def write_beats(self, job_id: str, beats: BeatsFile) -> None:
         _write_atomic(self.job_dir(job_id) / BEATS_FILE, beats.model_dump_json(indent=2) + "\n")
+
+    def read_beats(self, job_id: str) -> BeatsFile:
+        text = (self.job_dir(job_id) / BEATS_FILE).read_text(encoding="utf-8")
+        return BeatsFile.model_validate_json(text)
+
+    def decoded_path(self, job_id: str) -> Path:
+        return self.job_dir(job_id) / DECODED_NAME
