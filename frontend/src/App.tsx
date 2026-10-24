@@ -332,7 +332,7 @@ export function App() {
 
   const analyze = useCallback(async () => {
     if (file === null) return;
-    // the same file analysed before has its edits in that job, offer it before starting over
+    // the same file analyzed before has its edits in that job, offer it before starting over
     const sha256 = await fileSha256(file).catch(() => null);
     if (sha256 !== null) {
       const earlier = await listJobs(sha256).catch(() => []);

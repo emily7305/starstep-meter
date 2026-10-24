@@ -340,7 +340,7 @@ Hands-on testing showed manual edits looked lost after a reload, so this moved u
 
 - The open job's id is in the url (`?job=<id>`), so a reload or back and forward reopens it.
 - The source column lists every job from `GET /api/jobs`, newest first, with the file name and date. Any of them can be reopened.
-- Before uploading, the browser hashes the file (`crypto.subtle`, which exists on 127.0.0.1 because it counts as a secure context) and asks `GET /api/jobs?sha256=`. If the same file was analysed before, it offers to reopen that job, with its edit count, before starting a new one. Without `crypto.subtle` the check is skipped and the upload goes ahead.
+- Before uploading, the browser hashes the file (`crypto.subtle`, which exists on 127.0.0.1 because it counts as a secure context) and asks `GET /api/jobs?sha256=`. If the same file was analyzed before, it offers to reopen that job, with its edit count, before starting a new one. Without `crypto.subtle` the check is skipped and the upload goes ahead.
 - No accounts, everything stays in `data/`.
 
 ## tempo bands in the ui (milestone 3)
