@@ -1,4 +1,4 @@
-// wavesurfer plugin that draws the tempo bands and the beat grid over the waveform
+// wavesurfer plugin that draws the tempo bands, the beat grid and the suggestion marks over the waveform
 // only the visible part gets drawn, a zoomed 4 minute song is far wider than any canvas can be
 
 import BasePlugin, { type BasePluginEvents } from "wavesurfer.js/dist/base-plugin.js";
@@ -15,6 +15,7 @@ export interface BeatGridColors {
   selected: string;
   bandLabel: string;
   offbeat: string;
+  suggestion: string;
 }
 
 // a stretch where the tracker followed the off-beat, shaded so it can be found and listened to
@@ -23,11 +24,19 @@ export interface OffbeatShade {
   endMs: number;
 }
 
+// an open notation suggestion, a thin bracket under the bar numbers
+export interface SuggestionMark {
+  startMs: number;
+  endMs: number;
+  selected: boolean;
+}
+
 export interface BeatGridOptions {
   grid: TempoGrid | null;
   bands: Band[];
   selected: number | null;
   offbeat: OffbeatShade[];
+  marks: SuggestionMark[];
   colors: BeatGridColors;
   labelFont: string;
 }
@@ -39,6 +48,9 @@ const MIN_LABEL_SPACING_PX = 36;
 const BAND_LABEL_H_PX = 16;
 // hatching instead of a tint, the bands already use tints
 const HATCH_SPACING_PX = 7;
+// under the bar number labels, which end at 16 px
+const MARK_Y_PX = 19;
+const MARK_TICK_PX = 5;
 
 export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions> {
   private canvas: HTMLCanvasElement | null = null;
@@ -74,11 +86,12 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
     redraw();
   }
 
-  setMap(grid: TempoGrid | null, bands: Band[], selected: number | null, offbeat: OffbeatShade[]): void {
+  setMap(grid: TempoGrid | null, bands: Band[], selected: number | null, offbeat: OffbeatShade[], marks: SuggestionMark[]): void {
     this.options.grid = grid;
     this.options.bands = bands;
     this.options.selected = selected;
     this.options.offbeat = offbeat;
+    this.options.marks = marks;
     this.schedule();
   }
 
@@ -158,6 +171,24 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
     ctx.globalAlpha = 1;
   }
 
+  private drawMarks(ctx: CanvasRenderingContext2D, view: View): void {
+    const { marks, colors } = this.options;
+    const { durationMs, totalWidthPx, scrollLeftPx, viewWidthPx } = view;
+    for (const mark of marks) {
+      const left = timeToX(mark.startMs, durationMs, totalWidthPx) - scrollLeftPx;
+      const right = timeToX(mark.endMs, durationMs, totalWidthPx) - scrollLeftPx;
+      if (right < 0 || left > viewWidthPx) continue;
+      // faint until picked from the list, then the accent, since it's where you are
+      ctx.fillStyle = mark.selected ? colors.selected : colors.suggestion;
+      ctx.globalAlpha = mark.selected ? 1 : 0.5;
+      const h = mark.selected ? 2 : 1;
+      ctx.fillRect(left, MARK_Y_PX, Math.max(right - left, 1), h);
+      ctx.fillRect(left, MARK_Y_PX, 1, MARK_TICK_PX);
+      ctx.fillRect(right - 1, MARK_Y_PX, 1, MARK_TICK_PX);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   private draw(): void {
     const ws = this.wavesurfer;
     const canvas = this.canvas;
@@ -185,11 +216,12 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
     ctx.scale(dpr, dpr);
     this.drawBands(ctx, view, heightPx);
     this.drawOffbeat(ctx, view, heightPx);
+    this.drawMarks(ctx, view);
 
-    // thinning goes by each segment's own period, a 240 bpm stretch thins out before a 120 one
+    // thinning goes by each segment's own period and shortest bar, a 240 bpm stretch thins out before a 120 one
     const steps = grid.segments.map((seg) => {
       const spacing = timeToX(periodMs(seg.segment.bpm), durationMs, totalWidthPx);
-      const barSpacing = spacing * grid.beatsPerBar;
+      const barSpacing = spacing * seg.barBeats;
       let barStep = 1;
       while (barSpacing * barStep < MIN_BEAT_SPACING_PX) barStep *= 2;
       let labelStep = barStep;

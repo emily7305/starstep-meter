@@ -1,13 +1,16 @@
-// the beat grid over a whole tempo map: one grid per segment, each from its own anchor and bpm
-// plain functions on top of grid.ts, no dom, so they can be tested on their own
+// the beat grid over a whole tempo map: one grid per segment, each from its own anchor and bpm,
+// and bar lines from the meter map. plain functions on top of grid.ts, no dom, so they can be
+// tested on their own. the bar rule is the backend's (backend/analysis/bars.py), keep them in step
 
-import { gridLines, periodMs, timeToX, xToTime, type GridLine, type View } from "./grid";
-import type { TempoSegment } from "./types/timingReport";
+import { periodMs, timeToX, xToTime, type GridLine, type View } from "./grid";
+import type { MeterSegment, NotationSuggestion, TempoSegment } from "./types/timingReport";
 
 // a line less than this fraction of the new segment's period before a boundary belongs to
 // the new segment, so a bpm change on a beat draws one line there and not two a hair apart.
 // the backend refits segments with the same rule (tempo_edit.EDGE_FRACTION)
 export const EDGE_FRACTION = 0.25;
+// a bar line this close to a beat line is drawn as that line
+const SAME_LINE_MS = 0.5;
 
 export interface SegmentGrid {
   index: number;
@@ -16,13 +19,32 @@ export interface SegmentGrid {
   // last to the end of the audio, like the single grid did before tempo maps
   fromMs: number;
   toMs: number;
-  // added to floor(k / beatsPerBar) so bar numbers keep counting across segments
-  barOffset: number;
+  // the shortest bar in this segment in beats, for thinning out bar lines when zoomed out
+  barBeats: number;
+}
+
+// a stretch with one tempo and one meter, and where its bars are counted from
+export interface BarRegion {
+  tempo: number;
+  // index into the meter map, -1 where there's none and bars are 4/4 from the anchor
+  meter: number;
+  fromMs: number;
+  toMs: number;
+  refMs: number;
+  barMs: number;
+}
+
+export interface BarLine {
+  timeMs: number;
+  bar: number;
+  segment: number;
 }
 
 export interface TempoGrid {
   segments: SegmentGrid[];
-  beatsPerBar: number;
+  regions: BarRegion[];
+  // every bar line from 0 to the end of the audio, numbered from the first anchor's bar as 0
+  bars: BarLine[];
 }
 
 // an anchor being nudged that the server doesn't have yet
@@ -43,56 +65,135 @@ function lineCut(segment: TempoSegment): number {
   return segment.start_ms - EDGE_FRACTION * periodMs(segment.bpm);
 }
 
-function linesOf(seg: SegmentGrid, beatsPerBar: number, startMs: number, endMs: number): MapLine[] {
-  const from = Math.max(startMs, seg.fromMs);
-  // toMs is exclusive, the next segment draws the line that sits on it
-  const to = Math.min(endMs, seg.toMs);
-  if (to < from) return [];
-  const params = { offsetMs: seg.segment.anchor_ms, bpm: seg.segment.bpm, beatsPerBar };
-  const out: MapLine[] = [];
-  for (const line of gridLines(params, from, to)) {
-    if (line.timeMs >= seg.toMs) continue;
-    out.push({ ...line, bar: line.bar + seg.barOffset, segment: seg.index });
-  }
+function snapToGrid(segment: TempoSegment, timeMs: number): number {
+  const p = periodMs(segment.bpm);
+  return segment.anchor_ms + Math.round((timeMs - segment.anchor_ms) / p) * p;
+}
+
+export function barBeats(numerator: number, denominator: number): number {
+  return (numerator * 4) / denominator;
+}
+
+// same rule as bars.regions: a meter that starts with its tempo segment counts from the anchor,
+// one that starts later starts a bar right there, on the grid
+export function barRegions(map: TempoSegment[], meter: MeterSegment[], durationMs: number): BarRegion[] {
+  const out: BarRegion[] = [];
+  map.forEach((seg, i) => {
+    const p = periodMs(seg.bpm);
+    const edge = EDGE_FRACTION * p;
+    const next = map[i + 1];
+    const lo = i === 0 ? 0 : lineCut(seg);
+    const hi = next === undefined ? durationMs : lineCut(next);
+    const inside = meter
+      .map((m, j) => ({ m, j }))
+      .filter(({ m }) => m.end_ms > seg.start_ms + edge && m.start_ms < seg.end_ms - edge);
+    const first = inside[0];
+    if (first === undefined || first.m.start_ms > seg.start_ms + edge) {
+      const stop = first === undefined ? hi : snapToGrid(seg, first.m.start_ms) - edge;
+      out.push({ tempo: i, meter: -1, fromMs: lo, toMs: stop, refMs: seg.anchor_ms, barMs: 4 * p });
+    }
+    inside.forEach(({ m, j }, k) => {
+      const withSegment = m.start_ms <= seg.start_ms + edge;
+      const ref = withSegment ? seg.anchor_ms : snapToGrid(seg, m.start_ms);
+      const after = inside[k + 1];
+      out.push({
+        tempo: i,
+        meter: j,
+        fromMs: withSegment ? lo : ref - edge,
+        toMs: after === undefined ? hi : snapToGrid(seg, after.m.start_ms) - edge,
+        refMs: ref,
+        barMs: barBeats(m.numerator, m.denominator) * p,
+      });
+    });
+  });
   return out;
+}
+
+function barLinesOf(regions: BarRegion[], firstAnchorMs: number): BarLine[] {
+  const times: { timeMs: number; segment: number }[] = [];
+  for (const r of regions) {
+    if (!(r.barMs > 0) || r.toMs <= r.fromMs) continue;
+    // tiny slack so a line sitting exactly on fromMs isn't lost to float noise
+    for (let k = Math.ceil((r.fromMs - r.refMs) / r.barMs - 1e-9); ; k += 1) {
+      const t = r.refMs + k * r.barMs;
+      if (t >= r.toMs) break;
+      times.push({ timeMs: t, segment: r.tempo });
+    }
+  }
+  times.sort((a, b) => a.timeMs - b.timeMs);
+  // bar 0 is the first downbeat of the song, earlier bars count down from it
+  let zero = times.findIndex((l) => l.timeMs >= firstAnchorMs - SAME_LINE_MS);
+  if (zero < 0) zero = times.length;
+  return times.map((l, i) => ({ ...l, bar: i - zero }));
 }
 
 export function tempoGrid(
   map: TempoSegment[],
+  meter: MeterSegment[],
   durationMs: number,
-  beatsPerBar: number,
   draft: AnchorDraft | null = null,
 ): TempoGrid {
   const segs = map.map((s, i) => (draft !== null && draft.segment === i ? { ...s, anchor_ms: draft.anchorMs } : s));
-  const grids: SegmentGrid[] = [];
-  let nextBar = 0;
-  segs.forEach((segment, index) => {
+  const regions = barRegions(segs, meter, durationMs);
+  const segments = segs.map((segment, index): SegmentGrid => {
     const next = segs[index + 1];
-    const seg: SegmentGrid = {
+    const own = regions.filter((r) => r.tempo === index);
+    const shortest = Math.min(...own.map((r) => r.barMs / periodMs(segment.bpm)));
+    return {
       index,
       segment,
       fromMs: index === 0 ? 0 : lineCut(segment),
       toMs: next === undefined ? durationMs : lineCut(next),
-      barOffset: 0,
+      barBeats: Number.isFinite(shortest) && shortest > 0 ? shortest : 4,
     };
-    if (index > 0) {
-      // the first bar line in this segment carries on from the last bar number before it
-      const period = periodMs(segment.bpm);
-      const firstK = Math.ceil((seg.fromMs - segment.anchor_ms) / period);
-      const firstBarK = Math.ceil(firstK / beatsPerBar) * beatsPerBar;
-      seg.barOffset = nextBar - Math.floor(firstBarK / beatsPerBar);
-    }
-    const lines = linesOf(seg, beatsPerBar, seg.fromMs, seg.toMs);
-    const lastBarLine = [...lines].reverse().find((l) => l.isBar);
-    if (lastBarLine !== undefined) nextBar = lastBarLine.bar + 1;
-    grids.push(seg);
   });
-  return { segments: grids, beatsPerBar };
+  const firstAnchor = segs[0]?.anchor_ms ?? 0;
+  return { segments, regions, bars: barLinesOf(regions, firstAnchor) };
+}
+
+function barIndexAt(bars: BarLine[], timeMs: number): number {
+  // the last bar line at or before timeMs, binary search since a song has a few hundred
+  let lo = 0;
+  let hi = bars.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const line = bars[mid];
+    if (line !== undefined && line.timeMs <= timeMs + SAME_LINE_MS) {
+      found = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return found;
 }
 
 export function mapLines(grid: TempoGrid, startMs: number, endMs: number): MapLine[] {
-  if (endMs < startMs || grid.beatsPerBar < 1) return [];
-  return grid.segments.flatMap((seg) => linesOf(seg, grid.beatsPerBar, startMs, endMs));
+  if (endMs < startMs) return [];
+  const out: MapLine[] = [];
+  for (const seg of grid.segments) {
+    const from = Math.max(startMs, seg.fromMs);
+    // toMs is exclusive, the next segment draws the line that sits on it
+    const to = Math.min(endMs, seg.toMs);
+    if (to < from) continue;
+    const p = periodMs(seg.segment.bpm);
+    const anchor = seg.segment.anchor_ms;
+    // || 0 because ceil of anything in (-1, 0) is -0, and the anchor should be index 0
+    for (let index = Math.ceil((from - anchor) / p) || 0; ; index += 1) {
+      const timeMs = anchor + index * p;
+      if (timeMs > to || timeMs >= seg.toMs) break;
+      const at = barIndexAt(grid.bars, timeMs);
+      const bar = grid.bars[at];
+      const isBar = bar !== undefined && Math.abs(bar.timeMs - timeMs) <= SAME_LINE_MS;
+      out.push({ timeMs, index, bar: bar?.bar ?? -1, isBar, segment: seg.index });
+    }
+  }
+  // bar lines between beats, a 7/8 bar ends half a beat in
+  for (const line of grid.bars) {
+    if (line.timeMs < startMs || line.timeMs > endMs) continue;
+    const onBeat = out.some((l) => l.isBar && Math.abs(l.timeMs - line.timeMs) <= SAME_LINE_MS);
+    if (!onBeat) out.push({ timeMs: line.timeMs, index: Number.NaN, bar: line.bar, isBar: true, segment: line.segment });
+  }
+  return out.sort((a, b) => a.timeMs - b.timeMs);
 }
 
 export function visibleMapLines(grid: TempoGrid, view: View): PlacedMapLine[] {
@@ -106,7 +207,7 @@ export function visibleMapLines(grid: TempoGrid, view: View): PlacedMapLine[] {
 }
 
 // the segment a time falls in by its start and end, clamped to the first and last
-export function segmentAt(map: TempoSegment[], timeMs: number): number {
+export function segmentAt(map: { start_ms: number }[], timeMs: number): number {
   if (map.length === 0) return -1;
   for (let i = map.length - 1; i >= 0; i -= 1) {
     const seg = map[i];
@@ -123,6 +224,25 @@ export function nearestLineMs(grid: TempoGrid, timeMs: number): number | null {
     if (best === null || Math.abs(line.timeMs - timeMs) < Math.abs(best - timeMs)) best = line.timeMs;
   }
   return best;
+}
+
+// the meter map, or one 4/4 over the whole tempo map for a report from before meters, the
+// backend writes the same one down on the first meter edit (meter_edit.meter_or_default)
+export function meterOrDefault(meter: MeterSegment[], map: TempoSegment[]): MeterSegment[] {
+  const first = map[0];
+  const last = map.at(-1);
+  if (meter.length > 0 || first === undefined || last === undefined) return meter;
+  return [{ start_ms: first.start_ms, end_ms: last.end_ms, numerator: 4, denominator: 4, confidence: null, source: "auto" }];
+}
+
+// which segment the span of a suggestion ends up in once it's applied, to keep it selected.
+// half and double split it off the segment it's in, a fold joins the neighbour on the inner side
+export function appliedSegment(map: TempoSegment[], suggestion: NotationSuggestion): number {
+  const i = segmentAt(map, suggestion.start_ms);
+  const seg = map[i];
+  if (seg === undefined) return 0;
+  if (suggestion.kind === "fold") return Math.max(0, i - 1);
+  return suggestion.start_ms - seg.start_ms > 1 ? i + 1 : i;
 }
 
 export interface Band {

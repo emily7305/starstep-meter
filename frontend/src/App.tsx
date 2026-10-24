@@ -24,7 +24,7 @@ import { failureText, reanalysisFailureText, stageLabel } from "./format";
 import { fileSha256, jobIdFromSearch, searchWithJob } from "./jobs";
 import { pollJob } from "./poll";
 import { EditSaver, nudged, type SaveState } from "./tempoEdits";
-import { type AnchorDraft, segmentAt } from "./tempoMap";
+import { type AnchorDraft, appliedSegment, segmentAt } from "./tempoMap";
 import type { JobStage, JobStatus, JobSummary, TempoEditOp } from "./types/api";
 import type { BeatsFile } from "./types/beats";
 import type { TimingReport } from "./types/timingReport";
@@ -212,6 +212,10 @@ export function App() {
       if (op.op === "split") setSelected(segmentAt(current.tempo_map, op.at_ms) + 1);
       else if (op.op === "match" && op.side === "previous") setSelected(op.segment - 1);
       else setSelected(op.segment);
+    } else if (op.op === "apply_suggestion") {
+      setReshaping(true);
+      const suggestion = current.notation_suggestions[op.suggestion];
+      if (suggestion !== undefined) setSelected(appliedSegment(current.tempo_map, suggestion));
     }
     void saver.current.submit(op);
   }, []);
@@ -249,8 +253,8 @@ export function App() {
           ...r,
           busy: false,
           errorText: offlineOr(err, (detail) => detail),
-          // cap at 6 so a failed report fetch lands on the done pill, not past the end
-          track: { finished: Math.min(r.track.finished, 6), at: "failed" },
+          // cap at 7 so a failed report fetch lands on the done pill, not past the end
+          track: { finished: Math.min(r.track.finished, 7), at: "failed" },
         }));
       } finally {
         refreshJobs();

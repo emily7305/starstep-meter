@@ -44,6 +44,7 @@ const STAGE_LABELS: Record<JobStage, string> = {
   beats: "tracking beats",
   snap: "snapping to onsets",
   tempo: "fitting tempo",
+  meter: "finding meter",
   done: "done",
   failed: "failed",
 };

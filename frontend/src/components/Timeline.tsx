@@ -2,15 +2,24 @@ import { type KeyboardEvent, memo, useEffect, useMemo, useRef, useState } from "
 import WaveSurfer from "wavesurfer.js";
 import { BeatGridPlugin } from "../beatGridPlugin";
 import { formatDeltaMs, formatFineMs, formatMs } from "../format";
-import { beatsPerBar } from "../grid";
 import type { SaveState } from "../tempoEdits";
-import { type AnchorDraft, bands, nearestLineMs, segmentAt, type TempoGrid, tempoGrid } from "../tempoMap";
+import {
+  type AnchorDraft,
+  bands,
+  meterOrDefault,
+  nearestLineMs,
+  segmentAt,
+  type TempoGrid,
+  tempoGrid,
+} from "../tempoMap";
 import { readPalette } from "../theme";
 import type { TempoEditOp } from "../types/api";
 import type { BeatsFile } from "../types/beats";
 import type { TimingReport } from "../types/timingReport";
 import { Loupe } from "./Loupe";
+import { MeterControl } from "./MeterControl";
 import { SegmentControl } from "./SegmentControl";
+import { SuggestionList } from "./SuggestionList";
 
 interface Props {
   audioUrl: string | null;
@@ -60,12 +69,26 @@ export function Timeline(props: Props) {
   const [centerMs, setCenterMs] = useState<number | null>(null);
   const palette = useMemo(readPalette, []);
 
+  const [suggestion, setSuggestion] = useState<number | null>(null);
+
   const tempoMap = report?.tempo_map ?? null;
   const durationMs = report?.source.duration_ms ?? 0;
-  const barLength = useMemo(() => (beats ? beatsPerBar(beats.beats) : 4), [beats]);
+  const meterMap = useMemo(
+    () => (report !== null ? meterOrDefault(report.meter_map, report.tempo_map) : []),
+    [report],
+  );
   const grid = useMemo<TempoGrid | null>(
-    () => (tempoMap !== null ? tempoGrid(tempoMap, durationMs, barLength, draft) : null),
-    [tempoMap, durationMs, barLength, draft],
+    () => (tempoMap !== null ? tempoGrid(tempoMap, meterMap, durationMs, draft) : null),
+    [tempoMap, meterMap, durationMs, draft],
+  );
+  const suggestions = report?.notation_suggestions;
+  // only the open ones go on the timeline, the decided ones are history
+  const marks = useMemo(
+    () =>
+      (suggestions ?? []).flatMap((s, i) =>
+        s.status === "open" ? [{ startMs: s.start_ms, endMs: s.end_ms, selected: i === suggestion }] : [],
+      ),
+    [suggestions, suggestion],
   );
   const segmentBands = useMemo(() => (tempoMap !== null ? bands(tempoMap) : []), [tempoMap]);
   const offbeatRuns = report?.offbeat_runs;
@@ -92,6 +115,7 @@ export function Timeline(props: Props) {
       bands: [],
       selected: null,
       offbeat: [],
+      marks: [],
       colors: {
         beat: palette.inkFaint,
         bar: palette.mint,
@@ -101,6 +125,7 @@ export function Timeline(props: Props) {
         selected: palette.accent,
         bandLabel: palette.inkSoft,
         offbeat: palette.inkSoft,
+        suggestion: palette.inkSoft,
       },
       labelFont: `500 10px ${palette.fontMono}`,
     });
@@ -152,8 +177,11 @@ export function Timeline(props: Props) {
   }, [audioUrl, palette]);
 
   useEffect(() => {
-    gridRef.current?.setMap(grid, segmentBands, tempoMap !== null && tempoMap.length > 1 ? selected : null, offbeatShades);
-  }, [grid, segmentBands, selected, tempoMap, offbeatShades, audio.kind]);
+    gridRef.current?.setMap(grid, segmentBands, tempoMap !== null && tempoMap.length > 1 ? selected : null, offbeatShades, marks);
+  }, [grid, segmentBands, selected, tempoMap, offbeatShades, marks, audio.kind]);
+
+  // a new report can renumber the suggestions, the pick doesn't carry over
+  useEffect(() => setSuggestion(null), [suggestions]);
 
   useEffect(() => {
     // wavesurfer throws on zoom before the audio is decoded
@@ -174,6 +202,19 @@ export function Timeline(props: Props) {
   const anchorMs = segment === null ? null : draft !== null && draft.segment === selected ? draft.anchorMs : segment.anchor_ms;
   // anchor here and split here act on a tracked beat, not on wherever the loupe was left
   const beatMs = centerMs !== null && trackedMs.includes(centerMs) ? centerMs : null;
+  // the meter under the zoomed view, or under the selected segment's start before anything was clicked
+  const meterIndex = segmentAt(meterMap, centerMs ?? segment?.start_ms ?? 0);
+  const meter = meterMap[meterIndex] ?? null;
+
+  function goToSuggestion(index: number) {
+    const s = suggestions?.[index];
+    if (s === undefined) return;
+    setSuggestion(index);
+    if (tempoMap !== null) onSelect(segmentAt(tempoMap, s.start_ms));
+    // the playhead and the zoomed view jump to its start, the waveform scrolls along with the playhead
+    setCenterMs(nearest(trackedMs, s.start_ms) ?? s.start_ms);
+    if (ready) wsRef.current?.setTime(s.start_ms / 1000);
+  }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (!ready) return;
@@ -287,21 +328,42 @@ export function Timeline(props: Props) {
             </div>
           </div>
 
-          {segment !== null && tempoMap !== null && anchorMs !== null && (
-            <SegmentControl
-              segment={segment}
-              index={selected}
-              count={tempoMap.length}
-              anchorMs={anchorMs}
-              beatMs={beatMs}
-              saveState={saveState}
-              offbeatRuns={(offbeatRuns ?? []).filter((run) => run.end_ms >= segment.start_ms && run.start_ms < segment.end_ms)}
-              disabled={!ready || !editable}
-              onNudge={onNudge}
-              onEdit={onEdit}
-              onRetry={onRetry}
-            />
-          )}
+          <div className="detail__controls">
+            {segment !== null && tempoMap !== null && anchorMs !== null && (
+              <SegmentControl
+                segment={segment}
+                index={selected}
+                count={tempoMap.length}
+                anchorMs={anchorMs}
+                beatMs={beatMs}
+                saveState={saveState}
+                offbeatRuns={(offbeatRuns ?? []).filter((run) => run.end_ms >= segment.start_ms && run.start_ms < segment.end_ms)}
+                disabled={!ready || !editable}
+                onNudge={onNudge}
+                onEdit={onEdit}
+                onRetry={onRetry}
+              />
+            )}
+
+            {meter !== null && (
+              <MeterControl
+                meter={meter}
+                index={meterIndex}
+                count={meterMap.length}
+                splitAtMs={beatMs ?? gridAtCenter}
+                disabled={!ready || !editable}
+                onEdit={onEdit}
+              />
+            )}
+          </div>
+
+          <SuggestionList
+            suggestions={suggestions ?? []}
+            selected={suggestion}
+            disabled={!ready || !editable}
+            onSelect={goToSuggestion}
+            onEdit={onEdit}
+          />
         </div>
       )}
     </div>

@@ -1,8 +1,6 @@
 // beat grid maths, kept free of dom and wavesurfer so it can be tested on its own
 // times are ms on the decoded timeline, same as the report
 
-import type { Beat } from "./types/beats";
-
 export interface GridParams {
   // first downbeat, index 0
   offsetMs: number;
@@ -98,31 +96,4 @@ export function nearestBeatMs(params: GridParams, timeMs: number): number {
   const period = periodMs(params.bpm);
   const index = Math.round((timeMs - params.offsetMs) / period);
   return params.offsetMs + index * period;
-}
-
-// most common bar length in the tracked beats, 4 when there's nothing to go on
-export function beatsPerBar(beats: Beat[]): number {
-  const longest = new Map<number, number>();
-  for (const beat of beats) longest.set(beat.bar, Math.max(longest.get(beat.bar) ?? 0, beat.beat_in_bar));
-
-  // a pickup bar and the last bar can be partial, count only bars that start on a downbeat
-  // and have a bar after them
-  const bars = [...longest.keys()].sort((a, b) => a - b);
-  const counts = new Map<number, number>();
-  for (const bar of bars.slice(0, -1)) {
-    const startsOnDownbeat = beats.some((b) => b.bar === bar && b.is_downbeat);
-    if (!startsOnDownbeat) continue;
-    const length = longest.get(bar) ?? 0;
-    counts.set(length, (counts.get(length) ?? 0) + 1);
-  }
-
-  let best = 4;
-  let bestCount = 0;
-  for (const [length, count] of counts) {
-    if (count > bestCount) {
-      best = length;
-      bestCount = count;
-    }
-  }
-  return best;
 }

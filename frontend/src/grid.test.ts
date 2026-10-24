@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   beatSpacingPx,
-  beatsPerBar,
   crispX,
   gridLines,
   nearestBeatMs,
@@ -11,7 +10,6 @@ import {
   xToTime,
 } from "./grid";
 import type { GridLine, GridParams, View } from "./grid";
-import type { Beat } from "./types/beats";
 
 const DURATION_MS = 22000;
 // 120 bpm is a 500 ms period. the half ms in the offset keeps view edges off the lines,
@@ -33,23 +31,6 @@ const indices = (lines: GridLine[]) => lines.map((line) => line.index);
 
 function range(from: number, to: number): number[] {
   return Array.from({ length: to - from + 1 }, (_, i) => from + i);
-}
-
-// beatsPerBar only reads bar and beat_in_bar, the times are filler
-function beat(bar: number, beatInBar: number): Beat {
-  return {
-    bar,
-    beat_in_bar: beatInBar,
-    is_downbeat: beatInBar === 1,
-    raw_time_ms: 0,
-    residual_ms: 0,
-    time_ms: 0,
-  };
-}
-
-// one full bar per length, numbered from 1
-function barsOf(lengths: number[]): Beat[] {
-  return lengths.flatMap((length, i) => Array.from({ length }, (_, n) => beat(i + 1, n + 1)));
 }
 
 describe("periodMs", () => {
@@ -320,35 +301,5 @@ describe("nearestBeatMs", () => {
   it("returns a time that is already on a line unchanged", () => {
     expect(nearestBeatMs(grid, 10137.5)).toBe(10137.5);
     expect(nearestBeatMs(grid, 21800)).toBe(21637.5);
-  });
-});
-
-describe("beatsPerBar", () => {
-  it("reads 4/4 and 3/4 from the bar lengths", () => {
-    expect(beatsPerBar(barsOf([4, 4, 4, 4, 4]))).toBe(4);
-    expect(beatsPerBar(barsOf([3, 3, 3, 3, 3]))).toBe(3);
-  });
-
-  it("goes with the most common length", () => {
-    expect(beatsPerBar(barsOf([3, 3, 4, 3, 3, 3]))).toBe(3);
-  });
-
-  it("doesn't count a pickup bar", () => {
-    // the pickup's longest beat is 4, counted it would tie 3 and win as the earlier bar
-    const beats = [beat(0, 3), beat(0, 4), ...barsOf([3, 3])];
-    expect(beatsPerBar(beats)).toBe(3);
-  });
-
-  it("doesn't count a short final bar", () => {
-    expect(beatsPerBar(barsOf([4, 4, 4, 4, 2]))).toBe(4);
-    expect(beatsPerBar(barsOf([3, 3, 3, 3, 1]))).toBe(3);
-  });
-
-  it("falls back to 4 when the only bar is also the last", () => {
-    expect(beatsPerBar(barsOf([3]))).toBe(4);
-  });
-
-  it("gives 4 for an empty list", () => {
-    expect(beatsPerBar([])).toBe(4);
   });
 });
