@@ -159,6 +159,8 @@ Raw tracker error against the click onsets, before snapping: madmom −6.4 to �
 
 Speed: madmom takes about 3 s for 20 s of audio on this cloud VM (4 cores). A 4 minute click track runs the whole CLI in 36 s, and nearly all of that is the network.
 
+In milestone 3 the same kind of 4 minute run takes about 52 s. The octave check reads onsets at every beat and every midpoint, and the DBN has more tempo states now. I haven't profiled which one costs more.
+
 ## onset snap (milestone 2)
 
 For each tracked beat, compute a spectral flux only around that beat and move the beat to the nearest strong flux peak within ±20 ms. If there isn't one, keep the raw beat. The window is `--snap-window-ms` on the CLI and `STARSTEP_SNAP_WINDOW_MS` for the server.
