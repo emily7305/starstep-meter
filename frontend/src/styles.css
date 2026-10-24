@@ -289,6 +289,10 @@ body {
   color: var(--ink-soft);
 }
 
+.section-label--spaced {
+  margin-top: 40px;
+}
+
 /* buttons */
 
 .btn {
@@ -774,6 +778,141 @@ body {
 .segments__bpm {
   color: var(--ink);
   text-align: right;
+}
+
+/* source column extras */
+
+.reanalyze {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 16px;
+}
+
+.reanalyze__hint {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* recent jobs */
+
+.recent {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.recent__item {
+  border-bottom: 1px solid var(--line);
+}
+
+.recent__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 8px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recent__row:hover {
+  background: var(--bg-sunk);
+}
+
+.recent__row:focus-visible {
+  outline-offset: -2px;
+}
+
+.recent__row[aria-current="true"] {
+  border-left-color: var(--accent);
+}
+
+.recent__name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.recent__status[data-status="failed"],
+.reopen__status[data-status="failed"] {
+  color: var(--danger);
+}
+
+.recent__error {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+/* reopen prompt */
+
+.reopen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.reopen__lead {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.reopen__list {
+  align-self: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.reopen__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.reopen__info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.reopen__date {
+  color: var(--ink);
+}
+
+/* the row buttons are smaller than the page's main ones */
+.reopen__item .btn {
+  flex: none;
+  padding: 6px 14px;
+  font-size: 13px;
 }
 
 @media (prefers-reduced-motion: reduce) {

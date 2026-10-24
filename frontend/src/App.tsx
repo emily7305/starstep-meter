@@ -7,19 +7,25 @@ import {
   fetchJobStatus,
   fetchReport,
   isAbortError,
-  patchOffset,
+  listJobs,
+  patchTempo,
+  reanalyzeJob,
   uploadAudio,
 } from "./api";
 import { HealthReadout, type Health } from "./components/HealthReadout";
+import { RecentJobs } from "./components/RecentJobs";
+import { ReopenPrompt } from "./components/ReopenPrompt";
 import { ReportView } from "./components/ReportView";
 import { StageTrack, trackFor, type TrackPosition } from "./components/StageTrack";
 import { Timeline } from "./components/Timeline";
 import { UploadPanel, type UploadProgress } from "./components/UploadPanel";
 import { ensureJapaneseFont } from "./fonts";
 import { failureText, stageLabel } from "./format";
-import { nudged, OFFSET_FIELD, OffsetSaver, type SaveState, withOffsetEdit } from "./offset";
+import { fileSha256, jobIdFromSearch, searchWithJob } from "./jobs";
 import { pollJob } from "./poll";
-import type { JobStage, JobStatus } from "./types/api";
+import { EditSaver, nudged, type SaveState } from "./tempoEdits";
+import { type AnchorDraft, segmentAt } from "./tempoMap";
+import type { JobStage, JobStatus, JobSummary, TempoEditOp } from "./types/api";
 import type { BeatsFile } from "./types/beats";
 import type { TimingReport } from "./types/timingReport";
 
@@ -57,11 +63,13 @@ function applyStatus(run: RunState, status: JobStatus): RunState {
   return { ...run, stage: status.stage, track: trackFor(status) };
 }
 
-// what the analysis found, the first offset edit remembers it as its old value
-function autoOffset(report: TimingReport | null): number | null {
-  if (report === null) return null;
-  const first = report.edits.find((e) => e.field === OFFSET_FIELD);
-  return first !== undefined && typeof first.old === "number" ? first.old : report.beat_offset_ms;
+// the job id lives in the url, so a reload or a shared tab reopens the same job
+function setUrlJob(jobId: string | null, push: boolean): void {
+  const search = searchWithJob(window.location.search, jobId);
+  if (search === window.location.search) return;
+  const url = `${window.location.pathname}${search}${window.location.hash}`;
+  if (push) window.history.pushState(null, "", url);
+  else window.history.replaceState(null, "", url);
 }
 
 function StarMark() {
@@ -79,19 +87,29 @@ export function App() {
   const [health, setHealth] = useState<Health>({ kind: "loading" });
   const [file, setFile] = useState<File | null>(null);
   const [run, setRun] = useState<RunState>(IDLE);
+  // what the server has, edits only ever come back from it
   const [report, setReport] = useState<TimingReport | null>(null);
   const [beats, setBeats] = useState<BeatsFile | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  // the offset on screen while it's being adjusted, null once the server has it
-  const [draft, setDraft] = useState<number | null>(null);
+  // the anchor on screen while it's being nudged, null once the server has it
+  const [draft, setDraft] = useState<AnchorDraft | null>(null);
+  const [selected, setSelected] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "saved" });
+  // a split or merge is out, segment indices are about to change under the controls
+  const [reshaping, setReshaping] = useState(false);
+  const [jobs, setJobs] = useState<JobSummary[] | null>(null);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  // earlier jobs for the file just picked, the upload waits until one is chosen
+  const [matches, setMatches] = useState<JobSummary[] | null>(null);
   const runAbort = useRef<AbortController | null>(null);
-  const saver = useRef<OffsetSaver | null>(null);
+  const saver = useRef<EditSaver | null>(null);
   // key repeat fires faster than renders land, so nudges read these instead of state
   const reportRef = useRef<TimingReport | null>(null);
-  const draftRef = useRef<number | null>(null);
+  const draftRef = useRef<AnchorDraft | null>(null);
+  const selectedRef = useRef(0);
   reportRef.current = report;
   draftRef.current = draft;
+  selectedRef.current = selected;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -104,34 +122,49 @@ export function App() {
     return () => controller.abort();
   }, []);
 
+  const refreshJobs = useCallback(() => {
+    listJobs().then(
+      (list) => {
+        setJobs(list);
+        setJobsError(null);
+      },
+      (err: unknown) => setJobsError(offlineOr(err, (detail) => `job list failed — ${detail}`)),
+    );
+  }, []);
+  useEffect(refreshJobs, [refreshJobs]);
+
   // unmount stops the upload and the polling loop together
   useEffect(() => () => runAbort.current?.abort(), []);
 
   useEffect(() => ensureJapaneseFont(file?.name), [file]);
   useEffect(() => ensureJapaneseFont(report?.source.filename), [report?.source.filename]);
 
+  // a merge or a fresh report can leave the selection past the end
+  const segmentCount = report?.tempo_map.length ?? 0;
+  useEffect(() => {
+    if (segmentCount > 0 && selected >= segmentCount) setSelected(segmentCount - 1);
+  }, [segmentCount, selected]);
+
   const hasReport = report !== null;
   useEffect(() => {
-    const current = reportRef.current;
-    if (jobId === null || current === null) return;
-    const next = new OffsetSaver({
-      saved: current.beat_offset_ms,
-      send: async (value) => {
-        const before = reportRef.current;
-        // the edit shows up straight away, the server's copy replaces it when the patch returns
-        if (before !== null) setReport(withOffsetEdit(before, value, new Date()));
+    if (jobId === null || reportRef.current === null) return;
+    const next = new EditSaver({
+      send: async (op) => {
         try {
-          return await patchOffset(jobId, value);
+          return await patchTempo(jobId, op);
         } catch (err) {
-          if (before !== null) setReport(before);
           throw err instanceof ApiError && err.offline ? new Error("backend offline") : err;
         }
       },
       onSaved: (saved) => {
         setReport(saved);
-        setDraft((d) => (d === saved.beat_offset_ms ? null : d));
+        setDraft((d) => (d !== null && saved.tempo_map[d.segment]?.anchor_ms === d.anchorMs ? null : d));
       },
-      onState: setSaveState,
+      onState: (state) => {
+        setSaveState(state);
+        if (state.kind === "saved" || state.kind === "failed") setReshaping(false);
+      },
+      savedAnchor: (segment) => reportRef.current?.tempo_map[segment]?.anchor_ms ?? null,
     });
     saver.current = next;
     setSaveState({ kind: "saved" });
@@ -146,88 +179,186 @@ export function App() {
     setBeats(null);
     setJobId(null);
     setDraft(null);
+    setSelected(0);
+    setReshaping(false);
   }, []);
 
   const nudge = useCallback((steps: number) => {
-    const base = draftRef.current ?? reportRef.current?.beat_offset_ms ?? null;
-    if (base === null) return;
-    const next = nudged(base, steps);
-    draftRef.current = next;
-    setDraft(next);
-    saver.current?.push(next);
+    const current = reportRef.current;
+    const segment = selectedRef.current;
+    const anchor = current?.tempo_map[segment]?.anchor_ms;
+    if (anchor === undefined) return;
+    const d = draftRef.current;
+    const next = nudged(d !== null && d.segment === segment ? d.anchorMs : anchor, steps);
+    const nextDraft = { segment, anchorMs: next };
+    draftRef.current = nextDraft;
+    setDraft(nextDraft);
+    saver.current?.nudgeAnchor(segment, next);
   }, []);
 
-  const retrySave = useCallback(() => void saver.current?.flush(), []);
+  const edit = useCallback((op: TempoEditOp) => {
+    const current = reportRef.current;
+    if (current === null || saver.current === null) return;
+    if (op.op === "split" || op.op === "merge") {
+      setReshaping(true);
+      // keep the selection on the segment the edit was about once the indices move
+      setSelected(op.op === "split" ? segmentAt(current.tempo_map, op.at_ms) + 1 : op.segment);
+    }
+    void saver.current.submit(op);
+  }, []);
+
+  const retrySave = useCallback(() => void saver.current?.retry(), []);
+
+  // waits for a job to finish and puts its report on screen, for uploads, reopens and re-analysis
+  const followJob = useCallback(
+    async (id: string, signal: AbortSignal) => {
+      try {
+        const last = await pollJob(() => fetchJobStatus(id, signal), {
+          intervalMs: 1000,
+          signal,
+          onUpdate: (status) => setRun((r) => applyStatus(r, status)),
+        });
+        // applyStatus already put the failure on screen
+        if (last.status === "failed") return;
+
+        const next = await fetchReport(id, signal);
+        // the grid still draws without the beats file, it just can't tell the bar length
+        const nextBeats = await fetchBeats(id, signal).catch((err: unknown) => {
+          if (isAbortError(err)) throw err;
+          return null;
+        });
+        setReport(next);
+        setBeats(nextBeats);
+        setDraft(null);
+        setJobId(id);
+        setRun((r) => ({ ...r, busy: false }));
+      } catch (err) {
+        // aborted means something else took over, that run is no longer ours to touch
+        if (isAbortError(err)) return;
+        setRun((r) => ({
+          ...r,
+          busy: false,
+          errorText: offlineOr(err, (detail) => detail),
+          // cap at 6 so a failed report fetch lands on the done pill, not past the end
+          track: { finished: Math.min(r.track.finished, 6), at: "failed" },
+        }));
+      } finally {
+        refreshJobs();
+      }
+    },
+    [refreshJobs],
+  );
+
+  const takeOver = useCallback((): AbortSignal => {
+    runAbort.current?.abort();
+    const controller = new AbortController();
+    runAbort.current = controller;
+    return controller.signal;
+  }, []);
+
+  const openJob = useCallback(
+    (id: string, push: boolean) => {
+      const signal = takeOver();
+      setMatches(null);
+      resetResult();
+      setUrlJob(id, push);
+      setRun({ ...IDLE, busy: true, track: { finished: 1, at: "waiting" } });
+      void followJob(id, signal);
+    },
+    [takeOver, resetResult, followJob],
+  );
+
+  // a reload or back/forward lands on whatever job the url names
+  useEffect(() => {
+    const fromUrl = () => {
+      const id = jobIdFromSearch(window.location.search);
+      if (id !== null) openJob(id, false);
+      else {
+        runAbort.current?.abort();
+        resetResult();
+        setRun(IDLE);
+      }
+    };
+    const initial = jobIdFromSearch(window.location.search);
+    if (initial !== null) openJob(initial, false);
+    window.addEventListener("popstate", fromUrl);
+    return () => window.removeEventListener("popstate", fromUrl);
+  }, [openJob, resetResult]);
 
   const choose = useCallback(
     (next: File) => {
       runAbort.current?.abort();
       runAbort.current = null;
       setFile(next);
+      setMatches(null);
       resetResult();
+      setUrlJob(null, true);
       setRun(IDLE);
     },
     [resetResult],
   );
 
-  const analyze = useCallback(async () => {
+  const upload = useCallback(async () => {
     if (file === null) return;
-
-    runAbort.current?.abort();
-    const controller = new AbortController();
-    runAbort.current = controller;
-    const { signal } = controller;
-
+    const signal = takeOver();
+    setMatches(null);
     resetResult();
     setRun({ ...IDLE, busy: true, progress: { fraction: 0, complete: false }, track: { finished: 0, at: "active" } });
 
-    // decides which message an error gets, upload errors read differently
-    let uploading = true;
-
+    let id: string;
     try {
-      const { job_id } = await uploadAudio(
+      const created = await uploadAudio(
         file,
         (fraction) => {
           if (!signal.aborted) setRun((r) => ({ ...r, progress: { fraction, complete: false } }));
         },
         signal,
       );
-      uploading = false;
-      setRun((r) => ({ ...r, progress: { fraction: 1, complete: true }, track: { finished: 1, at: "waiting" } }));
-
-      const last = await pollJob(() => fetchJobStatus(job_id, signal), {
-        intervalMs: 1000,
-        signal,
-        onUpdate: (status) => setRun((r) => applyStatus(r, status)),
-      });
-      // applyStatus already put the failure on screen
-      if (last.status === "failed") return;
-
-      const next = await fetchReport(job_id, signal);
-      // the grid still draws without the beats file, it just can't tell the bar length
-      const nextBeats = await fetchBeats(job_id, signal).catch((err: unknown) => {
-        if (isAbortError(err)) throw err;
-        return null;
-      });
-      setReport(next);
-      setBeats(nextBeats);
-      setJobId(job_id);
-      setRun((r) => ({ ...r, busy: false }));
+      id = created.job_id;
     } catch (err) {
-      // aborted means a new file or an unmount took over, that run is no longer ours to touch
       if (isAbortError(err)) return;
-      const errorText = uploading
-        ? offlineOr(err, (detail) => `upload rejected — ${detail}`)
-        : offlineOr(err, (detail) => detail);
       setRun((r) => ({
         ...r,
         busy: false,
-        errorText,
-        // cap at 6 so a failed report fetch lands on the done pill, not past the end
-        track: { finished: Math.min(r.track.finished, 6), at: "failed" },
+        errorText: offlineOr(err, (detail) => `upload rejected — ${detail}`),
+        track: { finished: 0, at: "failed" },
       }));
+      return;
     }
-  }, [file, resetResult]);
+    setUrlJob(id, true);
+    setRun((r) => ({ ...r, progress: { fraction: 1, complete: true }, track: { finished: 1, at: "waiting" } }));
+    await followJob(id, signal);
+  }, [file, takeOver, resetResult, followJob]);
+
+  const analyze = useCallback(async () => {
+    if (file === null) return;
+    // the same file analysed before has its edits in that job, offer it before starting over
+    const sha256 = await fileSha256(file).catch(() => null);
+    if (sha256 !== null) {
+      const earlier = await listJobs(sha256).catch(() => []);
+      if (earlier.length > 0) {
+        setMatches(earlier);
+        return;
+      }
+    }
+    await upload();
+  }, [file, upload]);
+
+  const reanalyze = useCallback(async () => {
+    if (jobId === null) return;
+    const id = jobId;
+    const signal = takeOver();
+    setRun({ ...IDLE, busy: true, track: { finished: 1, at: "waiting" } });
+    try {
+      await reanalyzeJob(id, signal);
+    } catch (err) {
+      if (isAbortError(err)) return;
+      setRun((r) => ({ ...r, busy: false, errorText: offlineOr(err, (detail) => `re-analysis refused — ${detail}`) }));
+      return;
+    }
+    resetResult();
+    await followJob(id, signal);
+  }, [jobId, takeOver, resetResult, followJob]);
 
   let statusText = "";
   if (run.errorText !== null) statusText = run.errorText;
@@ -247,10 +378,13 @@ export function App() {
         audioUrl={jobId === null ? null : audioUrl(jobId)}
         report={report}
         beats={beats}
-        offsetMs={draft ?? report?.beat_offset_ms ?? null}
-        autoOffsetMs={autoOffset(report)}
+        draft={draft}
+        selected={selected}
         saveState={saveState}
+        editable={!reshaping}
+        onSelect={setSelected}
         onNudge={nudge}
+        onEdit={edit}
         onRetry={retrySave}
       />
 
@@ -259,8 +393,22 @@ export function App() {
           <h2 className="section-label" id="source-label">
             source
           </h2>
-          <UploadPanel file={file} busy={run.busy} progress={run.progress} onChoose={choose} onAnalyze={analyze} />
+          <UploadPanel file={file} busy={run.busy} progress={run.progress} onChoose={choose} onAnalyze={() => void analyze()} />
+          {matches !== null && (
+            <ReopenPrompt matches={matches} busy={run.busy} onReopen={(id) => openJob(id, true)} onFresh={() => void upload()} />
+          )}
           <StageTrack position={run.track} message={statusText} />
+          {jobId !== null && report !== null && (
+            <div className="reanalyze">
+              <button type="button" className="btn btn--outline" disabled={run.busy} onClick={() => void reanalyze()}>
+                re-analyze
+              </button>
+              <span className="reanalyze__hint">manual segments and edits stay</span>
+            </div>
+          )}
+
+          <h2 className="section-label section-label--spaced">recent</h2>
+          <RecentJobs jobs={jobs} currentId={jobId} error={jobsError} onOpen={(id) => openJob(id, true)} />
         </section>
 
         <section className="column" aria-labelledby="report-label">
