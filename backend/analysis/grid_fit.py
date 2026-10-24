@@ -1,8 +1,9 @@
-"""Tempo fit: one straight line through the snapped beats.
+"""Tempo fit: one straight line through the snapped beats of one steady stretch.
 
-time_ms = offset_ms + period_ms * index, least squares over the trimmed region.
-The index is exact and the noise is all in the time, so time is regressed on
-index. Index 0 is the first downbeat, which makes the intercept beat_offset_ms.
+time_ms = offset_ms + period_ms * index, least squares. The index is exact and
+the noise is all in the time, so time is regressed on index. Index 0 is the
+first downbeat, which makes the intercept the tempo segment's anchor_ms.
+tempo_map.py decides where the steady stretches are.
 """
 
 from __future__ import annotations
