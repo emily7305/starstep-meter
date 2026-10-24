@@ -92,4 +92,36 @@ class Match(_Op):
     side: Literal["previous", "next"]
 
 
-TempoEdit = Annotated[SetAnchor | SetBpm | Split | Merge | Match, Field(discriminator="op")]
+class SetMeter(_Op):
+    # a meter set by hand, numerator over denominator, for one meter segment
+    op: Literal["set_meter"]
+    segment: _Index
+    numerator: Annotated[int, Field(strict=True, ge=1, le=32)]
+    denominator: Literal[1, 2, 4, 8, 16, 32, 64]
+
+
+class SplitMeter(_Op):
+    # a new meter segment from the beat nearest at_ms, bars restart there
+    op: Literal["split_meter"]
+    at_ms: _Ms
+
+
+class MergeMeter(_Op):
+    op: Literal["merge_meter"]
+    segment: _Index
+
+
+class ApplySuggestion(_Op):
+    op: Literal["apply_suggestion"]
+    suggestion: _Index
+
+
+class DismissSuggestion(_Op):
+    op: Literal["dismiss_suggestion"]
+    suggestion: _Index
+
+
+TempoEdit = Annotated[
+    SetAnchor | SetBpm | Split | Merge | Match | SetMeter | SplitMeter | MergeMeter | ApplySuggestion | DismissSuggestion,
+    Field(discriminator="op"),
+]
