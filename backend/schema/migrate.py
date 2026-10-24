@@ -1,0 +1,48 @@
+"""Bring a stored report or beats file from an older schema up to the current one.
+
+Works on the parsed json before validation. Only 1.1 can be upgraded, 1.0
+reports have no codec or decoder padding and those can only come from the
+original file, so they still need a fresh upload.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+
+def upgrade_report(data: Any) -> Any:
+    """1.1 -> 2.0: beat_offset_ms becomes the first segment's anchor, segments get an end.
+
+    The edit log stays as it was, entries for beat_offset_ms describe what is now
+    tempo_map/0/anchor_ms. Anything that isn't a 1.1 report comes back untouched and
+    fails validation as usual.
+    """
+    if not isinstance(data, dict) or data.get("schema_version") != "1.1":
+        return data
+    out = dict(data)
+    offset = out.pop("beat_offset_ms", None)
+    trim = out.get("trim") or {}
+    duration = (out.get("source") or {}).get("duration_ms")
+    old_map = list(out.get("tempo_map") or [])
+    tempo_map = []
+    for i, seg in enumerate(old_map):
+        seg = dict(seg)
+        if i + 1 < len(old_map):
+            seg["end_ms"] = old_map[i + 1]["start_ms"]
+        else:
+            # a 1.1 report always had one segment from the trim start, so it ends at the trim end
+            end = trim.get("end_ms")
+            seg["end_ms"] = end if end is not None and end > seg["start_ms"] else duration
+        # later segments never existed in 1.1 in practice, their start is the only phase there is
+        seg["anchor_ms"] = offset if i == 0 and offset is not None else seg["start_ms"]
+        tempo_map.append(seg)
+    out["tempo_map"] = tempo_map
+    out["schema_version"] = "2.0"
+    return out
+
+
+def upgrade_beats(data: Any) -> Any:
+    """1.1 -> 2.0: there was no octave check yet, so nothing was doubled or halved."""
+    if not isinstance(data, dict) or data.get("schema_version") != "1.1":
+        return data
+    return {**data, "schema_version": "2.0", "octave": "kept"}

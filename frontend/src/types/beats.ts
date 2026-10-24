@@ -4,11 +4,11 @@ export type Bar = number;
 export type BeatInBar = number;
 export type IsDownbeat = boolean;
 /**
- * beat time as the tracker reported it, before onset snap
+ * beat time as the tracker reported it, before bias correction and onset snap. halfway between two tracker beats when the octave check doubled the tempo
  */
 export type RawTimeMs = number;
 /**
- * time_ms minus the fitted grid at this beat
+ * time_ms minus its tempo segment's fitted grid at this beat
  */
 export type ResidualMs = number;
 /**
@@ -16,7 +16,11 @@ export type ResidualMs = number;
  */
 export type TimeMs = number;
 export type Beats = Beat[];
-export type SchemaVersion = "1.1";
+/**
+ * what the octave check did to the tracker's tempo, mixed when it differs between tempo segments, see docs/decisions.md
+ */
+export type Octave = "kept" | "doubled" | "halved" | "mixed";
+export type SchemaVersion = "2.0";
 /**
  * same file as the report it belongs to
  */
@@ -25,6 +29,7 @@ export type Tracker = "madmom" | "librosa";
 
 export interface BeatsFile {
   beats: Beats;
+  octave: Octave;
   schema_version: SchemaVersion;
   sha256: Sha256;
   tracker: Tracker;

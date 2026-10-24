@@ -32,10 +32,9 @@ def full_report() -> TimingReport:
             decoder_padding_samples=1105,
         ),
         trim=Trim(start_ms=1234.5, end_ms=210000.25),
-        beat_offset_ms=-12.75,
         tempo_map=[
-            TempoSegment(start_ms=1234.5, bpm=174.0123, confidence=0.93, source="auto"),
-            TempoSegment(start_ms=90000.0, bpm=87.5, confidence=None, source="manual"),
+            TempoSegment(start_ms=1234.5, end_ms=90000.0, bpm=174.0123, anchor_ms=-12.75, confidence=0.93, source="auto"),
+            TempoSegment(start_ms=90000.0, end_ms=210000.25, bpm=87.5, anchor_ms=90000.0, confidence=None, source="manual"),
         ],
         meter_map=[MeterSegment(start_bar=0, numerator=7, denominator=8, confidence=0.5, source="auto")],
         sections=[Section(label="drop", start_ms=20000.0, end_ms=60000.5, source="manual")],
@@ -67,8 +66,7 @@ def minimal_report() -> TimingReport:
             filename="click.wav", sha256=SHA, duration_ms=22000.0, sample_rate=44100, codec="pcm_f32le", decoder_padding_samples=0
         ),
         trim=Trim(start_ms=2000.0, end_ms=21520.0),
-        beat_offset_ms=None,
-        tempo_map=[TempoSegment(start_ms=2000.0, bpm=120.0, confidence=None, source="auto")],
+        tempo_map=[TempoSegment(start_ms=2000.0, end_ms=21520.0, bpm=120.0, anchor_ms=2000.0, confidence=None, source="auto")],
     )
 
 
@@ -113,8 +111,7 @@ def test_minimal_report_round_trip_is_lossless():
 
     assert back == report
     assert back.model_dump_json(indent=2) == text
-    assert back.schema_version == "1.1"
-    assert back.beat_offset_ms is None
+    assert back.schema_version == "2.0"
     assert back.tempo_map[0].confidence is None
     assert (back.meter_map, back.sections, back.edits) == ([], [], [])
 
@@ -123,8 +120,7 @@ def test_minimal_report_writes_nulls_and_empty_lists_explicitly():
     # the committed schema marks these required, so the file has to carry them
     payload = json.loads(minimal_report().model_dump_json())
 
-    assert payload["schema_version"] == "1.1"
-    assert payload["beat_offset_ms"] is None
+    assert payload["schema_version"] == "2.0"
     assert payload["tempo_map"][0]["confidence"] is None
     assert payload["meter_map"] == []
     assert payload["sections"] == []
@@ -135,6 +131,7 @@ def test_beats_file_round_trip_is_lossless():
     beats = BeatsFile(
         sha256=SHA,
         tracker="madmom",
+        octave="doubled",
         beats=[
             Beat(time_ms=1234.5, raw_time_ms=1230.0, residual_ms=0.25, bar=0, beat_in_bar=1, is_downbeat=True),
             Beat(time_ms=1579.3, raw_time_ms=1570.0, residual_ms=-0.5, bar=0, beat_in_bar=2, is_downbeat=False),
@@ -148,14 +145,20 @@ def test_beats_file_round_trip_is_lossless():
 
     assert back == beats
     assert back.model_dump_json(indent=2) == text
-    assert back.schema_version == "1.1"
-    assert BeatsFile(sha256=SHA, tracker="librosa").beats == []
+    assert back.schema_version == "2.0"
+    assert BeatsFile(sha256=SHA, tracker="librosa", octave="kept").beats == []
 
 
 @pytest.mark.parametrize("tracker", ["aubio", "", "Madmom"])
 def test_beats_file_tracker_is_madmom_or_librosa(tracker):
     with pytest.raises(ValidationError, match="tracker"):
-        BeatsFile(sha256=SHA, tracker=tracker)
+        BeatsFile(sha256=SHA, tracker=tracker, octave="kept")
+
+
+@pytest.mark.parametrize("octave", ["tripled", "", "Kept"])
+def test_beats_file_octave_is_one_of_the_known_choices(octave):
+    with pytest.raises(ValidationError, match="octave"):
+        BeatsFile(sha256=SHA, tracker="madmom", octave=octave)
 
 
 def test_single_beat_round_trip():
@@ -305,14 +308,17 @@ def test_aware_timestamp_with_z_suffix_is_accepted():
 @pytest.mark.parametrize(
     "change",
     [
-        ("schema_version", "2.0"),
-        # 1.0 reports have no codec or padding, they don't load as 1.1
+        # 1.1 loads through the migration in storage, never straight into the model
+        ("schema_version", "1.1"),
         ("schema_version", "1.0"),
         ("source/decoder_padding_samples", -1),
         ("tempo_map/0/bpm", 0),
         ("tempo_map/0/bpm", -120.0),
         ("tempo_map/0/confidence", 1.5),
         ("tempo_map/0/start_ms", -1.0),
+        # ends before it starts
+        ("tempo_map/0/end_ms", 1000.0),
+        ("tempo_map/0/end_ms", 1234.5),
         ("source/sample_rate", 0),
         ("source/duration_ms", -1.0),
         ("meter_map/0/numerator", 0),
@@ -349,3 +355,40 @@ def test_out_of_range_values_are_rejected(change):
 def test_bad_beat_is_rejected(beat):
     with pytest.raises(ValidationError):
         Beat.model_validate(beat)
+
+
+# --- tempo map shape ---
+
+
+def test_tempo_map_needs_a_segment():
+    payload = valid_payload()
+    payload["tempo_map"] = []
+
+    with pytest.raises(ValidationError, match="tempo_map"):
+        TimingReport.model_validate(payload)
+
+
+@pytest.mark.parametrize("start", [89999.0, 90000.5], ids=["overlap", "gap"])
+def test_tempo_segments_have_to_touch(start):
+    payload = valid_payload()
+    payload["tempo_map"][1]["start_ms"] = start
+
+    with pytest.raises(ValidationError, match="contiguous"):
+        TimingReport.model_validate(payload)
+
+
+def test_tempo_segment_needs_an_anchor_and_an_end():
+    for missing in ("anchor_ms", "end_ms"):
+        payload = valid_payload()
+        del payload["tempo_map"][0][missing]
+
+        with pytest.raises(ValidationError, match=missing):
+            TimingReport.model_validate(payload)
+
+
+def test_beat_offset_ms_is_gone_from_the_report():
+    payload = valid_payload()
+    payload["beat_offset_ms"] = 12.0
+
+    with pytest.raises(ValidationError, match="beat_offset_ms"):
+        TimingReport.model_validate(payload)

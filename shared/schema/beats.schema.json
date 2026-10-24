@@ -18,13 +18,13 @@
           "type": "boolean"
         },
         "raw_time_ms": {
-          "description": "beat time as the tracker reported it, before onset snap",
+          "description": "beat time as the tracker reported it, before bias correction and onset snap. halfway between two tracker beats when the octave check doubled the tempo",
           "minimum": 0,
           "title": "Raw Time Ms",
           "type": "number"
         },
         "residual_ms": {
-          "description": "time_ms minus the fitted grid at this beat",
+          "description": "time_ms minus its tempo segment's fitted grid at this beat",
           "title": "Residual Ms",
           "type": "number"
         },
@@ -58,9 +58,20 @@
       "title": "Beats",
       "type": "array"
     },
+    "octave": {
+      "description": "what the octave check did to the tracker's tempo, mixed when it differs between tempo segments, see docs/decisions.md",
+      "enum": [
+        "kept",
+        "doubled",
+        "halved",
+        "mixed"
+      ],
+      "title": "Octave",
+      "type": "string"
+    },
     "schema_version": {
-      "const": "1.1",
-      "default": "1.1",
+      "const": "2.0",
+      "default": "2.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -83,6 +94,7 @@
     "schema_version",
     "sha256",
     "tracker",
+    "octave",
     "beats"
   ],
   "title": "BeatsFile",

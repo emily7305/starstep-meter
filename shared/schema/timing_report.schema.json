@@ -168,6 +168,11 @@
     "TempoSegment": {
       "additionalProperties": false,
       "properties": {
+        "anchor_ms": {
+          "description": "a downbeat on this segment's grid, which is anchor_ms + k * 60000 / bpm. the first segment's anchor is the song's first downbeat",
+          "title": "Anchor Ms",
+          "type": "number"
+        },
         "bpm": {
           "exclusiveMinimum": 0,
           "title": "Bpm",
@@ -187,6 +192,12 @@
           "default": null,
           "title": "Confidence"
         },
+        "end_ms": {
+          "description": "where it stops, the same value as the next segment's start_ms",
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
         "source": {
           "enum": [
             "auto",
@@ -196,6 +207,7 @@
           "type": "string"
         },
         "start_ms": {
+          "description": "where this tempo starts, the first segment starts at trim.start_ms",
           "minimum": 0,
           "title": "Start Ms",
           "type": "number"
@@ -203,7 +215,9 @@
       },
       "required": [
         "start_ms",
+        "end_ms",
         "bpm",
+        "anchor_ms",
         "confidence",
         "source"
       ],
@@ -238,18 +252,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
-    "beat_offset_ms": {
-      "anyOf": [
-        {
-          "type": "number"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Beat Offset Ms"
-    },
     "edits": {
       "items": {
         "$ref": "#/$defs/Edit"
@@ -265,8 +267,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "1.1",
-      "default": "1.1",
+      "const": "2.0",
+      "default": "2.0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -284,6 +286,7 @@
       "items": {
         "$ref": "#/$defs/TempoSegment"
       },
+      "minItems": 1,
       "title": "Tempo Map",
       "type": "array"
     },
@@ -295,7 +298,6 @@
     "schema_version",
     "source",
     "trim",
-    "beat_offset_ms",
     "tempo_map",
     "meter_map",
     "sections",

@@ -1,4 +1,4 @@
-"""Timing report schema v1.1.
+"""Timing report schema v2.0.
 
 All times are milliseconds from the first sample of the decoded audio
 (ffmpeg's output, before any trimming). Bars are 0-based, beats inside
@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "2.0"
 
 # every segment says where it came from, re-analysis only ever replaces "auto"
 SegmentSource = Literal["auto", "manual"]
@@ -47,10 +47,22 @@ class Trim(_Strict):
 
 
 class TempoSegment(_Strict):
-    start_ms: float = Field(ge=0)
+    start_ms: float = Field(ge=0, description="where this tempo starts, the first segment starts at trim.start_ms")
+    end_ms: float = Field(ge=0, description="where it stops, the same value as the next segment's start_ms")
     bpm: float = Field(gt=0)
+    # its own phase, so a manual segment carries its whole grid and re-analysis can leave it alone
+    anchor_ms: float = Field(
+        description="a downbeat on this segment's grid, which is anchor_ms + k * 60000 / bpm. "
+        "the first segment's anchor is the song's first downbeat"
+    )
     confidence: float | None = Field(default=None, ge=0, le=1)
     source: SegmentSource
+
+    @model_validator(mode="after")
+    def _ordered(self) -> TempoSegment:
+        if self.end_ms <= self.start_ms:
+            raise ValueError("tempo segment end_ms has to be after start_ms")
+        return self
 
 
 class MeterSegment(_Strict):
@@ -88,22 +100,33 @@ class Edit(_Strict):
 
 
 class TimingReport(_Strict):
-    schema_version: Literal["1.1"] = SCHEMA_VERSION
+    schema_version: Literal["2.0"] = SCHEMA_VERSION
     source: AudioSource
     trim: Trim
-    # first downbeat on the decoded timeline, no player compensation, see docs/decisions.md
-    beat_offset_ms: float | None = None
-    tempo_map: list[TempoSegment] = Field(default_factory=list)
+    # contiguous, the first downbeat is tempo_map[0].anchor_ms. no player compensation, see docs/decisions.md
+    tempo_map: list[TempoSegment] = Field(min_length=1)
     meter_map: list[MeterSegment] = Field(default_factory=list)
     sections: list[Section] = Field(default_factory=list)
     # append-only, one entry per manual change
     edits: list[Edit] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _contiguous(self) -> TimingReport:
+        # every moment between the first start and the last end has exactly one tempo
+        for prev, nxt in zip(self.tempo_map, self.tempo_map[1:]):
+            if nxt.start_ms != prev.end_ms:
+                raise ValueError("tempo segments have to be contiguous, each start_ms equal to the previous end_ms")
+        return self
+
 
 class Beat(_Strict):
     time_ms: float = Field(ge=0, description="beat time after onset snap")
-    raw_time_ms: float = Field(ge=0, description="beat time as the tracker reported it, before onset snap")
-    residual_ms: float = Field(description="time_ms minus the fitted grid at this beat")
+    raw_time_ms: float = Field(
+        ge=0,
+        description="beat time as the tracker reported it, before bias correction and onset snap. "
+        "halfway between two tracker beats when the octave check doubled the tempo",
+    )
+    residual_ms: float = Field(description="time_ms minus its tempo segment's fitted grid at this beat")
     bar: int = Field(ge=0)
     beat_in_bar: int = Field(ge=1)
     is_downbeat: bool
@@ -111,8 +134,12 @@ class Beat(_Strict):
 
 class BeatsFile(_Strict):
     # beats live in their own file next to report.json, a long song has thousands
-    schema_version: Literal["1.1"] = SCHEMA_VERSION
+    schema_version: Literal["2.0"] = SCHEMA_VERSION
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="same file as the report it belongs to")
     # librosa is the fallback when madmom isn't installed, it has no downbeats so bars are guessed
     tracker: Literal["madmom", "librosa"]
+    octave: Literal["kept", "doubled", "halved", "mixed"] = Field(
+        description="what the octave check did to the tracker's tempo, mixed when it differs between "
+        "tempo segments, see docs/decisions.md"
+    )
     beats: list[Beat] = Field(default_factory=list)

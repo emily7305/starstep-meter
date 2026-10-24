@@ -30,3 +30,15 @@ Milestone 2. Additive: new fields only, nothing renamed or removed.
 - `BeatsFile`: its JSON Schema is exported as `shared/schema/beats.schema.json` with the TypeScript type in `frontend/src/types/beats.ts`. It gains `tracker` (`madmom` or `librosa`), and each beat gains `raw_time_ms` (tracker output before onset snap) and `residual_ms` (snapped time minus the fitted grid).
 
 Both fields are required, so a 1.0 report doesn't validate as 1.1. Job folders from milestone 1 answer `GET /api/jobs/{id}/report` with a 409 that says to upload the file again. There's no migration, because the codec and padding can only come from the original file.
+
+## 2.0
+
+Milestone 3, tempo maps. Breaking.
+
+- `beat_offset_ms` is gone from the top level. Each tempo segment carries its own phase as `anchor_ms`, a downbeat on that segment's grid (the grid is `anchor_ms + k * 60000 / bpm`), so the first downbeat of the song is now `tempo_map[0].anchor_ms`. A manual segment has to hold its whole grid by itself, otherwise re-analysis couldn't leave it untouched. The reasoning is in `docs/decisions.md` (tempo map).
+- Each tempo segment gains `end_ms`. Segments have to be contiguous, every `start_ms` equal to the previous `end_ms`, and `end_ms` has to be after `start_ms`. `tempo_map` can't be empty.
+- `confidence` is null when a segment's bpm or anchor was set by hand. A segment that still has a confidence was fitted, by the analysis or by a refit after a split or merge.
+- `BeatsFile` gains `octave` (`kept`, `doubled`, `halved` or `mixed`), what the octave check did to the tracker's tempo. `raw_time_ms` of a beat the octave check inserted is halfway between two tracker beats, and `residual_ms` is against the beat's own tempo segment.
+- Edits for tempo changes use paths like `tempo_map/2/bpm`. Split and merge log the whole `tempo_map` before and after.
+
+1.1 reports and beats files are upgraded when they're read: `beat_offset_ms` becomes the first segment's `anchor_ms`, the segment ends at `trim.end_ms`, and the beats file gets `octave: "kept"`. The edit log is kept as it was, so old entries still say `beat_offset_ms`. They describe what is now `tempo_map/0/anchor_ms`. The upgraded report is written back as 2.0 the next time it's edited. 1.0 reports still answer with a 409.
