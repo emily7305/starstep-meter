@@ -28,6 +28,9 @@ MADMOM_BEATS_PER_BAR = (3, 4)
 PAD_S = 0.5
 # raw madmom beats come up to ~20 ms before the attack, so a beat just ahead of the trim start is real
 EDGE_TOLERANCE_MS = 50.0
+# median of madmom's raw beat minus the click onset, over 2480 beats in 48 synthetic tracks with
+# random bpm (70-300) and lead, so the 10 ms frame lands at a random phase. see docs/decisions.md
+MADMOM_BIAS_MS = -11.8
 # what the librosa fallback assumes, there's no meter detection yet
 FALLBACK_BEATS_PER_BAR = 4
 MIN_BEATS = 4
@@ -136,6 +139,12 @@ def track_beats(
         positions = np.arange(len(times), dtype=np.int64) % FALLBACK_BEATS_PER_BAR + 1
 
     return TrackedBeats(times_ms=times, positions=positions, tracker=use, downbeats_known=use == "madmom")
+
+
+def bias_correction_ms(tracker: Tracker) -> float:
+    # what gets added to a raw beat before snapping. librosa's late bias (+4 to +12 ms) is left alone,
+    # it already sits well inside the snap window
+    return -MADMOM_BIAS_MS if tracker == "madmom" else 0.0
 
 
 def bar_numbers(positions: np.ndarray) -> np.ndarray:

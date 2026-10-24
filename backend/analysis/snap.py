@@ -30,6 +30,7 @@ class SnapResult:
     # false where no strong onset was found and the raw beat was kept
     snapped: np.ndarray
     window_ms: float
+    shift_ms: float = 0.0
 
 
 def _fft_size(sample_rate: int) -> int:
@@ -73,27 +74,18 @@ def _interpolated(flux: np.ndarray, k: int) -> float:
     return float(0.5 * (a - c) / denom)
 
 
-def snap_to_onsets(
-    samples: np.ndarray,
-    sample_rate: int,
-    beat_times_ms: np.ndarray,
-    window_ms: float = DEFAULT_WINDOW_MS,
-) -> SnapResult:
-    if samples.ndim != 1:
-        raise ValueError("snap_to_onsets expects mono samples")
-    if window_ms <= 0:
-        raise ValueError("snap window must be positive")
-
-    beats = np.asarray(beat_times_ms, dtype=np.float64)
+def _window_peaks(
+    samples: np.ndarray, sample_rate: int, times_ms: np.ndarray, window_ms: float
+) -> tuple[list[tuple[np.ndarray, np.ndarray] | None], np.ndarray]:
+    # flux peaks within the window around each time: (strengths, peak times in samples) or None,
+    # plus the biggest peak per window, 0 where there's none
     n_fft = _fft_size(sample_rate)
     hop = max(1, n_fft // HOP_DIVISOR)
     half_window = int(round(window_ms / 1000.0 * sample_rate))
-
-    # two passes, the strength floor needs every window's biggest peak first
     found: list[tuple[np.ndarray, np.ndarray] | None] = []
-    biggest = np.zeros(len(beats))
-    for i, beat_ms in enumerate(beats):
-        center = int(round(beat_ms / 1000.0 * sample_rate))
+    biggest = np.zeros(len(times_ms))
+    for i, t_ms in enumerate(times_ms):
+        center = int(round(t_ms / 1000.0 * sample_rate))
         flux, times = _local_flux(samples, center, half_window, n_fft, hop)
         peaks = _peaks(flux)
         peaks = peaks[np.abs(times[peaks] - center) <= half_window]
@@ -103,6 +95,39 @@ def snap_to_onsets(
         peak_times = np.array([times[k] + _interpolated(flux, k) * hop for k in peaks])
         found.append((flux[peaks], peak_times))
         biggest[i] = flux[peaks].max()
+    return found, biggest
+
+
+def onset_strengths(
+    samples: np.ndarray, sample_rate: int, times_ms: np.ndarray, window_ms: float = DEFAULT_WINDOW_MS
+) -> np.ndarray:
+    """Biggest flux peak within window_ms of each time, 0 where there's no peak at all."""
+    if samples.ndim != 1:
+        raise ValueError("onset_strengths expects mono samples")
+    _, biggest = _window_peaks(samples, sample_rate, np.asarray(times_ms, dtype=np.float64), window_ms)
+    return biggest
+
+
+def snap_to_onsets(
+    samples: np.ndarray,
+    sample_rate: int,
+    beat_times_ms: np.ndarray,
+    window_ms: float = DEFAULT_WINDOW_MS,
+    shift_ms: float = 0.0,
+) -> SnapResult:
+    """Snap each beat onto the nearest strong onset within window_ms.
+
+    shift_ms is added to every beat first, it's how a tracker's known bias is taken out
+    before the search. A beat with nothing to snap to keeps the shifted time.
+    """
+    if samples.ndim != 1:
+        raise ValueError("snap_to_onsets expects mono samples")
+    if window_ms <= 0:
+        raise ValueError("snap window must be positive")
+
+    beats = np.asarray(beat_times_ms, dtype=np.float64) + shift_ms
+    # two passes, the strength floor needs every window's biggest peak first
+    found, biggest = _window_peaks(samples, sample_rate, beats, window_ms)
 
     with_peaks = biggest[biggest > 0]
     floor = MIN_STRENGTH * float(np.median(with_peaks)) if len(with_peaks) else np.inf
@@ -119,4 +144,4 @@ def snap_to_onsets(
         out[i] = nearest / sample_rate * 1000.0
         snapped[i] = True
 
-    return SnapResult(times_ms=out, snapped=snapped, window_ms=window_ms)
+    return SnapResult(times_ms=out, snapped=snapped, window_ms=window_ms, shift_ms=shift_ms)

@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 
-from backend.analysis.snap import PEAK_FRACTION, snap_to_onsets
+from backend.analysis.beats import MADMOM_BIAS_MS, bias_correction_ms
+from backend.analysis.snap import PEAK_FRACTION, onset_strengths, snap_to_onsets
 from tests.synth import ClickTrackSpec, _click, click_track
 
 # snapped beats land ~0.73 ms before the true onset, so 1.5 leaves room without hiding a real miss
@@ -110,3 +111,50 @@ def test_non_positive_window_is_refused(window_ms):
 def test_two_dimensional_samples_are_refused():
     with pytest.raises(ValueError, match="mono"):
         snap_to_onsets(np.zeros((2, SR), dtype=np.float32), SR, np.array([500.0]))
+
+
+# --- bias shift before the search ---
+
+
+@pytest.mark.parametrize("spec", CASES)
+def test_beats_18_to_25_ms_early_snap_once_the_madmom_bias_is_taken_out(spec):
+    track = click_track(spec)
+    early = np.random.default_rng(5).uniform(18.0, 25.0, len(track.onsets_ms))
+    raw = track.onsets_ms - early
+
+    result = snap_to_onsets(track.samples, track.sample_rate, raw, shift_ms=bias_correction_ms("madmom"))
+
+    err = np.abs(result.times_ms - track.onsets_ms)
+    assert result.snapped.all()
+    assert err.max() <= SNAP_TOLERANCE_MS, f"worst beat off by {err.max():.3f} ms"
+    assert result.shift_ms == -MADMOM_BIAS_MS
+
+
+def test_without_the_shift_beats_past_20_ms_are_out_of_reach():
+    # the reason for the shift, the window stays at 20 ms and a 21-25 ms early beat can't get there
+    track = click_track(ClickTrackSpec())
+    raw = track.onsets_ms - np.linspace(21.0, 25.0, len(track.onsets_ms))
+
+    result = snap_to_onsets(track.samples, track.sample_rate, raw)
+
+    assert not result.snapped.any()
+
+
+def test_a_shifted_beat_with_nothing_to_snap_to_keeps_the_shifted_time():
+    track = click_track(ClickTrackSpec(lead_silence_s=2.0))
+    beats = np.concatenate(([1000.0], track.onsets_ms[:8] - 12.0))
+
+    result = snap_to_onsets(track.samples, track.sample_rate, beats, shift_ms=11.8)
+
+    assert not result.snapped[0]
+    assert result.times_ms[0] == pytest.approx(1011.8)
+    assert result.snapped[1:].all()
+
+
+def test_onset_strengths_are_zero_in_silence_and_high_on_clicks():
+    track = click_track(ClickTrackSpec(lead_silence_s=2.0))
+
+    strengths = onset_strengths(track.samples, track.sample_rate, np.array([1000.0, *track.onsets_ms[:4]]))
+
+    assert strengths[0] == 0.0
+    assert (strengths[1:] > 0).all()
