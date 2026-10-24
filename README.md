@@ -6,7 +6,9 @@ Beat, tempo, and meter analysis for rhythm game charting. Personal project.
 
 Milestone 3 runs on your own machine, and adds tempo maps to the beat tracking of milestone 2. You upload a song in the browser, and the backend decodes it with ffmpeg, finds where the music starts and ends (the trim), and tracks beats and downbeats with madmom, or with a librosa fallback when madmom isn't installed. A check for half or double tempo runs on the tracked beats, and every tempo path searches 60 to 320 bpm by default. Each tracked beat is snapped onto the nearest onset, and the snapped beats are split into tempo segments. Each segment gets its own bpm and its own anchor, the time of its first downbeat, from a linear fit through its beats, so the first downbeat of the song is `tempo_map[0].anchor_ms`. The beats are written to their own file next to the report. The browser shows a waveform timeline with the segments as bands and the beat grid on them, and a zoomed view for checking the grid against an attack. A segment can be split, merged with a neighbour, given an exact bpm, doubled or halved, and have its anchor moved in 1 ms steps, with every edit recorded in the report's `edits`. A job reopens from the url or from the recent list, and picking a file that was analyzed before offers to reopen it. The report also records the codec and the decoder padding of the source file. A CLI does the same analysis for one file.
 
-It does not put meter in the report, find sections, make a click track, or export with per-player offset compensation yet; those are later milestones. The tempo map is only tuned on synthetic tracks so far, so on a real song check the bands and fix them by hand where they are wrong. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports (when they exist) contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
+Milestone 4 adds meter and notation suggestions. The analysis infers the meter (beats per bar) of each tempo segment from madmom's downbeats, and the accents get a say where they are clearly stronger than the other beats of a bar. Bar lines are drawn from the meter map, and a meter can be set by hand per region. It also suggests where a chart may write the pulse at half or twice the tempo (a half or double time feel, read from the kick and snare bands), and where a first or last stretch of the song may be its neighbour's tempo (a fold). Suggestions are never applied automatically. Each one can be applied, as one edit (a half or double time feel leaves every grid line where it is), or dismissed, and both stay through re-analysis.
+
+It does not find sections, make a click track, or export with per-player offset compensation yet; those are later milestones. The tempo map, the meter and the suggestions are only tuned on synthetic tracks so far, so on a real song check the bands, the bar lines and the suggestions, and fix them by hand where they are wrong. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports (when they exist) contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
 
 ## Dependencies and licenses
 
@@ -196,6 +198,12 @@ If a re-analysis fails, the last good report stays on screen with a note saying 
 
 The url carries the job id (`?job=...`), so a reload reopens the job with its edits. The source column lists recent jobs, newest first, and any of them can be reopened. Picking a file that was analyzed before and pressing analyze offers to reopen it first, with "reopen" for each earlier job and "analyze again as a new job" to start over. The "re-analyze" button runs the analysis again on the stored upload and keeps the manual segments and the edit log.
 
+Under the zoomed view is the meter panel. It acts on the meter segment at the beat in the zoomed view, and its heading says which one, like "meter 1 of 2". The numerator and denominator fields with the "set meter" button set that segment's meter by hand. "split meter here" starts a new meter at the beat in the zoomed view, and the bars restart there. "merge ←" and "merge →" merge the segment with the one before it or after it. A bar is numerator × 4 / denominator beats of the grid, so 7/8 is three and a half beats. The bar lines on the timeline come from the meter map.
+
+Under the detail strip is the "notation suggestions" list. Each open suggestion shows its kind ("half time", "double time" or "fold into neighbour"), its start and end, the suggested bpm with the bpm it was made on, and a score from 0 to 1. Selecting one moves the playhead and the zoomed view to its start and highlights its mark on the timeline. "apply" and "dismiss" decide it, and the decided ones are counted in one line, like `1 applied, 2 dismissed`. The thin marks along the top of the timeline, under the bar numbers, are the open suggestions.
+
+Applying a half or double time suggestion splits the segment at both ends of the span, on bar lines, and sets the span to half or twice its bpm, so the bars there are twice or half as long, and every grid line stays where it is. A fold puts the stretch on its neighbour's grid, the way "match previous" and "match next" do. Applying is one edit, and dismissing only logs the status.
+
 ### Settings
 
 Settings come from environment variables. Set them in the terminal before you start the backend. In PowerShell:
@@ -230,11 +238,11 @@ The CLI runs the same analysis on one file and prints the report JSON:
 python -m backend.analysis.cli path\to\song.mp3 -v
 ```
 
-With `-v`, stage progress and debug numbers go to stderr, including the `beats` line (the tracker and how many beats it found), the `octave` lines (one per rough tempo segment: what the half or double check did, the tracked bpm, and the midpoint and parity ratios it decides on), the `snap` line (how many beats snapped to an onset, the bias shift applied to madmom's beats before the search, and the median move) and the `tempo` line (the number of segments, the residual rms, the outliers and the confidence), followed by one `[i]` line per segment with its start and end, bpm, anchor and beat count. `--threshold-db` sets the trim threshold. `--tracker auto|madmom|librosa` picks the beat tracker. `auto`, the default, uses madmom when it's installed and falls back to librosa otherwise, `madmom` is an error if madmom is missing or fails to import, and `librosa` skips madmom. `--snap-window-ms` sets how far onset snap may move a tracked beat, 20 ms by default. `--min-bpm` and `--max-bpm` set the slowest and fastest tempo any tempo path considers, 60 and 320 by default. `--beats PATH` also writes the beats file to PATH, and the report still goes to stdout. `--work-dir` keeps the copied original and the decoded WAV in a folder you choose instead of a temp dir.
+With `-v`, stage progress and debug numbers go to stderr, including the `beats` line (the tracker and how many beats it found), the `octave` lines (one per rough tempo segment: what the half or double check did, the tracked bpm, and the midpoint and parity ratios it decides on), the `snap` line (how many beats snapped to an onset, the bias shift applied to madmom's beats before the search, and the median move) and the `tempo` line (the number of segments, the residual rms, the outliers and the confidence), followed by one `[i]` line per segment with its start and end, bpm, anchor and beat count. `-v` also prints a `meter` line (how many meter segments and how many grid positions were read) with one `[i]` line per meter segment (start, end, numerator/denominator and confidence), and one `suggest` line per suggestion (kind, start and end, the suggested bpm and the bpm it was made on, and the score). `--threshold-db` sets the trim threshold. `--tracker auto|madmom|librosa` picks the beat tracker. `auto`, the default, uses madmom when it's installed and falls back to librosa otherwise, `madmom` is an error if madmom is missing or fails to import, and `librosa` skips madmom. `--snap-window-ms` sets how far onset snap may move a tracked beat, 20 ms by default. `--min-bpm` and `--max-bpm` set the slowest and fastest tempo any tempo path considers, 60 and 320 by default. `--beats PATH` also writes the beats file to PATH, and the report still goes to stdout. `--work-dir` keeps the copied original and the decoded WAV in a folder you choose instead of a temp dir.
 
 ### Storage
 
-Each job keeps a copy of the upload, the decoded WAV, and `beats.json` (every tracked beat, with its raw and snapped time) under `data/jobs/<job id>/`. The decoded WAV is mono float32, about 10 MB per minute at 44.1 kHz. Old job folders are not removed automatically yet, so delete them by hand. `data/` is git-ignored.
+Each job keeps a copy of the upload, the decoded WAV, and `beats.json` (every tracked beat, with its raw and snapped time) under `data/jobs/<job id>/`. `beats.json` also holds the band strengths (low, mid and high) at every grid line and half line. They are timing numbers only, and they let the suggestions be checked again without the audio. The decoded WAV is mono float32, about 10 MB per minute at 44.1 kHz. Old job folders are not removed automatically yet, so delete them by hand. `data/` is git-ignored.
 
 ## Real songs: eval_local.py
 
@@ -265,6 +273,7 @@ The columns:
 - `outliers` is the number of beats that were too far from their grid to count as fitting it.
 - `confidence` is the share of all beats within 10 ms of their grid, halved for the librosa fallback.
 - `ratio_merged` lists the felt sections kept on their segment's grid, like `3/4:44511-58724` (the ratio, then start and end in ms), and `offbeat_runs` the stretches where the tracker followed the off-beat, like `48664-52872`. Both are separated by spaces and empty when there are none.
+- `meter` lists the meter segments, like `4/4:97 7/4:27948` (the signature, then start in ms), and `notation_suggestions` the suggestions, like `half:97-37020:0.62` (the kind, start and end in ms, then the score). Both are separated by spaces and empty when there are none.
 - `beats`, `beats_snapped` and `beats_not_snapped` are how many beats the tracker found and how many did and did not find an onset inside the snap window.
 - `median_snap_move_ms` is the median distance in ms that a beat moved from the tracker's output to where it snapped, including the 11.8 ms bias shift for madmom. It is the real-song check of madmom's −11.8 ms bias. If the bias holds, the value comes out close to 11 ms (the shift, less the 0.7 ms or so by which snapped beats land before the attack), and a value far from that means the bias needs measuring again on real songs.
 - `error` is empty for a song that worked, and otherwise holds a one-line message.
@@ -280,9 +289,9 @@ python -m pytest
 python -m backend.schema.export_schema --check
 ```
 
-Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. The tempo map tests run on synthetic beat lists and click tracks with known change points and felt rhythm sections. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
+Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. The tempo map tests run on synthetic beat lists and click tracks with known change points and felt rhythm sections. The meter and notation tests run on click tracks with meter changes and on generated drum tracks with half and double time sections. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
 
-`tests/test_real_song.py` checks the tempo map on real songs' `beats.json` and `report.json`, one folder per song under `tests/real/` (for example `tests/real/endymion/`). That folder is git-ignored, it holds timing data only, and a song's tests skip when its folder is missing.
+`tests/test_real_song.py` checks the tempo map on real songs' `beats.json` and `report.json`, one folder per song under `tests/real/` (for example `tests/real/endymion/`). That folder is git-ignored, it holds timing data only, and a song's tests skip when its folder is missing. The test also runs the notation suggestions again from `beats.json`, and skips that part for a song whose beats file has no band strengths, which is any song analyzed before milestone 4. To refresh a song, analyze it again and copy `beats.json` and `report.json` from `data/jobs/<job id>/` into `tests/real/<song>/`.
 
 Frontend checks run from `frontend`:
 
@@ -293,7 +302,7 @@ npm run check:types
 npm run build
 ```
 
-The frontend tests cover the beat-to-pixel mapping, the tempo map grid, the edit queue and the job url helpers.
+The frontend tests cover the beat-to-pixel mapping, the tempo map grid with the bar lines from the meter map, the edit queue, the suggestion helpers and the job url helpers.
 
 When you change `backend/schema/models.py`:
 
@@ -449,6 +458,51 @@ python -m backend.analysis.cli offbeat-check.wav -v
 ```
 
 With madmom the CLI prints one segment at 260.0000 bpm with its anchor on the first click (about 552.4 ms), and an `off-beat` line under it at about 30437 to 36899 ms. madmom follows the off-beat clicks there and takes a beat or two to go over and to come back. In the UI that stretch is hatched on the timeline and listed under "off-beat runs" in the segment panel.
+
+Don't commit the generated audio.
+
+## Milestone 4 check
+
+The expected values below are for madmom.
+
+First a meter change, a 140 bpm track that is 4/4 and then has 7 beats to the bar:
+
+```bash
+python scripts/make_click_track.py meter-check.wav --bpm 140 --beats 148 --lead 0.52 --accent --meter 64:7
+python -m backend.analysis.cli meter-check.wav -v
+```
+
+`--meter 64:7` means click 64, counted from 0, is a downbeat and the bars from it on have 7 beats. The script prints the change at click 64, at 27948.571 ms.
+
+The CLI prints one tempo segment at 140.0000 bpm with its anchor at 519.274 ms, then `meter   2 segment(s)` with `[0] 519.546 -> 27947.849 ms, 4/4` and `[1] 27947.849 -> 63550.363 ms, 7/4`, both with confidence 1.00. Seven beats of the grid come out as 7/4. Whether the chart writes that as 7/8 at twice the bpm is a notation choice the audio can't make, so set it in the meter panel if it does.
+
+Then the UI check. Start the backend and the frontend as described in Running, upload `meter-check.wav`, and wait for the job to finish.
+
+1. The meter panel under the zoomed view reads "meter 1 of 2" and 4/4. Click the waveform past 28 s and it reads "meter 2 of 2" and 7/4.
+2. The bar lines on the timeline are every 4 clicks, and every 7 after the change.
+3. With "meter 2 of 2" in the panel, set 3/4 with "set meter". The edits list shows `meter_map/1/numerator` (7 → 3), plus `meter_map/1/confidence` and `meter_map/1/source` (auto → manual). "split meter here" on a beat in the zoomed view logs the whole `meter_map` before and after instead.
+4. Press "re-analyze". The manual meter stays.
+
+Next half and double time, on a drum track at 130 bpm:
+
+```bash
+python scripts/make_drum_track.py drums-check.wav --bpm 130 --section 16:8:half --section 32:8:double
+python -m backend.analysis.cli drums-check.wav -v
+```
+
+`--section 16:8:half` makes 8 bars from bar 16 a half time feel, and `--section 32:8:double` makes 8 bars from bar 32 a double time feel. The script prints the half section at bars 16 to 24 (30038.462 to 44807.692 ms, charted at 65.00 bpm) and the double one at bars 32 to 40 (59576.923 to 74346.154 ms, charted at 260.00 bpm).
+
+The CLI prints one tempo segment at 129.9990 bpm and two `suggest` lines: `suggest half 30039.226 -> 44808.575 ms, 64.9995 bpm from 129.9990, score 0.63` and `suggest double 59577.924 -> 74347.272 ms, 259.9979 bpm from 129.9990, score 0.56`.
+
+In the UI, upload `drums-check.wav` and wait for the job to finish.
+
+1. The notation suggestions list has a "half time" row and a "double time" row.
+2. Select the second one. The playhead moves to 59577.9 ms.
+3. Press "apply" on the half time one. The tempo map becomes 130.00, 65.00 and 130.00 bpm, with the middle one manual and the bars in it twice as long. The edits list gets a `tempo_map` entry and a `notation_suggestions/0/status` entry.
+4. Press "dismiss" on the other one. The edits list logs its status.
+5. Press "re-analyze". Neither suggestion comes back.
+
+The suggestions are tuned on these synthetic drums only, so run `scripts/eval_local.py` on your songs again and compare the `notation_suggestions` column with the charts. To let `tests/test_real_song.py` check MisoilePunch♪ (no half or double suggestions), YOUNITHM (half at the measures charted at 130) and ENDYMION, analyze each one again and copy its `beats.json` and `report.json` into `tests/real/<song>/` as before.
 
 Don't commit the generated audio.
 
