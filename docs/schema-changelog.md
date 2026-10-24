@@ -42,3 +42,13 @@ Milestone 3, tempo maps. Breaking.
 - Edits for tempo changes use paths like `tempo_map/2/bpm`. Split and merge log the whole `tempo_map` before and after.
 
 1.1 reports and beats files are upgraded when they're read: `beat_offset_ms` becomes the first segment's `anchor_ms`, the segment ends at `trim.end_ms`, and the beats file gets `octave: "kept"`. The edit log is kept as it was, so old entries still say `beat_offset_ms`. They describe what is now `tempo_map/0/anchor_ms`. The upgraded report is written back as 2.0 the next time it's edited. 1.0 reports still answer with a 409.
+
+## 2.1
+
+Milestone 3b, felt tempo sections. Additive, but a 2.0 reader rejects the new field since unknown fields aren't allowed, so the version moves.
+
+- Each tempo segment gains `ratio_merged`, a list of sections the analysis kept on the segment's grid although they fitted another tempo on their own: a dotted or triplet feel at 1/2, 2/3, 3/4, 4/3, 3/2 or 2 of the segment's bpm. Each has `start_ms`, `end_ms` (inside the segment), `bpm` (what it fitted to on its own), `ratio` (its bpm over the segment's, as a string like `3/4`) and `fit` (how well the segment's grid catches its beats against its own grid). Splitting at a section's `start_ms` and `end_ms` gives it back as its own segment. How the sections are found is in `docs/decisions.md` (tempo map on a real song).
+- A new tempo edit, `match`, joins a segment to its previous or next neighbour with the neighbour's grid. It's logged like split and merge, as the whole `tempo_map` before and after.
+- `BeatsFile` has no new fields. Its `schema_version` moves to 2.1 with the report's.
+
+2.0 reports and beats files are upgraded when they're read by changing the version only, every segment gets an empty `ratio_merged`. 1.1 files go through 2.0 first, as before.
