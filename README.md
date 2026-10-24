@@ -414,6 +414,7 @@ Don't commit the generated audio.
 
 ## Docs
 
+- `docs/setup-guide.md`: the install and running steps one at a time, from a machine with nothing installed.
 - `docs/architecture.md`: how the pieces fit together.
 - `docs/decisions.md`: thresholds, measured accuracy, and what broke.
 - `docs/schema-changelog.md`: one line per schema change.
