@@ -42,6 +42,40 @@ So ffmpeg's timeline matches the original PCM. A game that decodes the same mp3 
 
 ffmpeg's aac also leaves padding at the end (+663 samples at 44.1 kHz, +32 at 48 kHz), so `duration_ms` for m4a is a little long. Trim ignores that because the padding is silent.
 
+Settled in milestone 2, see the next section.
+
+## beat offset convention (milestone 2)
+
+Decided before writing the beat code. The main target is Sonolus.
+
+`beat_offset_ms` is the time of the first downbeat, in milliseconds, measured on the ffmpeg-decoded timeline from the first sample of the decoded audio. It is not relative to `trim.start_ms`. It's the same timeline every other time in the report uses, so the waveform, the trim points and the grid all line up without conversions.
+
+The value is the fitted time of the first downbeat, which is the intercept of the beat grid regression at the first downbeat's index, not the raw tracker output for that beat. If there are pickup beats before the first downbeat, the offset still points at the downbeat, not at the pickup.
+
+No compensation for any particular player goes into `beat_offset_ms`. A game whose decoder ignores the gapless info plays the audio late by the decoder padding (25 ms for a typical mp3), but that correction depends on the player, so it belongs in export (milestone 5). The report only records what export needs to make that call:
+
+- `source.codec`: the codec name ffprobe reports for the first audio stream (`mp3`, `aac`, `vorbis`, `opus`, `flac`, `pcm_s16le`, ...).
+- `source.decoder_padding_samples`: how many samples a decoder that ignores gapless info would play before ffmpeg's first sample. It's in samples at the decoded sample rate, and 0 when it doesn't apply.
+
+A target that wants the offset inside the first bar (some chart formats do) can wrap it modulo one bar length at export. The stored value stays the real time of the first downbeat, so nothing is lost and the wrap can always be redone.
+
+How the padding is read: ffprobe on the first two packets of the first audio stream (`-show_packets -read_intervals %+#2`). ffmpeg drops the leading samples in one of two ways. It either puts a `Skip Samples` side data entry on the first packet, or it gives the first packet a negative pts, and some codecs do both. The padding is the larger of `skip_samples` and the negative first pts converted to samples. Measured on the synthetic click track against an ffmpeg decode with `-flags2 +skip_manual` (plus `-ignore_editlist 1` for m4a), which stands in for a decoder that ignores the gapless info:
+
+| file | first packet | `decoder_padding_samples` | naive decode lag (cross-correlation) |
+| --- | --- | --- | --- |
+| mp3, libmp3lame 192k with LAME header | pts 0, skip 1105 | 1105 | 1105 |
+| mp3 with `-write_xing 0` | pts 0, no skip | 0 | 0 |
+| m4a, ffmpeg aac 192k | pts -1024, skip 1024 | 1024 | 1024 |
+| ogg, libvorbis q5 | pts -128, no skip | 128 | 128 |
+| ogg, libopus 128k at 48 kHz | pts -312, skip 312 | 312 | 312 |
+| flac, wav | pts 0, no skip | 0 | 0 |
+
+An mp3 without a LAME header reports 0 even though it does carry encoder delay. ffmpeg can't see the delay either, so ffmpeg and a naive decoder agree, and the beat offset measured on ffmpeg's timeline is already what that player hears. The padding field is about the gap between ffmpeg and a naive decoder, not about the encoder delay itself.
+
+The tempo map's first segment keeps `start_ms = trim.start_ms` as in milestone 1. The grid phase comes only from `beat_offset_ms`, so editing the offset never has to touch the tempo map, and the two edits don't get coupled.
+
+Bars in the beats file: the first downbeat starts a bar. Beats before it (a pickup) are bar 0, as a pickup bar usually is in a score, and then the first downbeat is bar 1. Without a pickup, the first downbeat is bar 0.
+
 ## trim
 
 RMS on 20 ms windows with a 5 ms hop. The threshold is -60 dB relative to the loudest window, not an absolute dBFS value, so quiet and loud masters trim the same way. The threshold is configurable (`--threshold-db` on the CLI, `STARSTEP_TRIM_THRESHOLD_DB` for the server).
