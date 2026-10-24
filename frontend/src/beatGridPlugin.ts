@@ -14,12 +14,20 @@ export interface BeatGridColors {
   band: string;
   selected: string;
   bandLabel: string;
+  offbeat: string;
+}
+
+// a stretch where the tracker followed the off-beat, shaded so it can be found and listened to
+export interface OffbeatShade {
+  startMs: number;
+  endMs: number;
 }
 
 export interface BeatGridOptions {
   grid: TempoGrid | null;
   bands: Band[];
   selected: number | null;
+  offbeat: OffbeatShade[];
   colors: BeatGridColors;
   labelFont: string;
 }
@@ -29,6 +37,8 @@ const MIN_BEAT_SPACING_PX = 5;
 const MIN_LABEL_SPACING_PX = 36;
 // the bpm labels sit along the bottom, the bar numbers along the top
 const BAND_LABEL_H_PX = 16;
+// hatching instead of a tint, the bands already use tints
+const HATCH_SPACING_PX = 7;
 
 export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions> {
   private canvas: HTMLCanvasElement | null = null;
@@ -64,10 +74,11 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
     redraw();
   }
 
-  setMap(grid: TempoGrid | null, bands: Band[], selected: number | null): void {
+  setMap(grid: TempoGrid | null, bands: Band[], selected: number | null, offbeat: OffbeatShade[]): void {
     this.options.grid = grid;
     this.options.bands = bands;
     this.options.selected = selected;
+    this.options.offbeat = offbeat;
     this.schedule();
   }
 
@@ -120,6 +131,33 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
     }
   }
 
+  private drawOffbeat(ctx: CanvasRenderingContext2D, view: View, heightPx: number): void {
+    const { offbeat, colors } = this.options;
+    const { durationMs, totalWidthPx, scrollLeftPx, viewWidthPx } = view;
+    const bottom = heightPx - BAND_LABEL_H_PX;
+    ctx.strokeStyle = colors.offbeat;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.22;
+    for (const run of offbeat) {
+      const left = timeToX(run.startMs, durationMs, totalWidthPx) - scrollLeftPx;
+      const right = timeToX(run.endMs, durationMs, totalWidthPx) - scrollLeftPx;
+      if (right < 0 || left > viewWidthPx) continue;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(left, 0, Math.max(right - left, 1), bottom);
+      ctx.clip();
+      ctx.beginPath();
+      // diagonals from bottom left to top right, anchored to the run so they don't crawl on scroll
+      for (let x = left - bottom; x < right; x += HATCH_SPACING_PX) {
+        ctx.moveTo(x, bottom);
+        ctx.lineTo(x + bottom, 0);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   private draw(): void {
     const ws = this.wavesurfer;
     const canvas = this.canvas;
@@ -146,6 +184,7 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
     const view: View = { durationMs, totalWidthPx, scrollLeftPx: this.scrollLeft, viewWidthPx };
     ctx.scale(dpr, dpr);
     this.drawBands(ctx, view, heightPx);
+    this.drawOffbeat(ctx, view, heightPx);
 
     // thinning goes by each segment's own period, a 240 bpm stretch thins out before a 120 one
     const steps = grid.segments.map((seg) => {

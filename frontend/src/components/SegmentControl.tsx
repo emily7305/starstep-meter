@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { formatBpm, formatFineMs } from "../format";
 import { type SaveState, validBpm } from "../tempoEdits";
 import type { TempoEditOp } from "../types/api";
-import type { RatioMergedSection, TempoSegment } from "../types/timingReport";
+import type { OffbeatRun, RatioMergedSection, TempoSegment } from "../types/timingReport";
 
 interface Props {
   segment: TempoSegment;
@@ -13,6 +13,8 @@ interface Props {
   // the tracked beat in the zoomed view, where anchor here and split here act
   beatMs: number | null;
   saveState: SaveState;
+  // the off-beat runs inside this segment, from the analysis
+  offbeatRuns: OffbeatRun[];
   disabled: boolean;
   onNudge: (steps: number) => void;
   onEdit: (op: TempoEditOp) => void;
@@ -52,7 +54,7 @@ function feltText(note: RatioMergedSection): string {
 }
 
 export function SegmentControl(props: Props) {
-  const { segment, index, count, anchorMs, beatMs, saveState, disabled, onNudge, onEdit, onRetry } = props;
+  const { segment, index, count, anchorMs, beatMs, saveState, offbeatRuns, disabled, onNudge, onEdit, onRetry } = props;
   const [bpmDraft, setBpmDraft] = useState(String(segment.bpm));
   useEffect(() => setBpmDraft(String(segment.bpm)), [segment.bpm, index]);
 
@@ -204,6 +206,21 @@ export function SegmentControl(props: Props) {
                 >
                   split out
                 </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {offbeatRuns.length > 0 && (
+        <>
+          <span className="segment__sub">off-beat runs</span>
+          <ul className="segment__felt">
+            {offbeatRuns.map((run) => (
+              <li key={run.start_ms} className="segment__felt-item">
+                <span className="mono" title="the tracker followed the off-beat here, the grid stays on the beats">
+                  {formatFineMs(run.start_ms)} → {formatFineMs(run.end_ms)} · {run.beats} beats
+                </span>
               </li>
             ))}
           </ul>

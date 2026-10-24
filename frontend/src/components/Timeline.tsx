@@ -68,6 +68,11 @@ export function Timeline(props: Props) {
     [tempoMap, durationMs, barLength, draft],
   );
   const segmentBands = useMemo(() => (tempoMap !== null ? bands(tempoMap) : []), [tempoMap]);
+  const offbeatRuns = report?.offbeat_runs;
+  const offbeatShades = useMemo(
+    () => (offbeatRuns ?? []).map((run) => ({ startMs: run.start_ms, endMs: run.end_ms })),
+    [offbeatRuns],
+  );
   const trackedMs = useMemo(() => beats?.beats.map((b) => b.time_ms) ?? [], [beats]);
   // the loupe opens on the first tracked downbeat, that's the first segment's anchor
   const firstDownbeatMs = beats?.beats.find((b) => b.is_downbeat)?.time_ms ?? null;
@@ -86,6 +91,7 @@ export function Timeline(props: Props) {
       grid: null,
       bands: [],
       selected: null,
+      offbeat: [],
       colors: {
         beat: palette.inkFaint,
         bar: palette.mint,
@@ -94,6 +100,7 @@ export function Timeline(props: Props) {
         band: palette.ink,
         selected: palette.accent,
         bandLabel: palette.inkSoft,
+        offbeat: palette.inkSoft,
       },
       labelFont: `500 10px ${palette.fontMono}`,
     });
@@ -145,8 +152,8 @@ export function Timeline(props: Props) {
   }, [audioUrl, palette]);
 
   useEffect(() => {
-    gridRef.current?.setMap(grid, segmentBands, tempoMap !== null && tempoMap.length > 1 ? selected : null);
-  }, [grid, segmentBands, selected, tempoMap, audio.kind]);
+    gridRef.current?.setMap(grid, segmentBands, tempoMap !== null && tempoMap.length > 1 ? selected : null, offbeatShades);
+  }, [grid, segmentBands, selected, tempoMap, offbeatShades, audio.kind]);
 
   useEffect(() => {
     // wavesurfer throws on zoom before the audio is decoded
@@ -288,6 +295,7 @@ export function Timeline(props: Props) {
               anchorMs={anchorMs}
               beatMs={beatMs}
               saveState={saveState}
+              offbeatRuns={(offbeatRuns ?? []).filter((run) => run.end_ms >= segment.start_ms && run.start_ms < segment.end_ms)}
               disabled={!ready || !editable}
               onNudge={onNudge}
               onEdit={onEdit}
