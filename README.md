@@ -182,12 +182,13 @@ Open http://127.0.0.1:5173 in the browser. Vite proxies `/api` to the backend, s
 
 After a job finishes, the timeline shows the waveform with the beat grid and the tempo segments as bands. Each band has a label along the bottom, like `200.00 bpm · manual`. Clicking the waveform selects the tempo segment under the click (in a song with more than one segment, its band gets the pink accent) and puts the nearest tracked beat in the zoomed view. The controls on the right act on that segment:
 
-- The bpm has ÷2, ×2, ×3/4, ×4/3, ×2/3 and ×3/2 buttons, and a field with a "set bpm" button for an exact value. They keep the anchor and rebuild the grid from it.
+- The bpm has ÷2, ×2, ×3/4, ×4/3, ×2/3 and ×3/2 buttons, and a field with a "set bpm" button for an exact value. They keep the anchor and rebuild the grid from it. The 60–320 bpm range is only for detection, a value set here can go up to 1000.
 - The anchor moves in 1 ms steps with the −1 ms and +1 ms buttons, and with ← and → while the timeline has focus. A change is saved about half a second after the last step.
 - "anchor here" rebuilds the grid from the tracked beat in the zoomed view, and "split here" splits the segment at that beat.
 - "merge ←" and "merge →" merge the segment with the one before it or after it.
 - "match previous" and "match next" join the segment to its neighbour with the neighbour's bpm and anchor, as one edit. That's for a stretch that is the same tempo felt differently.
 - When the analysis kept a felt section (a dotted or triplet rhythm) on the segment's grid, the panel lists it under "kept on this grid" with its own bpm and ratio, like `203.36 bpm (3/4)`. "split out" splits at both its ends, so it gets its own tempo back. The report's tempo map list shows the same sections.
+- Where the beat tracker followed the off-beat for a while, the timeline hatches that stretch and the panel lists it under "off-beat runs" with its start, end and beat count. The grid stays on the beats there.
 
 Every change shows up in the report's edits list. Splitting or merging a segment that the analysis fitted refits it from the tracked beats, while a segment whose bpm or anchor was set by hand keeps its grid.
 
@@ -260,9 +261,10 @@ The columns:
 - `file`, `duration_ms`, `codec`, `sample_rate` and `tracker` say which song the row is, how long it is, how it was encoded, and which beat tracker ran.
 - `octave` is what the half or double check did over the song: `kept`, `doubled`, `halved` or `mixed`.
 - `segments` is the number of tempo segments, and `segment_starts_ms`, `segment_bpms` and `segment_confidences` list each segment's start, bpm and confidence in order, separated by spaces.
-- `residual_rms_ms` is the rms distance in ms of the beats that fit their grids, and `residual_p95_ms` and `residual_max_ms` are the 95th percentile and the largest distance over all beats, each measured from the grid of the beat's own segment.
+- `residual_rms_ms` is the rms distance in ms of the beats that fit their grids, and `residual_p95_ms` and `residual_max_ms` are the 95th percentile and the largest distance over all beats, each measured from the grid of the beat's own segment. A beat in a felt section or an off-beat run is measured from the subdivision it sits on.
 - `outliers` is the number of beats that were too far from their grid to count as fitting it.
 - `confidence` is the share of all beats within 10 ms of their grid, halved for the librosa fallback.
+- `ratio_merged` lists the felt sections kept on their segment's grid, like `3/4:44511-58724` (the ratio, then start and end in ms), and `offbeat_runs` the stretches where the tracker followed the off-beat, like `48664-52872`. Both are separated by spaces and empty when there are none.
 - `beats`, `beats_snapped` and `beats_not_snapped` are how many beats the tracker found and how many did and did not find an onset inside the snap window.
 - `median_snap_move_ms` is the median distance in ms that a beat moved from the tracker's output to where it snapped, including the 11.8 ms bias shift for madmom. It is the real-song check of madmom's −11.8 ms bias. If the bias holds, the value comes out close to 11 ms (the shift, less the 0.7 ms or so by which snapped beats land before the attack), and a value far from that means the bias needs measuring again on real songs.
 - `error` is empty for a song that worked, and otherwise holds a one-line message.
@@ -280,7 +282,7 @@ python -m backend.schema.export_schema --check
 
 Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. The tempo map tests run on synthetic beat lists and click tracks with known change points and felt rhythm sections. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
 
-`tests/test_real_song.py` checks the tempo map on a real song's `beats.json` and `report.json` copied into `tests/real/`. That folder is git-ignored, it holds timing data only, and the tests skip when it's empty.
+`tests/test_real_song.py` checks the tempo map on real songs' `beats.json` and `report.json`, one folder per song under `tests/real/` (for example `tests/real/endymion/`). That folder is git-ignored, it holds timing data only, and a song's tests skip when its folder is missing.
 
 Frontend checks run from `frontend`:
 
@@ -434,6 +436,19 @@ For comparison, a real change of tempo at the same ratio that doesn't come back 
 ```bash
 python scripts/make_click_track.py modulation-check.wav --bpm 270 --beats 224 --lead 0.6113 --accent --change 128:202.5
 ```
+
+Don't commit the generated audio.
+
+## Milestone 3c check
+
+A 260 bpm track where only the off-beats click for 32 beats:
+
+```bash
+python scripts/make_click_track.py offbeat-check.wav --bpm 260 --beats 288 --lead 0.5531 --accent --rhythm 128:32:0.5,1.5,2.5,3.5
+python -m backend.analysis.cli offbeat-check.wav -v
+```
+
+With madmom the CLI prints one segment at 260.0000 bpm with its anchor on the first click (about 552.4 ms), and an `off-beat` line under it at about 30437 to 36899 ms. madmom follows the off-beat clicks there and takes a beat or two to go over and to come back. In the UI that stretch is hatched on the timeline and listed under "off-beat runs" in the segment panel.
 
 Don't commit the generated audio.
 

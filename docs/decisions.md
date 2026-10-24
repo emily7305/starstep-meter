@@ -457,3 +457,84 @@ The 202.50 section started at 44511 ms, about 3.5 s before the change that's hea
 - A beat list with a beat on every onset of a 3-3-2 bar fits about 186 bpm, which is no ratio of 270, and stays split. Trackers don't output that, they follow a steady pulse, so the realistic cases are the madmom click tracks above.
 - The librosa fallback can't follow a felt section any more than a tempo change. A 270 → 202.5 click track comes out as one 67.5 bpm segment with it.
 - This is one real song. More will come through `scripts/eval_local.py`.
+
+## tempo follow-ups from five real songs (milestone 3c)
+
+`scripts/eval_local.py` ran on five real songs whose official charts each have one tempo. Three came out right in 3b, as one segment each: きゅうくらりん at 220.0094, I Wanna at 199.9984 and MisoilePunch♪ at 270.0038. ENDYMION came out as 8 segments, and YOUNITHM as one segment with a 95th percentile residual of 110.9 ms. The beats and reports of ENDYMION and YOUNITHM are in `tests/real/endymion/` and `tests/real/younithm/` (git-ignored), next to `tests/real/misoilepunch/`, and `tests/test_real_song.py` runs on all three.
+
+### madmom's bias on real music
+
+`median_snap_move_ms` was 11.6 to 11.9 ms on all five songs (11.915, 11.919, 11.815, 11.587, 11.711). The beats are shifted by 11.8 ms before the snap, so snapped beats land on average within a few tenths of a ms of that shift, and the −11.8 ms measured on clicks in milestone 3 holds on real music too.
+
+### ENDYMION
+
+The pulse is a steady 220 (charted as 440 in 8ths, and as 220 in 16ths in places). 3b gave:
+
+| start → end (ms) | bpm | what it was |
+| --- | --- | --- |
+| 1143.4 → 6051.8 | 219.42 | the intro at the song's tempo, 11 ms late on average |
+| 6051.8 → 13978.3 | 264.32 | 6/5 of 220, madmom on a 227 ms pulse |
+| 13978.3 → 88362.2 | 220.00 | |
+| 88362.2 → 92572.4 | 215.48 | madmom losing the beat |
+| 92572.4 → 95249.1 | 203.41 | same, 24 tracked beats over 25 grid beats |
+| 95249.1 → 114338.4 | 219.93 | back on the same grid, 2 ms off |
+| 114338.4 → 116775.8 | 292.75 | 4/3 of 220, on the 220 grid's quarters |
+| 116775.8 → 122019.4 | 267.87 | the outro |
+
+Now it gives 3 segments: 1143.4 → 114338.4 ms at 219.9965 bpm with the 6/5 section kept as a note, then 292.75 and 267.87 for the last 7.7 s. Four changes got it there.
+
+The ratios are no longer a fixed list. A felt tempo is q/p of the notated one, where its beats land every p steps of 1/q of a notated beat, with q one of `ratio_subdivisions` (1, 2, 3, 4, 6) and p up to 6, within half and double time. That gives 1/2, 3/5, 2/3, 3/4, 4/5, 6/5, 4/3, 3/2 and 2. 1, 2, 3 and 4 alone give back the 3b list. The score is the same as in 3b, the share of the section's beats that land on the extended grid over the share that land on its own lines, with the extended grid's lines, halves, thirds and 1/q (sixths for 6/5).
+
+The score doesn't use every subdivision at once. Lines, halves, thirds, quarters and sixths together catch 59% of random beat times within 10 ms at 220 bpm and 69% at 270, so a modulation that drifts would score as well as a felt section. Lines, halves, thirds and 1/q catch 29 to 54%. ENDYMION's 6/5 section scores 0.81: madmom's beats there wobble about ±15 ms around a 227 ms pulse, so its own lines catch only 47% of them and the 220 grid's sixths 38%. That's the weakest merge so far, and it rests as much on the tempo being within 0.12% of 6/5 as on the phase.
+
+A felt section next to a short first or last segment can fold now. The 264.32 section has the 17 beat intro on one side, shorter than itself, so 3b's rule (both neighbours longer) didn't apply. A short first or last segment within `short_bpm_ratio` of the other side's tempo is the song's own tempo cut short by the edge, so only the other side has to carry the felt section. In return the felt section has to be short enough to count as near the edge (see the edge limits below). The intro then goes into the long segment by the 3b short rule.
+
+Runs of two or more short segments fold in when the segments on either side have the same tempo (within `bpm_shift_ratio`) and the longer side's lines, carried through the run, catch the other side's beats at least `run_fit_min` (0.8) as well as its own lines do. Whole beats lost inside the run don't count, only that the grid comes out on the same lines. 215.48 then 203.41 is madmom dropping a beat: 24 tracked beats over 25 grid beats, after which the 219.93 segment is 2 ms off the grid it left. The run's beats are left out of the fit, with no note.
+
+A felt section at the very start or end folds in on its own (`edge_fold`) when it is under `edge_max_share` (10%) of the song or `edge_max_bars` (8 bars of 4/4 at the neighbour's tempo), whichever is longer, and scores at least `edge_fit_min` (0.9) against its one neighbour. That's stricter than the 0.8 in the middle, since nothing on the other side says the song comes back out of it. A modulation over the last 30% stays split.
+
+What's left is ENDYMION's outro, which the edge rule can't fold. The 292.75 section is a clean 4/3 (a score of 1.00 on the 220 grid's quarters), but it sits between the long 220 segment and the 267.87 one, and that is no ratio of it, so it isn't a felt section by the middle rule. The 267.87 segment has steady 224 ms gaps, 1.5% faster than 6/5, so over its 19 beats it drifts 64 ms off any small subdivision of 220. Its beats land on the 220 grid's subdivisions in 47% of cases, where random times would in 59%. Nothing in the beats says it's on the 220 grid. It's 6% of the song, and with the audio the weak edge rule could still take it if the outro is quiet (`weak_energy_db`), which the beats-only test can't check. "match previous" twice puts it on the 220 grid by hand.
+
+### YOUNITHM
+
+One segment at 259.9956 was right, but 125 of 753 beats were outliers. madmom slides onto the off-beat four times. The residual ramps to half a beat over about 5 beats, stays there and ramps back:
+
+| beats half a beat off (ms) | beats | with the ramps, beats over 15 ms off (ms) |
+| --- | --- | --- |
+| 48663.6 → 52872.3 | 19 | 47913.6 → 53398.0 |
+| 66260.2 → 71986.2 | 26 | 65634.5 → 72374.9 |
+| 122322.7 → 125286.4 | 14 | 121712.5 → 125913.7 |
+| 146294.0 → 153711.2 | 33 | 145516.7 → 155408.2 |
+
+These may be the parts charted at 130. That needs checking by ear.
+
+An off-beat run is `offbeat_min_beats` (8) or more beats in a row within `offbeat_band` (15% of a period) of half a beat off their segment's grid, with one beat that isn't allowed inside. Two bars, since a tracker that drifts a whole beat passes through the half in fewer. The run's beats are left out of the fit and measured against the half lines. The report lists the runs as `offbeat_runs` (schema 2.2), the timeline hatches them, and the segment panel lists the ones in the selected segment. For YOUNITHM that took the 95th percentile residual from 110.9 to 18.3 ms and the largest from 115.2 to 79.2 ms (a ramp beat), and the confidence from 0.786 to 0.886. The bpm moved from 259.9956 to 259.9963.
+
+When the tracker sits on the off-beat long enough, segmentation splits that stretch off as its own segment at the same tempo, half a beat out of phase. `offbeat_fold` puts it back. A middle segment at both neighbours' tempo whose beats land on their half lines (scored like the ratio check, against `ratio_fit_min`) goes into the longer neighbour, and the off-beat pass then marks it. That only applies between two neighbours: a phase that moves half a beat and stays is a real change (the milestone 3 test with a half beat pause).
+
+The grid's phase comes from the onsets when the audio is there, not from where most tracked beats are. For each segment the pipeline reads the onset strength on the grid's lines and on its half lines. If the half lines' median is `offbeat_phase_ratio` (1.5) times the lines' or more, the grid moves half a beat (keeping its period) and the tracked beats become the off-beat run. The beats-only regression tests can't do this. For YOUNITHM they check that the beats outside the runs sit on the grid (median residual under 5 ms).
+
+### manual bpm
+
+The 60–320 range was already only for detection. `set_bpm` takes up to 1000 bpm, so ×2, the ratio buttons and "set bpm" can set ENDYMION to 440. There are tests for it now, in the api and the frontend.
+
+### thresholds added
+
+| setting | value |
+| --- | --- |
+| `ratio_subdivisions` | 1, 2, 3, 4, 6 |
+| `edge_max_share` | 0.1 |
+| `edge_max_bars` | 8 |
+| `edge_fit_min` | 0.9 |
+| `run_fit_min` | 0.8 |
+| `offbeat_band` | 0.15 |
+| `offbeat_min_beats` | 8 |
+| `offbeat_phase_ratio` | 1.5 |
+
+Each has a test in `tests/test_tempo_map.py` that flips its decision. The 3b results hold: MisoilePunch♪ is still one segment at 270.0038 with its two notes, 300 of 300 random change tracks are right with change points within 0.005 beats, and 0 of 500 steady tracks split. The beats of きゅうくらりん and I Wanna weren't part of this, so they need another eval run.
+
+### limits
+
+- ENDYMION's outro, above.
+- The 6/5 merge rests on the tempo ratio as much as on the phase, since madmom's beats in that section are too loose to show a lock to the sixths.
+- A short run at a different tempo between two segments on one grid now folds whatever its tempo, as long as it's made of two or more short segments. A real two-bar break at another tempo that comes back exactly on the grid would be folded too.
