@@ -34,9 +34,11 @@ class ClickTrackSpec:
     amplitude: float = 0.5
     # white noise rms in dbfs over the whole file, None = digital silence
     noise_floor_db: float | None = None
-    # louder, higher click on beat 1 of each bar, unused until meter detection
+    # louder, higher click on beat 1 of each bar, the downbeat tracker needs it to find beat 1
     accent_downbeats: bool = False
     beats_per_bar: int = 4
+    # clicks before the first downbeat
+    pickup_beats: int = 0
     seed: int = 0
 
     def cache_name(self) -> str:
@@ -82,7 +84,7 @@ def click_track(spec: ClickTrackSpec = ClickTrackSpec()) -> ClickTrack:
     total = content_end_idx + int(round(spec.tail_silence_s * sr))
     audio = np.zeros(total, dtype=np.float64)
 
-    is_downbeat = (np.arange(spec.beats) % spec.beats_per_bar) == 0
+    is_downbeat = ((np.arange(spec.beats) - spec.pickup_beats) % spec.beats_per_bar) == 0
     for i, start in enumerate(onset_idx):
         wave = accent if (spec.accent_downbeats and is_downbeat[i]) else plain
         audio[start:start + click_len] += wave
