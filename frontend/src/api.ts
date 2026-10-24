@@ -1,4 +1,4 @@
-import type { HealthStatus, JobStatus, UploadResponse } from "./types/api";
+import type { HealthStatus, JobStatus, JobSummary, TempoEditOp, UploadResponse } from "./types/api";
 import type { BeatsFile } from "./types/beats";
 import type { TimingReport } from "./types/timingReport";
 
@@ -84,12 +84,26 @@ export function fetchBeats(jobId: string, signal?: AbortSignal): Promise<BeatsFi
   return getJson<BeatsFile>(`/api/jobs/${encodeURIComponent(jobId)}/beats`, signal);
 }
 
-export function patchOffset(jobId: string, offsetMs: number, signal?: AbortSignal): Promise<TimingReport> {
+export function patchTempo(jobId: string, op: TempoEditOp, signal?: AbortSignal): Promise<TimingReport> {
   return requestJson<TimingReport>(`/api/jobs/${encodeURIComponent(jobId)}/report`, {
     method: "PATCH",
     signal,
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ beat_offset_ms: offsetMs }),
+    body: JSON.stringify(op),
+  });
+}
+
+// newest first, sha256 narrows it to the jobs for one exact file
+export function listJobs(sha256?: string, signal?: AbortSignal): Promise<JobSummary[]> {
+  const query = sha256 === undefined ? "" : `?sha256=${encodeURIComponent(sha256)}`;
+  return getJson<JobSummary[]>(`/api/jobs${query}`, signal);
+}
+
+// same job id again, the backend keeps the manual edits and runs the analysis over
+export function reanalyzeJob(jobId: string, signal?: AbortSignal): Promise<UploadResponse> {
+  return requestJson<UploadResponse>(`/api/jobs/${encodeURIComponent(jobId)}/reanalyze`, {
+    method: "POST",
+    signal,
   });
 }
 

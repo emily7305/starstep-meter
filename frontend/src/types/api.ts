@@ -28,3 +28,22 @@ export interface HealthStatus {
   ffprobe: boolean;
   madmom: boolean;
 }
+
+export interface JobSummary {
+  job_id: string;
+  filename: string;
+  sha256: string;
+  size_bytes: number;
+  // iso utc string
+  created_at: string;
+  status: JobState;
+  // null when there's no report to count
+  edits: number | null;
+}
+
+// one tempo map edit per request, same shapes as the patch bodies
+export type TempoEditOp =
+  | { op: "set_anchor"; segment: number; anchor_ms: number }
+  | { op: "set_bpm"; segment: number; bpm: number }
+  | { op: "split"; at_ms: number }
+  | { op: "merge"; segment: number };
