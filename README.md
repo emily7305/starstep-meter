@@ -182,12 +182,16 @@ Open http://127.0.0.1:5173 in the browser. Vite proxies `/api` to the backend, s
 
 After a job finishes, the timeline shows the waveform with the beat grid and the tempo segments as bands. Each band has a label along the bottom, like `200.00 bpm · manual`. Clicking the waveform selects the tempo segment under the click (in a song with more than one segment, its band gets the pink accent) and puts the nearest tracked beat in the zoomed view. The controls on the right act on that segment:
 
-- The bpm has ÷2 and ×2 buttons, and a field with a "set bpm" button for an exact value. They keep the anchor and rebuild the grid from it.
+- The bpm has ÷2, ×2, ×3/4, ×4/3, ×2/3 and ×3/2 buttons, and a field with a "set bpm" button for an exact value. They keep the anchor and rebuild the grid from it.
 - The anchor moves in 1 ms steps with the −1 ms and +1 ms buttons, and with ← and → while the timeline has focus. A change is saved about half a second after the last step.
 - "anchor here" rebuilds the grid from the tracked beat in the zoomed view, and "split here" splits the segment at that beat.
 - "merge ←" and "merge →" merge the segment with the one before it or after it.
+- "match previous" and "match next" join the segment to its neighbour with the neighbour's bpm and anchor, as one edit. That's for a stretch that is the same tempo felt differently.
+- When the analysis kept a felt section (a dotted or triplet rhythm) on the segment's grid, the panel lists it under "kept on this grid" with its own bpm and ratio, like `203.36 bpm (3/4)`. "split out" splits at both its ends, so it gets its own tempo back. The report's tempo map list shows the same sections.
 
 Every change shows up in the report's edits list. Splitting or merging a segment that the analysis fitted refits it from the tracked beats, while a segment whose bpm or anchor was set by hand keeps its grid.
+
+If a re-analysis fails, the last good report stays on screen with a note saying at which stage the re-analysis failed. The header says `madmom failed to import` when madmom is installed but doesn't import, with the error in its tooltip.
 
 The url carries the job id (`?job=...`), so a reload reopens the job with its edits. The source column lists recent jobs, newest first, and any of them can be reopened. Picking a file that was analyzed before and pressing analyze offers to reopen it first, with "reopen" for each earlier job and "analyze again as a new job" to start over. The "re-analyze" button runs the analysis again on the stored upload and keeps the manual segments and the edit log.
 
@@ -274,7 +278,9 @@ python -m pytest
 python -m backend.schema.export_schema --check
 ```
 
-Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. The tempo map tests run on synthetic beat lists and click tracks with known change points. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
+Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. The tempo map tests run on synthetic beat lists and click tracks with known change points and felt rhythm sections. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
+
+`tests/test_real_song.py` checks the tempo map on a real song's `beats.json` and `report.json` copied into `tests/real/`. That folder is git-ignored, it holds timing data only, and the tests skip when it's empty.
 
 Frontend checks run from `frontend`:
 
@@ -409,6 +415,25 @@ python scripts/make_click_track.py fast-270.wav --bpm 270 --beats 160 --lead 0.4
 ```
 
 It should come out at 270.00 bpm, not 135. If a real fast song comes out at half its tempo, ×2 on its segment fixes it. The cases that are still ambiguous are off-beat eighth notes at 50 to 80% of the weaker beats' level, fast songs where every other beat is much quieter, and a switch to exactly half or double tempo on a steady beat (see "tempo range and half or double" in `docs/decisions.md`).
+
+Don't commit the generated audio.
+
+## Milestone 3b check
+
+A 270 bpm track with eight bars of a dotted 3-3-2 rhythm in the middle. The chart tempo stays 270, so the map should too:
+
+```bash
+python scripts/make_click_track.py dotted-check.wav --bpm 270 --beats 288 --lead 0.6113 --accent --rhythm 128:32:0,1.5,3
+python -m backend.analysis.cli dotted-check.wav -v
+```
+
+`--rhythm 128:32:0,1.5,3` means 32 beats from click 128 where the clicks play 0, 1.5 and 3 beats into each 4 beat bar. With madmom the CLI prints one segment at 270.0000 bpm and a `kept ... on this grid` line under it, at about 29388 to 35944 ms, 203.36 bpm on its own (3/4). In the UI the segment panel lists the section under "kept on this grid". "split out" gives three segments, 270.00, 203.36 and 270.00, and "match previous" on the middle one puts it back on the 270 grid as one edit.
+
+For comparison, a real change of tempo at the same ratio that doesn't come back stays as two segments, 270.00 and 202.50:
+
+```bash
+python scripts/make_click_track.py modulation-check.wav --bpm 270 --beats 224 --lead 0.6113 --accent --change 128:202.5
+```
 
 Don't commit the generated audio.
 

@@ -135,7 +135,7 @@ Without madmom the beats come from librosa. That works, but with lower confidenc
    python scripts\check_madmom.py
    ```
 
-This hasn't been tried on Windows yet (it works on Linux with Python 3.11). If the install fails, the app still runs with librosa, and the header in the page reads `madmom not installed`. If it installs but `check_madmom.py` fails, the header still says `madmom ok`, because it only checks that the package is there. The beats then come from librosa too, and the report says "librosa fallback".
+This hasn't been tried on Windows yet (it works on Linux with Python 3.11). If the install fails, the app still runs with librosa, and the header in the page reads `madmom not installed`. If it installs but `check_madmom.py` fails, the header reads `madmom failed to import`, with the error when you hover over it. The beats then come from librosa too, and the report says "librosa fallback".
 
 ## Part 4: start the app (every time)
 

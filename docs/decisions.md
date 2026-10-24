@@ -159,7 +159,19 @@ Raw tracker error against the click onsets, before snapping: madmom −6.4 to �
 
 Speed: madmom takes about 3 s for 20 s of audio on this cloud VM (4 cores). A 4 minute click track runs the whole CLI in 36 s, and nearly all of that is the network.
 
-In milestone 3 the same kind of 4 minute run takes about 52 s. The octave check reads onsets at every beat and every midpoint, and the DBN has more tempo states now. I haven't profiled which one costs more.
+In milestone 3 the same kind of 4 minute run took about 52 s. Profiled in milestone 3b on a 4 minute click track (174 bpm, 696 beats), stage by stage:
+
+| stage | time |
+| --- | --- |
+| decode and trim | 2.2 s |
+| madmom network (`RNNDownBeatProcessor`) | 29.9 s |
+| madmom DBN, `num_tempi=None` | 9.3 s |
+| madmom DBN, `num_tempi=60` (for comparison) | 2.3 s |
+| rough tempo map, octave check, snap, final tempo map | 0.4 s |
+
+The whole CLI took 41 s that time. The octave check is 0.26 s of it, so the milestone 3 slowdown is the DBN's tempo states, about 7 s. The rest of the gap to 52 s was load on the VM, not the code. Fewer tempo states is what made a 3/4 click track come out in 4/4 (see "tempo range and half or double"), so the DBN stays as it is.
+
+There's no easy win in the network either. madmom can run its 8 networks in parallel (`num_threads`), and on 4 cores that was 2.9 times faster, but it does it with a `multiprocessing.Pool` that is created with the processor and never closed. In the server that means a leaked pool per job, or one long-lived pool forked from a threaded process, and on Windows it spawns fresh interpreters. Running the networks on a thread pool instead was 6 times slower, since they're small matrix products in a Python loop and hold the GIL. Left as it is.
 
 ## onset snap (milestone 2)
 
@@ -293,11 +305,11 @@ The thresholds are in `TempoMapConfig`:
 | `residual_shift_ms` | 8 |
 | `bpm_shift_ratio` | 0.004 |
 | `shift_z` | 5 |
-| `smooth_beats` | 7 |
+| `smooth_beats` | 16 (7 in milestone 3, see milestone 3b below) |
 | `min_segment_beats` | 8 |
 | `refine_beats` | 2 |
 
-Each has a test that flips its decision. They're tuned on synthetic beat lists and click tracks only. Real songs haven't been through this yet. `scripts/eval_local.py` is how they will be.
+Each has a test that flips its decision. They were tuned on synthetic beat lists and click tracks. The first real song went through in milestone 3b, see "tempo map on a real song" below.
 
 What broke on the way:
 
@@ -326,15 +338,17 @@ Limits:
 
 ## manual tempo edits (milestone 3)
 
-`PATCH /api/jobs/{id}/report` takes one operation: `set_anchor`, `set_bpm`, `split` or `merge`. The rules are in `backend/analysis/tempo_edit.py`.
+`PATCH /api/jobs/{id}/report` takes one operation: `set_anchor`, `set_bpm`, `split`, `merge` or `match` (milestone 3b). The rules are in `backend/analysis/tempo_edit.py`.
 
 - source `manual` means the user touched the segment, its boundaries or its values, so re-analysis leaves it alone. confidence null means its bpm or anchor was set by hand.
 - `set_bpm` keeps the anchor and rebuilds the grid around it, which is what ×2 and ÷2 are. `set_anchor` is the 1 ms nudge from milestone 2 and also "anchor here" (the tracked beat in the zoomed view), which rebuilds the grid from that beat.
 - A split of a fitted segment refits both halves from the tracked beats in them. A split of a hand-set segment keeps its grid, and the right half's anchor moves to the first grid line at or after the split, so no line moves and a new bar starts there (the way rhythm game timing points restart bars). A merge of two fitted segments refits the union. If one of the two was set by hand, its grid wins, and if both were, the first's does.
-- The edit log says exactly what moved. `set_bpm` and `set_anchor` add one entry per changed field of that segment, so the first edit of an auto segment also logs `source` auto → manual and `confidence` → null. Split and merge log the whole `tempo_map` before and after.
+- `match` joins a segment to its previous or next neighbour with the neighbour's bpm and anchor as they are. Nothing is refit, and the result has no confidence, since its extent was set by hand. It's one edit, for a stretch that is the neighbour's tempo felt differently.
+- A segment's `ratio_merged` sections are left out of every refit, the way the analysis left them out of its fit. They follow the segment through edits: a split clips them to each side, a merge or match keeps both segments' sections, and a section that ends up covering a whole segment is dropped, since it is that segment now. So splitting at a section's start and end gives it back with its own fitted tempo. The ui's "split out" does exactly that, as two split edits.
+- The edit log says exactly what moved. `set_bpm` and `set_anchor` add one entry per changed field of that segment, so the first edit of an auto segment also logs `source` auto → manual and `confidence` → null. Split, merge and match log the whole `tempo_map` before and after.
 - Re-analysis (`POST /api/jobs/{id}/reanalyze`) runs the pipeline again on the stored upload. The manual segments come back exactly as they were, and the fresh auto segments fill only the time they don't cover, clipped at their edges. The edit log is kept, and re-analysis itself isn't logged since it isn't a manual change.
 
-Open problem: if a re-analysis fails, for example ffmpeg went missing, the job shows as failed and its report isn't served until a re-analysis succeeds. The file on disk is untouched.
+A failed re-analysis keeps the last good report (milestone 3b). Before, the job showed as failed and its report wasn't served until a re-analysis succeeded, even though the file on disk was untouched. Now a re-analysis decodes into a `.rerun` folder inside the job, and the decoded wav only replaces the old one once the whole pipeline has run. A failed job that still has a `report.json` serves its report, beats and audio as before, and edits still work on it. `GET /api/jobs/{id}` says so with `report_available`, which is worked out when the status is read and never stored. The ui keeps the report on screen with "re-analysis failed at <stage> — <reason>. showing the last good report". A first analysis that fails has no report and still answers 409. A server restart in the middle of a re-analysis marks the job failed and clears the `.rerun` folder, and the last good report stays available.
 
 ## reopening jobs (milestone 3)
 
@@ -353,3 +367,93 @@ Hands-on testing showed manual edits looked lost after a reload, so this moved u
 - Bar numbers keep counting across segments, and each later segment's bars start at its anchor.
 - Grid lines are thinned per segment, since a 240 bpm stretch crowds before a 120 one.
 - A line less than a quarter period before a boundary belongs to the next segment, so a bpm change on a beat draws one line there. The backend refits segments with the same rule.
+
+## health check imports madmom (milestone 3b)
+
+`/api/health` used to say `madmom ok` when the package was installed, without importing it. The PyPI 0.16.1 build installs fine and then fails on import (it wants `pkg_resources`), so the header said ok while every job fell back to librosa. Now `madmom_import_error()` in `backend/analysis/beats.py` imports it once, cached for the life of the process, and the server calls it at startup so the first health check doesn't wait about a second for it. Health reports `madmom: true` only when the import works, plus `madmom_error` with the exception when an installed madmom doesn't import. The header shows `madmom failed to import` with the error in its tooltip, and `madmom not installed` when it isn't there at all. `auto` uses the same cached check to pick the tracker.
+
+## tempo map on a real song (milestone 3b)
+
+The first real song through the tempo map has a chart at a constant 270 bpm, so the right map is one segment at 270.00 from the first downbeat to the end. Its `beats.json` and `report.json` are kept in `tests/real/`, which is git-ignored, and `tests/test_real_song.py` runs the tempo map on them and skips when they're missing. No audio is kept.
+
+Milestone 3 gave it 9 segments:
+
+| start → end (ms) | bpm | what it was |
+| --- | --- | --- |
+| 119.5 → 3388.1 | 268.56 | intro, the tracker settling in |
+| 3388.1 → 5175.1 | 264.37 | same |
+| 5175.1 → 44511.1 | 270.02 | |
+| 44511.1 → 58727.9 | 202.50 | exactly 3/4 of 270, sounds slower from about 48 s |
+| 58727.9 → 81177.6 | 270.05 | |
+| 81177.6 → 86281.0 | 270.35 | |
+| 86281.0 → 91615.6 | 179.91 | about 2/3 of 270, an unusual rhythm, not a slowdown |
+| 91615.6 → 128519.3 | 269.98 | |
+| 128519.3 → 134214.0 | 285.38 | the outro fading out |
+
+Now it gives one segment, 119.5 → 134214.0 ms at 270.0038 bpm (558 beats, confidence 0.89), with the two felt sections kept as notes on it: 44510.9 → 58723.7 ms at 202.501 bpm (3/4, fit 1.08) and 86270.2 → 91621.4 ms at 179.909 bpm (2/3, fit 1.00). Three changes got it there.
+
+### residuals that hang together
+
+Three of the boundaries (both in the intro, and the one between 270.05 and 270.35) were the drift test firing on beats that sit off the grid for a few beats at a time. On this song the residuals against one 270 line have a lag-1 autocorrelation of about 0.67, while the tests assumed independent jitter. A fill, or another instrument taking the attack for a bar, moves 3 or 4 beats together, and a 7 beat running median called that a drift.
+
+- `smooth_beats` went from 7 to 16, four bars of 4/4.
+- The standard errors in the split test are inflated by √((1 + ρ)/(1 − ρ)), with ρ the lag-1 autocorrelation of that line's residuals, clipped to 0 – 0.9. That is the usual AR(1) correction for the effective number of points. Independent jitter has ρ near 0 and is unaffected.
+
+That alone took the song from 9 segments to 6: 270.02, 202.50, 269.99, 179.91, 269.98 and the 285.38 outro. The milestone 3 measurements still hold with all of milestone 3b in: 300 of 300 random change tracks right with change points within 0.005 beats, and the 120 → 126 accelerando still becomes 8 steps that stay within 8 ms. The steady-track false splits went from 2 of 500 to 0.
+
+### the ratio check
+
+The rest is in a consolidation pass after segmentation (`_Consolidator` in `tempo_map.py`). A segment that is within `ratio_tolerance` (0.5%) of 1/2, 2/3, 3/4, 4/3, 3/2 or 2 of its neighbour's bpm may be the neighbour's tempo felt differently. The neighbour's grid is carried on through it at the same phase, and the question is whether its beats land on that grid's lines, halves, thirds, or 1/numerator of the ratio (quarters for 4/3). A beat counts within `ratio_hit_ms` (10 ms). The score is the share of its beats that land there over the share that land on its own fitted lines. It merges when the score is at least `ratio_fit_min` (0.8) for both neighbours. Otherwise the change stays.
+
+Halves and thirds both count whatever the ratio. A tracker following a 3-3-2 bar puts beats on the 270 grid's halves, where the clicks are, and fills the gaps with guesses of its own. Its own line then catches fewer of its beats than the 270 grid does. With only thirds for a 3/4 ratio, that section scored low and stayed split.
+
+Only a segment with a neighbour on both sides, both longer than it, is a candidate. A felt section sits inside the notated tempo and the song comes back out of it. Without that rule, a modulation from 270 to 202.5 that runs to the end, which is exactly 3/4 and can be phase continuous, was folded into whichever side was longer. Both sides have to carry it, so a section that comes back on a different phase stays split.
+
+The merged section's beats are left out of the fit, so the notated tempo comes only from its own beats. They are measured against the nearest line, half or third, and the section is kept in the report as `ratio_merged` on its segment (schema 2.1), shown in the segment panel with a "split out" button.
+
+Scores:
+
+| case | bpm on its own | ratio | score | result |
+| --- | --- | --- | --- | --- |
+| real song, 44.5 – 58.7 s | 202.501 | 3/4 | 1.08 | merged |
+| real song, 86.3 – 91.6 s | 179.909 | 2/3 | 1.00 | merged |
+| clicks, 3-3-2 bars for 32 beats, madmom | 203.36 | 3/4 | 1.10 | merged |
+| clicks, 3-3-2 bars for 48 beats, madmom | 202.75 | 3/4 | 0.85 | merged |
+| clicks, 3 even clicks per bar for 48 beats, madmom | 202.50 | 3/4 | 1.00 | merged |
+| beat list, 3/4 with 3 ms jitter | 202.50 | 3/4 | 1.00 | merged |
+| beat list, every other felt beat 15 ms late | 202.45 | 3/4 | 0.50 | split |
+| beat list, 0.2% off 3/4, comes back | 202.91 | 3/4 | 0.36 | split |
+| beat list, 0.35% off 3/4, comes back | 203.21 | 3/4 | 0.27 | split |
+| beat list, 3/4 a quarter beat late, comes back | 202.50 | 3/4 | 0 | split |
+| clicks, 270 → 202.5 to the end, madmom | 202.50 | 3/4 | not a candidate | split |
+
+The 48 beat 3-3-2 at 0.85 is the closest call. Each threshold has a test in `tests/test_tempo_map.py` that flips its decision.
+
+### felt sections and the octave check
+
+The octave check runs per rough segment, and the rough map used to come from the same `build_tempo_map` as the final one. Two things went wrong once felt sections were in play.
+
+- With the ratio check on, the rough map folded a half time section into its neighbours, so it never got its own octave check. The rough map now runs with `consolidate=False`.
+- A felt section that got its own check could be pushed off every ratio. In the 48 beat 3-3-2 track madmom's beats alternate between a click and a guess, the parity test saw every other beat with no onset, and halved the section to 101.44 bpm, which is 3/8 of 270. A triplet feel section was doubled to 405 in an earlier version.
+
+`felt_sections` marks a rough segment that sits between two others at a dotted or triplet ratio (2/3, 3/4, 4/3, 3/2) of both. The first fix left those as tracked, and that broke the milestone 3 test with 128, 192 and 128 bpm: madmom takes the 192 part at 96, which is 3/4 of 128, so it counted as felt and never got doubled back. Now a felt section's octave change stands when it keeps the section at the same tempo as both neighbours (after their own octave check) or at one of the ratios to them. 96 doubled to 192 is 3/2 of 128 and stands. 202.75 halved to 101.4 is 3/8 of 270 and doesn't. Half and double time sections that aren't felt are the octave check's as before.
+
+### short segments and weak edges
+
+The same pass merges two more kinds of segment.
+
+- Short: under `short_min_ms` (4 s) or `short_min_bars` (8 bars of 4/4, 7.1 s at 270), whichever is longer, and within `short_bpm_ratio` (2%) of a neighbour. It goes into the closer neighbour if that one isn't short itself, and that neighbour keeps its grid. Two short ones only join each other while the result is still short. The first version just joined short segments, and the 120 → 126 accelerando, whose 8 steps are each about 12 s at 120 bpm and so all short, was joined into one line 57 ms off at its ends.
+- Weak edge: the first or last segment, shorter than its neighbour, whose beats cover less than `weak_coverage` (0.6) of its span (beats × period over its length), or whose median level is `weak_energy_db` (−12 dB) or more under the song's median. The level comes from 50 ms frames of the decoded audio. It goes into the neighbour, which keeps its grid. The real song's outro has 9 beats over 5.7 s, a coverage of 0.33.
+
+With the 16 beat smoothing the real song doesn't need the short rule any more, so it's tested on a beat list built like the milestone 3 intro (268.56 for 15 beats, 264.37 for 8, then 270).
+
+### the boundary near 48 s
+
+The 202.50 section started at 44511 ms, about 3.5 s before the change that's heard at about 48 s. The beats themselves change there. madmom's beat gaps go from about 222 ms to about 296 ms at 44511 ms, after a 449 ms gap from 44062 ms, and the gaps after 48 s look like the ones between 44.5 and 48 s. So the tempo map put the boundary where the tracked beats change, and there's nothing in the beats that would move it to 48 s. Moving it would mean second-guessing the tracker from the onsets, which I haven't done. On this song it no longer matters, since the section is merged, and "split out" cuts at 44510.9 ms.
+
+### limits
+
+- A modulation at exactly a ratio, phase continuous, that comes back to the first tempo can't be told apart from a felt section. It is merged, and "split out" gives it back.
+- A beat list with a beat on every onset of a 3-3-2 bar fits about 186 bpm, which is no ratio of 270, and stays split. Trackers don't output that, they follow a steady pulse, so the realistic cases are the madmom click tracks above.
+- The librosa fallback can't follow a felt section any more than a tempo change. A 270 → 202.5 click track comes out as one 67.5 bpm segment with it.
+- This is one real song. More will come through `scripts/eval_local.py`.
