@@ -7,20 +7,20 @@ so it goes into the run after it (or before, at the end) and that run's bars car
 madmom only knows bars of 3 and 4 beats, and on click tracks its downbeats don't always
 follow the accents (a 150 bpm 3/4 track came out in 4/4). So the accents get a say: where
 every bar of some other length starts on a beat clearly louder than the rest of that bar,
-for at least accent_min_bars bars in a row, those bars win over madmom's. Only when the
-length differs and isn't a multiple of madmom's (a crash every two bars isn't 8/4), and
-where it's the same length madmom's phase stays, it's the better judge of beat 1 in music.
+for at least accent_min_bars bars in a row, those bars win over madmom's. That's only when
+the length differs and isn't a multiple of madmom's (a crash every two bars isn't 8/4).
+Where the length is the same madmom's phase stays, it's the better judge of beat 1 on music.
 
 Beats in a ratio merged section or an off-beat run follow another pulse, or sit half a beat
 off, so their downbeats are left out and the bars before them run on through on the grid.
-The result is in beats of 4/4 terms, the denominator is always 4: whether 7 beats of the
-grid are 7/4 or 7/8 at twice the bpm is a notation choice, like half or double time.
+Bars are counted in beats of the grid, so the denominator is always 4: whether 7 beats of
+the grid are 7/4 or 7/8 at twice the bpm is a notation choice, like half or double time.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -40,7 +40,7 @@ class MeterConfig:
     # longest bar the downbeat spacing can give, in beats
     max_bar_beats: int = 9
     # an accent bar starts on a beat at least this much stronger than every other beat in the bar.
-    # clicks give 1.6, music rarely holds it for long, tuned on clicks only
+    # accented clicks give 1.6 to 1.8, music should rarely hold it for long. tuned on clicks only
     accent_ratio: float = 1.3
     accent_min_bars: int = 4
     accent_min_beats: int = 3
@@ -82,13 +82,10 @@ class _Run:
 
 @dataclass
 class _Segment:
+    # grid indices [k_lo, k_hi) of one tempo segment, and which of them are left out
     k_lo: int
     k_hi: int
-    excluded: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=bool))
-
-    def is_excluded(self, k: int) -> bool:
-        i = k - self.k_lo
-        return 0 <= i < len(self.excluded) and bool(self.excluded[i])
+    excluded: np.ndarray
 
     def crossed(self, a: int, b: int) -> bool:
         lo, hi = max(a, self.k_lo) - self.k_lo, max(min(b, self.k_hi) - self.k_lo, 0)
