@@ -1,4 +1,4 @@
-"""Upgrading stored 1.1 reports and beats files, on the parsed json before validation."""
+"""Upgrading stored 1.1 and 2.0 reports and beats files, on the parsed json before validation."""
 
 from __future__ import annotations
 
@@ -81,12 +81,12 @@ def beats_2_0() -> dict:
 # --- upgrade_report ---
 
 
-def test_1_1_report_becomes_2_0_field_by_field() -> None:
+def test_1_1_report_becomes_2_1_field_by_field() -> None:
     old = report_1_1()
 
     out = upgrade_report(old)
 
-    assert out["schema_version"] == "2.0"
+    assert out["schema_version"] == "2.1"
     assert "beat_offset_ms" not in out
     assert out["tempo_map"] == [
         {
@@ -169,7 +169,7 @@ def test_upgraded_report_validates_as_a_timing_report() -> None:
 
     report = TimingReport.model_validate(out)
 
-    assert report.schema_version == "2.0"
+    assert report.schema_version == "2.1"
     segment = report.tempo_map[0]
     assert (segment.start_ms, segment.end_ms, segment.anchor_ms) == (2000.0, 21500.0, 2120.5)
     assert (segment.bpm, segment.confidence, segment.source) == (174.0123, 0.93, "auto")
@@ -179,13 +179,21 @@ def test_upgraded_report_validates_as_a_timing_report() -> None:
     assert report.sections[0].label == "drop"
 
 
-def test_2_0_report_passes_through_unchanged() -> None:
+def test_2_0_report_only_changes_its_version() -> None:
     data = report_2_0()
 
     out = upgrade_report(data)
 
-    assert out == report_2_0()
-    TimingReport.model_validate(out)
+    assert out == {**report_2_0(), "schema_version": "2.1"}
+    assert data == report_2_0()
+    # nothing was ratio merged before 2.1
+    assert all(s.ratio_merged == [] for s in TimingReport.model_validate(out).tempo_map)
+
+
+def test_2_1_report_passes_through_unchanged() -> None:
+    data = {**report_2_0(), "schema_version": "2.1"}
+
+    assert upgrade_report(data) == {**report_2_0(), "schema_version": "2.1"}
 
 
 def test_1_0_report_passes_through_unchanged_and_still_fails_validation() -> None:
@@ -212,12 +220,12 @@ def test_anything_else_passes_through_unchanged(data: object) -> None:
 # --- upgrade_beats ---
 
 
-def test_1_1_beats_become_2_0_with_the_octave_kept() -> None:
+def test_1_1_beats_become_2_1_with_the_octave_kept() -> None:
     old = beats_1_1()
 
     out = upgrade_beats(old)
 
-    assert out == {**beats_1_1(), "schema_version": "2.0", "octave": "kept"}
+    assert out == {**beats_1_1(), "schema_version": "2.1", "octave": "kept"}
     assert out["beats"] == old["beats"]
 
 
@@ -232,18 +240,24 @@ def test_beats_upgrade_does_not_modify_its_input() -> None:
 def test_upgraded_beats_validate_as_a_beats_file() -> None:
     beats = BeatsFile.model_validate(upgrade_beats(beats_1_1()))
 
-    assert beats.schema_version == "2.0"
+    assert beats.schema_version == "2.1"
     assert (beats.sha256, beats.tracker, beats.octave) == (SHA, "madmom", "kept")
     assert [b.time_ms for b in beats.beats] == [2000.0, 2500.0]
     assert [b.is_downbeat for b in beats.beats] == [True, False]
 
 
-def test_2_0_beats_pass_through_unchanged() -> None:
+def test_2_0_beats_only_change_their_version() -> None:
     out = upgrade_beats(beats_2_0())
 
     # the octave check's answer is not overwritten
-    assert out == beats_2_0()
+    assert out == {**beats_2_0(), "schema_version": "2.1"}
     assert BeatsFile.model_validate(out).octave == "doubled"
+
+
+def test_2_1_beats_pass_through_unchanged() -> None:
+    data = {**beats_2_0(), "schema_version": "2.1"}
+
+    assert upgrade_beats(data) == {**beats_2_0(), "schema_version": "2.1"}
 
 
 def test_1_0_beats_pass_through_unchanged_and_still_fail_validation() -> None:

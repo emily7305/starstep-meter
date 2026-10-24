@@ -13,7 +13,7 @@ export type Numerator = number;
 export type Source = "auto" | "manual";
 export type StartBar = number;
 export type MeterMap = MeterSegment[];
-export type SchemaVersion = "2.0";
+export type SchemaVersion = "2.1";
 export type EndMs = number;
 export type Label = string;
 export type Source1 = "auto" | "manual";
@@ -57,19 +57,37 @@ export type Confidence1 = number | null;
  * where it stops, the same value as the next segment's start_ms
  */
 export type EndMs1 = number;
+/**
+ * what the stretch fitted to on its own
+ */
+export type Bpm1 = number;
+export type EndMs2 = number;
+/**
+ * share of its beats on the segment's grid (lines, halves, thirds) over the share on its own grid
+ */
+export type Fit = number;
+/**
+ * its bpm over the segment's, near enough, e.g. 3/4 for a triplet feel or 2/3 for a dotted one
+ */
+export type Ratio = string;
+export type StartMs1 = number;
+/**
+ * felt tempo sections (dotted, triplet feel) inside this segment that the analysis kept on its grid, splitting at a section's start_ms and end_ms gives it back its own tempo
+ */
+export type RatioMerged = RatioMergedSection[];
 export type Source2 = "auto" | "manual";
 /**
  * where this tempo starts, the first segment starts at trim.start_ms
  */
-export type StartMs1 = number;
+export type StartMs2 = number;
 /**
  * end of the last audible sound
  */
-export type EndMs2 = number;
+export type EndMs3 = number;
 /**
  * first audible sound
  */
-export type StartMs2 = number;
+export type StartMs3 = number;
 
 export interface TimingReport {
   edits: Edits;
@@ -112,10 +130,18 @@ export interface TempoSegment {
   bpm: Bpm;
   confidence: Confidence1;
   end_ms: EndMs1;
+  ratio_merged: RatioMerged;
   source: Source2;
+  start_ms: StartMs2;
+}
+export interface RatioMergedSection {
+  bpm: Bpm1;
+  end_ms: EndMs2;
+  fit: Fit;
+  ratio: Ratio;
   start_ms: StartMs1;
 }
 export interface Trim {
-  end_ms: EndMs2;
-  start_ms: StartMs2;
+  end_ms: EndMs3;
+  start_ms: StartMs3;
 }

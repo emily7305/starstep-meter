@@ -115,7 +115,7 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert resp.status_code == 200, resp.text
     report = TimingReport.model_validate(resp.json())
 
-    assert report.schema_version == "2.0"
+    assert report.schema_version == "2.1"
     assert report.source.filename == "click 120.wav"
     assert report.source.codec == "pcm_f32le"
     assert report.source.decoder_padding_samples == 0

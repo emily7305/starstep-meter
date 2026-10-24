@@ -4,7 +4,7 @@ import { bands, EDGE_FRACTION, mapLines, nearestLineMs, segmentAt, tempoGrid, vi
 import type { TempoSegment } from "./types/timingReport";
 
 function seg(start: number, end: number, bpm: number, anchor: number, source: "auto" | "manual" = "auto"): TempoSegment {
-  return { start_ms: start, end_ms: end, bpm, anchor_ms: anchor, confidence: source === "auto" ? 1 : null, source };
+  return { start_ms: start, end_ms: end, bpm, anchor_ms: anchor, confidence: source === "auto" ? 1 : null, source, ratio_merged: [] };
 }
 
 const DURATION_MS = 40000;

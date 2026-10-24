@@ -130,6 +130,48 @@
       "title": "MeterSegment",
       "type": "object"
     },
+    "RatioMergedSection": {
+      "additionalProperties": false,
+      "properties": {
+        "bpm": {
+          "description": "what the stretch fitted to on its own",
+          "exclusiveMinimum": 0,
+          "title": "Bpm",
+          "type": "number"
+        },
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "fit": {
+          "description": "share of its beats on the segment's grid (lines, halves, thirds) over the share on its own grid",
+          "minimum": 0,
+          "title": "Fit",
+          "type": "number"
+        },
+        "ratio": {
+          "description": "its bpm over the segment's, near enough, e.g. 3/4 for a triplet feel or 2/3 for a dotted one",
+          "pattern": "^[1-9][0-9]*/[1-9][0-9]*$",
+          "title": "Ratio",
+          "type": "string"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "bpm",
+        "ratio",
+        "fit"
+      ],
+      "title": "RatioMergedSection",
+      "type": "object"
+    },
     "Section": {
       "additionalProperties": false,
       "properties": {
@@ -198,6 +240,14 @@
           "title": "End Ms",
           "type": "number"
         },
+        "ratio_merged": {
+          "description": "felt tempo sections (dotted, triplet feel) inside this segment that the analysis kept on its grid, splitting at a section's start_ms and end_ms gives it back its own tempo",
+          "items": {
+            "$ref": "#/$defs/RatioMergedSection"
+          },
+          "title": "Ratio Merged",
+          "type": "array"
+        },
         "source": {
           "enum": [
             "auto",
@@ -219,7 +269,8 @@
         "bpm",
         "anchor_ms",
         "confidence",
-        "source"
+        "source",
+        "ratio_merged"
       ],
       "title": "TempoSegment",
       "type": "object"
@@ -267,8 +318,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "2.0",
-      "default": "2.0",
+      "const": "2.1",
+      "default": "2.1",
       "title": "Schema Version",
       "type": "string"
     },

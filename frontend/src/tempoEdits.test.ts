@@ -16,12 +16,20 @@ import type { Edit, TempoSegment, TimingReport } from "./types/timingReport";
 const NOW = new Date("2026-03-02T10:15:30.250Z");
 
 function seg(start: number, end: number, bpm: number, anchor: number, confidence: number | null = 1): TempoSegment {
-  return { start_ms: start, end_ms: end, bpm, anchor_ms: anchor, confidence, source: confidence === null ? "manual" : "auto" };
+  return {
+    start_ms: start,
+    end_ms: end,
+    bpm,
+    anchor_ms: anchor,
+    confidence,
+    source: confidence === null ? "manual" : "auto",
+    ratio_merged: [],
+  };
 }
 
 function makeReport(edits: Edit[] = []): TimingReport {
   return {
-    schema_version: "2.0",
+    schema_version: "2.1",
     source: {
       filename: "song.wav",
       sha256: "0".repeat(64),

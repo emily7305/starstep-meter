@@ -1,8 +1,8 @@
 """Bring a stored report or beats file from an older schema up to the current one.
 
-Works on the parsed json before validation. Only 1.1 can be upgraded, 1.0
-reports have no codec or decoder padding and those can only come from the
-original file, so they still need a fresh upload.
+Works on the parsed json before validation, one version step at a time. 1.1
+and 2.0 can be upgraded, 1.0 reports have no codec or decoder padding and
+those can only come from the original file, so they still need a fresh upload.
 """
 
 from __future__ import annotations
@@ -11,11 +11,20 @@ from typing import Any
 
 
 def upgrade_report(data: Any) -> Any:
+    """A 1.1 or 2.0 report as 2.1. Anything else comes back untouched and fails validation as usual."""
+    return _report_2_0_to_2_1(_report_1_1_to_2_0(data))
+
+
+def upgrade_beats(data: Any) -> Any:
+    """A 1.1 or 2.0 beats file as 2.1."""
+    return _beats_2_0_to_2_1(_beats_1_1_to_2_0(data))
+
+
+def _report_1_1_to_2_0(data: Any) -> Any:
     """1.1 -> 2.0: beat_offset_ms becomes the first segment's anchor, segments get an end.
 
     The edit log stays as it was, entries for beat_offset_ms describe what is now
-    tempo_map/0/anchor_ms. Anything that isn't a 1.1 report comes back untouched and
-    fails validation as usual.
+    tempo_map/0/anchor_ms.
     """
     if not isinstance(data, dict) or data.get("schema_version") != "1.1":
         return data
@@ -41,8 +50,22 @@ def upgrade_report(data: Any) -> Any:
     return out
 
 
-def upgrade_beats(data: Any) -> Any:
-    """1.1 -> 2.0: there was no octave check yet, so nothing was doubled or halved."""
+def _report_2_0_to_2_1(data: Any) -> Any:
+    # 2.0 -> 2.1: nothing was ratio merged yet, and ratio_merged defaults to empty
+    if not isinstance(data, dict) or data.get("schema_version") != "2.0":
+        return data
+    return {**data, "schema_version": "2.1"}
+
+
+def _beats_1_1_to_2_0(data: Any) -> Any:
+    # 1.1 -> 2.0: there was no octave check yet, so nothing was doubled or halved
     if not isinstance(data, dict) or data.get("schema_version") != "1.1":
         return data
     return {**data, "schema_version": "2.0", "octave": "kept"}
+
+
+def _beats_2_0_to_2_1(data: Any) -> Any:
+    # 2.0 -> 2.1: same fields, the version moves with the report's
+    if not isinstance(data, dict) or data.get("schema_version") != "2.0":
+        return data
+    return {**data, "schema_version": "2.1"}

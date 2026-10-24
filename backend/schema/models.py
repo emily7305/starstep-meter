@@ -1,4 +1,4 @@
-"""Timing report schema v2.0.
+"""Timing report schema v2.1.
 
 All times are milliseconds from the first sample of the decoded audio
 (ffmpeg's output, before any trimming). Bars are 0-based, beats inside
@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "2.1"
 
 # every segment says where it came from, re-analysis only ever replaces "auto"
 SegmentSource = Literal["auto", "manual"]
@@ -46,6 +46,27 @@ class Trim(_Strict):
         return self
 
 
+class RatioMergedSection(_Strict):
+    # a stretch the ratio check folded into its segment, kept so it can be split back out
+    start_ms: float = Field(ge=0)
+    end_ms: float = Field(ge=0)
+    bpm: float = Field(gt=0, description="what the stretch fitted to on its own")
+    ratio: str = Field(
+        pattern=r"^[1-9][0-9]*/[1-9][0-9]*$",
+        description="its bpm over the segment's, near enough, e.g. 3/4 for a triplet feel or 2/3 for a dotted one",
+    )
+    fit: float = Field(
+        ge=0,
+        description="share of its beats on the segment's grid (lines, halves, thirds) over the share on its own grid",
+    )
+
+    @model_validator(mode="after")
+    def _ordered(self) -> RatioMergedSection:
+        if self.end_ms <= self.start_ms:
+            raise ValueError("ratio merged end_ms has to be after start_ms")
+        return self
+
+
 class TempoSegment(_Strict):
     start_ms: float = Field(ge=0, description="where this tempo starts, the first segment starts at trim.start_ms")
     end_ms: float = Field(ge=0, description="where it stops, the same value as the next segment's start_ms")
@@ -57,11 +78,19 @@ class TempoSegment(_Strict):
     )
     confidence: float | None = Field(default=None, ge=0, le=1)
     source: SegmentSource
+    ratio_merged: list[RatioMergedSection] = Field(
+        default_factory=list,
+        description="felt tempo sections (dotted, triplet feel) inside this segment that the analysis kept "
+        "on its grid, splitting at a section's start_ms and end_ms gives it back its own tempo",
+    )
 
     @model_validator(mode="after")
     def _ordered(self) -> TempoSegment:
         if self.end_ms <= self.start_ms:
             raise ValueError("tempo segment end_ms has to be after start_ms")
+        for note in self.ratio_merged:
+            if note.start_ms < self.start_ms or note.end_ms > self.end_ms:
+                raise ValueError("a ratio merged section has to be inside its tempo segment")
         return self
 
 
@@ -100,7 +129,7 @@ class Edit(_Strict):
 
 
 class TimingReport(_Strict):
-    schema_version: Literal["2.0"] = SCHEMA_VERSION
+    schema_version: Literal["2.1"] = SCHEMA_VERSION
     source: AudioSource
     trim: Trim
     # contiguous, the first downbeat is tempo_map[0].anchor_ms. no player compensation, see docs/decisions.md
@@ -134,7 +163,7 @@ class Beat(_Strict):
 
 class BeatsFile(_Strict):
     # beats live in their own file next to report.json, a long song has thousands
-    schema_version: Literal["2.0"] = SCHEMA_VERSION
+    schema_version: Literal["2.1"] = SCHEMA_VERSION
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="same file as the report it belongs to")
     # librosa is the fallback when madmom isn't installed, it has no downbeats so bars are guessed
     tracker: Literal["madmom", "librosa"]
