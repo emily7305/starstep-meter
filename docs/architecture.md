@@ -17,6 +17,11 @@ Each stage is a plain function that takes paths or numpy arrays and returns a sm
 | `tempo_map.py` | snapped times, downbeat flags, trim bounds, a loudness lookup, an onset strength lookup | `TempoMapResult`: segments, each with its own `GridFit`, the felt sections folded into it and its off-beat runs |
 | `grid_fit.py` | the snapped times of one segment | `GridFit`: period, anchor, indices, residuals, confidence |
 | `tempo_edit.py` | tempo segments, tracked beat times | the manual edits (split, merge, match, bpm, anchor) and `keep_manual_segments` for re-analysis |
+| `bars.py` | tempo map, meter map | bar lines and beat lines, the rule `frontend/src/tempoMap.ts` draws with too |
+| `features.py` | samples, sample rate, grid positions | `GridFeatures`: low, mid and high band onset strengths at each position |
+| `meter.py` | tempo map, snapped times, downbeat flags, an accent lookup | `MeterResult`: meter runs over the whole map, and the tempo map with each anchor on beat 1 |
+| `notation.py` | tempo segments, meter runs, grid features | `Suggestion`s: half and double time feel spans, and folding an edge stretch into its neighbour |
+| `meter_edit.py`, `notation_edit.py` | meter map, tempo map, suggestions | the meter edits (set, split, merge), applying a suggestion, and what re-analysis keeps |
 | `tempo_range.py` | | `TempoRange`, the one bpm range every tempo path uses, 60–320 by default |
 | `tempo.py` | samples, sample rate, trim bounds | `TempoResult`: milestone 1 bpm estimate, only used by the librosa fallback now |
 | `pipeline.py` | original, work dir, filename, sha256, previous report | `AnalysisOutput` with the `TimingReport` and the `BeatsFile` |
@@ -24,7 +29,7 @@ Each stage is a plain function that takes paths or numpy arrays and returns a sm
 
 `ffmpeg_tools.py` finds and runs ffmpeg/ffprobe (`shutil.which`, argument lists, never a shell). A missing tool raises `ToolNotFoundError("ffmpeg not found on PATH")`.
 
-`run_analysis` calls `on_stage("decode" | "trim" | "beats" | "snap" | "tempo")` as it goes and wraps any failure in `StageError(stage, message)`, so the caller always knows where it broke. The beats stage also builds a rough tempo map from the raw beats, without the consolidation pass, and runs the octave check on each rough segment. A felt section only changes octave when it stays at a ratio of its neighbours. The tempo stage builds the real tempo map from the snapped beats: segmentation, then the consolidation pass that folds felt sections (in the middle, next to an intro or outro stub, or at the very edge), off-beat stretches, runs of short pieces, short pieces and weak edges into their neighbours, then the off-beat pass that marks where the tracker followed the off-beat and checks each grid's phase against the onsets. With a previous report (re-analysis), its manual segments and edits carry over. Ingest isn't a job stage. It runs during the upload request, so a bad file is rejected with a 4xx straight away instead of becoming a failed job.
+`run_analysis` calls `on_stage("decode" | "trim" | "beats" | "snap" | "tempo" | "meter")` as it goes and wraps any failure in `StageError(stage, message)`, so the caller always knows where it broke. The beats stage also builds a rough tempo map from the raw beats, without the consolidation pass, and runs the octave check on each rough segment. A felt section only changes octave when it stays at a ratio of its neighbours. The tempo stage builds the real tempo map from the snapped beats: segmentation, then the consolidation pass that folds felt sections (in the middle, next to an intro or outro stub, or at the very edge), off-beat stretches, runs of short pieces, short pieces and weak edges into their neighbours, then the off-beat pass that marks where the tracker followed the off-beat and checks each grid's phase against the onsets. The meter stage reads the band strengths at every grid line and half line, infers the meter from the downbeats and the accents, and works out the notation suggestions from the same band strengths. With a previous report (re-analysis), its manual segments, manual meter, decided suggestions and edits carry over. Ingest isn't a job stage. It runs during the upload request, so a bad file is rejected with a 4xx straight away instead of becoming a failed job.
 
 All times are milliseconds from the first decoded sample. Trim only reports boundaries and never cuts the audio, so later stages and the frontend share one timeline. Every segment's `anchor_ms` is on that timeline too (the first segment's is the first downbeat, no player compensation). The decode stage also reads the codec and the decoder padding with ffprobe, see `decisions.md`.
 
@@ -35,13 +40,13 @@ All times are milliseconds from the first decoded sample. Trim only reports boun
   - `GET /api/jobs/{id}`: status, with `report_available` for a failed re-analysis that left the last good report.
   - `GET /api/jobs/{id}/report`: the timing report.
   - `GET /api/jobs`: every job, newest first. `?sha256=` narrows it to one file.
-  - `PATCH /api/jobs/{id}/report`: one tempo edit, `{"op": "set_anchor" | "set_bpm" | "split" | "merge" | "match", ...}`, appends to `edits`.
+  - `PATCH /api/jobs/{id}/report`: one edit, `{"op": "set_anchor" | "set_bpm" | "split" | "merge" | "match" | "set_meter" | "split_meter" | "merge_meter" | "apply_suggestion" | "dismiss_suggestion", ...}`, appends to `edits`.
   - `POST /api/jobs/{id}/reanalyze`: runs the analysis again, keeping manual segments and edits.
   - `GET /api/jobs/{id}/beats`: the beats file.
   - `GET /api/jobs/{id}/audio`: the decoded wav, for playback in the local UI.
   - `GET /api/health`: ffmpeg and ffprobe found, madmom installed and importing (checked once at startup).
 - `jobs.py`: a `ThreadPoolExecutor` (one worker by default) runs `run_analysis` and writes status as stages change. On re-analysis it passes the old report in and decodes into `.rerun/`, so a failed run leaves the job's files as they were.
-- `tempo_patch.py`: applies one tempo edit and writes the edit log entries for it.
+- `tempo_patch.py`: applies one edit (tempo, meter or suggestion) and writes the edit log entries for it.
 - `storage.py`: job directories and atomic JSON writes.
 - `settings.py`: data dir, upload limit, trim threshold, snap window, tempo range, worker count, all overridable with `STARSTEP_*` env vars.
 - `python -m backend.api` starts uvicorn on 127.0.0.1:8000.
@@ -54,19 +59,19 @@ decoded.wav      ffmpeg output the analysis ran on
 job.json         filename, sha256, size, created_at
 status.json      {status, stage, error}, rewritten on every stage change
 report.json      the timing report, once done
-beats.json       every tracked beat (snapped and raw time, residual, bar), once done
+beats.json       every tracked beat (snapped and raw time, residual, bar) and the band strengths at the grid, once done
 .rerun/          only while a re-analysis runs, its decoded wav until the run succeeds
 ```
 
-Report edits go through one lock in `JobStore`, so a burst of patches can't read the same old report and drop an edit. Reports and beats files from schema 1.1, 2.0 and 2.1 are upgraded to 2.2 as they're read (`backend/schema/migrate.py`).
+Report edits go through one lock in `JobStore`, so a burst of patches can't read the same old report and drop an edit. Reports and beats files from schema 1.1, 2.0, 2.1 and 2.2 are upgraded to 2.3 as they're read (`backend/schema/migrate.py`).
 
 Status and report are on disk, so a restart doesn't lose finished jobs. Jobs that were still queued or running when the server stopped are marked failed on the next start ("server restarted before the job finished"). There's no Celery, Redis, or database.
 
-`status` is `queued | running | done | failed`. `stage` is `queued | decode | trim | beats | snap | tempo | done | failed`. A failure keeps the stage it happened in as `error.stage`.
+`status` is `queued | running | done | failed`. `stage` is `queued | decode | trim | beats | snap | tempo | meter | done | failed`. A failure keeps the stage it happened in as `error.stage`.
 
 ## schema (`backend/schema/`, `shared/schema/`)
 
-`models.py` is the source of truth for the timing report and the beats file (v2.2, see `schema-changelog.md`). `export_schema.py` writes `shared/schema/timing_report.schema.json` and `shared/schema/beats.schema.json`, which are committed. The frontend generates `frontend/src/types/timingReport.ts` and `frontend/src/types/beats.ts` from them with `npm run gen:types`.
+`models.py` is the source of truth for the timing report and the beats file (v2.3, see `schema-changelog.md`). `export_schema.py` writes `shared/schema/timing_report.schema.json` and `shared/schema/beats.schema.json`, which are committed. The frontend generates `frontend/src/types/timingReport.ts` and `frontend/src/types/beats.ts` from them with `npm run gen:types`.
 
 Two checks keep them in sync. A pytest test fails if a committed JSON Schema differs from its model, and `npm run check:types` fails if the committed TypeScript differs from what the JSON Schemas generate.
 
@@ -83,20 +88,20 @@ Vite + React + TypeScript. In dev, Vite proxies `/api` to the backend, so there'
 
 - Upload goes through `XMLHttpRequest` because fetch can't report upload progress.
 - `poll.ts` holds the polling loop as a plain async function with an injectable sleep.
-- The page is laid out around the timeline. It's a full-width band at the top with the wavesurfer waveform, the tempo bands and the beat grid in it. Under it is a strip with the transport, the zoomed view and the segment controls, and then the source and report columns. The source column also lists recent jobs.
+- The page is laid out around the timeline. It's a full-width band at the top with the wavesurfer waveform, the tempo bands and the beat grid in it. Under it is a strip with the transport, the zoomed view, the segment and meter controls and the list of notation suggestions, and then the source and report columns. The source column also lists recent jobs.
 - The open job's id is in the url (`?job=`), so a reload reopens it. `jobs.ts` has the url and hashing helpers.
-- `grid.ts` has the beat-to-pixel maths for one grid and `tempoMap.ts` puts the segments' grids together (boundaries, bar numbers across segments, bands). `tempoEdits.ts` is the edit logic (`EditSaver` debounces anchor nudges, sends everything else at once, and keeps one patch in flight). All three are plain modules with vitest tests, and the components only wire them up.
-- `beatGridPlugin.ts` is the wavesurfer plugin that draws the bands and the grid, `components/Loupe.tsx` the zoomed view, `components/SegmentControl.tsx` the controls for the selected segment, and `components/Timeline.tsx` owns the wavesurfer instance.
+- `grid.ts` has the beat-to-pixel maths for one grid and `tempoMap.ts` puts the segments' grids together (boundaries, bar lines from the meter map with the backend's rule, bar numbers across segments, bands). `tempoEdits.ts` is the edit logic (`EditSaver` debounces anchor nudges, sends everything else at once, and keeps one patch in flight). All three are plain modules with vitest tests, and the components only wire them up.
+- `beatGridPlugin.ts` is the wavesurfer plugin that draws the bands, the grid and a thin mark for each open suggestion, `components/Loupe.tsx` the zoomed view, `components/SegmentControl.tsx` the controls for the selected segment, `components/MeterControl.tsx` the ones for the meter under the zoomed view, `components/SuggestionList.tsx` the suggestions with apply and dismiss, and `components/Timeline.tsx` owns the wavesurfer instance.
 - `fonts.ts` loads the Japanese font slices on demand.
 
 ## tests (`tests/`)
 
-`synth.py` generates click tracks with known onsets, padding, an optional noise floor, accented downbeats, tempo changes, jitter, offbeat clicks and sections where the clicks play another rhythm over the same tempo (dotted, triplet feel). WAVs are cached in `tests/fixtures/` (git-ignored), keyed on a hash of the generator source and the spec. Tests that need ffmpeg carry `@pytest.mark.ffmpeg` and are skipped when it's missing.
+`synth.py` generates click tracks with known onsets, padding, an optional noise floor, accented downbeats, tempo changes, jitter, offbeat clicks, sections where the clicks play another rhythm over the same tempo (dotted, triplet feel) and meter changes. It also makes drum tracks (kick, snare, hats) with half and double time feel sections on a steady pulse. WAVs are cached in `tests/fixtures/` (git-ignored), keyed on a hash of the generator source and the spec. Tests that need ffmpeg carry `@pytest.mark.ffmpeg` and are skipped when it's missing.
 
-`tests/real/<song>/` (git-ignored) holds the beats file and report of real songs, timing data only. `test_real_song.py` runs the tempo map on each and skips a song that isn't there.
+`tests/real/<song>/` (git-ignored) holds the beats file and report of real songs, timing data only. `test_real_song.py` runs the tempo map on each and skips a song that isn't there, and runs the notation suggestions again from the band strengths in the beats file when it has them.
 
 ## scripts (`scripts/`)
 
 - `make_click_track.py` writes a click track for checking by hand, with tempo changes and felt rhythm sections if asked.
-- `eval_local.py` runs the pipeline on every song in a local folder and writes a csv of timing numbers, for tuning thresholds on real songs. It never writes audio.
+- `eval_local.py` runs the pipeline on every song in a local folder and writes a csv of timing numbers (meter and notation suggestions included), for tuning thresholds on real songs. It never writes audio.
 - `check_madmom.py` checks a madmom install.

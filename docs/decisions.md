@@ -538,3 +538,89 @@ Each has a test in `tests/test_tempo_map.py` that flips its decision. The 3b res
 - ENDYMION's outro, above.
 - The 6/5 merge rests on the tempo ratio as much as on the phase, since madmom's beats in that section are too loose to show a lock to the sixths.
 - A short run at a different tempo between two segments on one grid now folds whatever its tempo, as long as it's made of two or more short segments. A real two-bar break at another tempo that comes back exactly on the grid would be folded too.
+
+## meter and notation (milestone 4)
+
+### meter segments go by time
+
+The schema had `meter_map` with a `start_bar` since 1.0, and nothing ever wrote one. A bar number doesn't hold still: applying a half time suggestion halves the bar count of its span, and a split restarts a bar, so every bar number after either moves. A manual meter keyed by bar would end up somewhere else after the next tempo edit. So 2.3 gives meter segments `start_ms` and `end_ms`, contiguous like the tempo map, and drops `start_bar`. An empty meter map (every report from before 2.3) draws as 4/4 from each tempo segment's anchor, which is what was drawn before.
+
+### bar lines
+
+One rule, in `backend/analysis/bars.py` and again in `frontend/src/tempoMap.ts`, with the same test cases on both sides:
+
+- A bar is `numerator × 4 / denominator` beats of the tempo segment's grid. The bpm counts quarter notes, so a span set to half the bpm has bars twice as long, and 7/8 is 3.5 beats with a bar line between two beats.
+- A meter segment that starts with its tempo segment (within a quarter beat of its start) counts bars from the tempo segment's anchor. One that starts later starts a bar right there, snapped to the nearest beat, and counts from it. Every tempo segment's anchor is bar 1 for the meter it starts with, as before.
+- Bar 0 is the first downbeat of the song, and numbers keep counting across tempo and meter segments.
+
+This replaced the bar length the frontend read from the beats file (the most common full bar in madmom's positions).
+
+### meter from the downbeats, and from the accents where they're clear
+
+`backend/analysis/meter.py` runs per tempo segment on the grid indices of madmom's downbeats. Runs of one spacing are bars of that length, missed downbeats in between don't break a run, and a run of fewer than `min_bars` (4) is the tracker stumbling. It goes into the run after it (or before, at the end), which carries its own bars back over it as far as they fit, so an odd bar lands where the downbeats moved. A downbeat where the bar length changes ends a bar of the old length and starts one of the new, and the change is put on it, where a chart puts it.
+
+madmom's downbeat tracker only knows bars of 3 and 4 beats, and on click tracks it doesn't always follow the accents. Measured with the click track generator:
+
+| track | madmom's downbeats | accents |
+| --- | --- | --- |
+| 128 bpm 4/4 | every 4, on the accents | every 4 |
+| 150 bpm 3/4 | every 4, a beat late | every 3 |
+| 140 bpm, 4/4 then 7 from beat 64 | every 4 all the way | 4, then 7 from beat 64 |
+
+So the accents get a say. An accent run is `accent_min_bars` (4) or more bars in a row of some length from 3 to 9 where the first beat of every bar is at least `accent_ratio` (1.3) times as strong as every other beat in that bar. The strength is the sum of the three band strengths below. Accented clicks come out at 1.6 to 1.8. Where an accent run's length differs from madmom's and isn't a multiple of it, its bars replace madmom's downbeats there. Where the length is the same, madmom's phase stays, since on music its beat 1 is the better guess. A multiple isn't taken, because a crash every second bar is a phrase and not a bar of 8. On real music I expect the accent runs to rarely hold for four bars, so it should mostly be madmom's meter. That's untested.
+
+The anchor of each tempo segment moves by whole beats onto beat 1 of its first bar, so the 3/4 track's anchor sits on the first accented click (609.3 ms, the click is at 610.0) instead of on madmom's late downbeat. No grid line moves.
+
+The denominator is always 4. Seven beats of the grid are 7/4 at the grid's bpm, or 7/8 at twice it, and the audio can't say which, the same as half and double time. The click track named 4/4 → 7/8 comes out as 4/4 then 7/4 with the change on bar 16. The meter panel sets any denominator by hand.
+
+What broke on the way:
+
+- The first accent strength was the biggest band flux frame near each beat. With a 23 ms window and 5.8 ms hop, where an attack fell in the frames moved that by about ±15%, and some accented clicks read only 1.26 times the plain ones. The 7 bars were found two bars late. The sum of the flux within ±20 ms doesn't depend on the frame phase, and the accents read 1.6 to 1.8.
+- With the accent bars spliced in as downbeats, the downbeat on beat 64 was taken as the last 4/4 downbeat, and the change came out a bar late. Now a run whose first bar already has the new length starts on the downbeat before it.
+- A stray downbeat in the middle of a bar gave a 2 beat spacing, which started a run of 2/4 that swallowed the rest of the song. madmom's bars are 3 or 4 beats, so a run needs a spacing of at least 3.
+
+Felt sections and off-beat runs: madmom's downbeats inside a ratio merged section follow the felt pulse, and in an off-beat run they sit half a beat off, so they're left out and the bars before run on through on the grid. A run that picks up right after such a stretch is folded back onto the lattice from before, whatever phase madmom came back on. On the dotted, triplet feel and off-beat click tracks from milestones 3b and 3c the meter is one 4/4 segment, and all 72 bar lines are within 0.74 ms of every 4th beat of the generator's grid.
+
+The librosa fallback has no downbeats, so its meter is 4/4 from its guess, with half the confidence, unless the accents say otherwise.
+
+### band strengths at the grid
+
+`backend/analysis/features.py`: spectral flux on linear magnitude in three bands, low 30–150 Hz (kick, bass attacks), mid 150–3000 Hz (snare body and most attacks) and high 5–16 kHz (hats, cymbals, the snare's noise), with a 1024 sample window (23 ms, 43 Hz per bin, enough to keep the kick band apart) and a 256 sample hop at 44.1 kHz, scaled for 48 kHz. Each grid line and half line of the tempo map gets the sum of each band's flux within ±20 ms. The values are divided by the song's median total, so a typical position sums to about 1 and the bands stay comparable with each other. The whole meter stage adds about 0.8 s on a 3 minute song, nearly all of it the band flux, next to about 30 s for madmom's network.
+
+These numbers go into `beats.json` as `grid_features`, timing and band strengths only, about 160 KB of indented json for a 3 minute song at 260 bpm. `suggest_from_files` in `backend/analysis/notation.py` runs the suggestions again from a stored report and beats file, without the audio, which is how `tests/test_real_song.py` will check them on real songs.
+
+### half and double time feel
+
+A chart can write one pulse at two tempos (YOUNITHM switches between 260 and 130 on a half time feel, ENDYMION is charted at 440 in 8ths for most of it and 220 in 16ths in places), and that isn't in the beat times at all. It is in the drums. A plain backbeat has the kick on beats 1 and 3 and the snare on 2 and 4, so the snare comes round every two beats of the notated tempo. `backend/analysis/notation.py` reads the notated tempo off that:
+
+- Fold the snare band over four beats of the grid at half beat steps. A plain bar has two hits half a cycle apart. One hit per cycle is the backbeat at half the grid's tempo. Four, on every beat or every off-beat with nothing between them, is twice it. With the strongest position as the reference, a position under `single_ratio` (0.5) of it counts as empty and one over `present_ratio` (0.6) as a hit.
+- A backbeat swaps kick and snare, so half and double also need the kick band's strongest hit half a backbeat away from the snare's, at least `kick_min` (0.2) of the snare band's strength. Without that, clicks on every beat came out as double time: the off-beat click track got a "double" from 19.0 to 35.6 s with a score of 0.73.
+- Windows of 4 bars slide one bar at a time, with shorter ones hanging off both ends so the first and last bars get as many votes. Every bar takes the class most of its windows gave. A run of half or double bars becomes a suggestion when it's at least `min_span_bars` (8) bars of the faster of the two tempos, so 8 grid bars for half and 4 for double. Then each edge moves to where the bars, read on their own at the run's phase, change between that class and not. That's needed because the windows blur an edge. The first version moved edges by any bar whose own profile looked like the run's, and plain bars read at a double run's phase only look at the near-empty positions, so edges spilled up to 2 bars into the plain part.
+- The score is how clear the contrast is (the empty positions against the hits, so 0.65 when they're at 35%), times the kick's share where the feel puts it, averaged over the run. On the test drums the kick leaks about 0.35 into the snare band, so clean sections score 0.56 to 0.65.
+
+It's absolute, the snare's period against the grid, not relative to the rest of the song. Relative would have called ENDYMION's 220 parts half time, at 110. The risk is a song whose drums don't follow the plain backbeat, which would get suggestions where the chart keeps the grid's tempo. MisoilePunch♪ is the check for that.
+
+Only bars in 4/4 regions are read, a backbeat in 3/4 is a different pattern. A bar that touches a ratio merged section is left out, and a run can't cross one, so MisoilePunch♪'s 3/4 feel section at 44.5 to 58.7 s can't get a suggestion. Off-beat runs are read like any other bars, since the grid is on the real beats there.
+
+The test drums (`DrumTrackSpec` in `tests/synth.py`) are a kick sweeping 120 to 50 Hz, a snare (190 Hz body and noise from 300 Hz to 9 kHz) and hats on every half beat. With the hats as loud on the off-beat as on the beat, madmom followed a double time section to twice the tempo and stayed there for the rest of the track, which put the tempo map at 130 then 260. With the off-beat hats at 0.12 against 0.4 on the beat it stays on the pulse at 120, 130 and 150 bpm.
+
+Measured on the test drums with the grid known: half and double sections at 130, 150, 220 and 260 bpm come out on the bar lines of the sections (within 1 ms of the generator's), and steady patterns at 100, 130, 174 and 270 bpm get none. Through the pipeline with madmom at 130 and 150 bpm, the same. A stand-in for YOUNITHM (drums laid out on its measure map at 260, the tracker held on the grid) gives half at 97 → 37020, 81328 → 99789 and 155174 → the end, which is the measure map. That says the test in `tests/test_real_song.py` checks what it should, not that the real song works.
+
+### folding an edge
+
+The ENDYMION row in the attached `eval_local.csv`, which ran with the audio, still has the outro as two segments (292.75 then 267.87). So the weak edge rule from 3c didn't fold it either, the outro isn't quiet enough.
+
+`fold_suggestions` looks at the first and last stretch of the song, one or more segments, within the tempo map's edge limit (10% of the song or 8 bars of the neighbour, whichever is longer) and shorter than the neighbour. It carries the neighbour's grid through the stretch and compares the median band strength on the carried lines and half lines with the median on the stretch's own. The score is carried / (carried + own), 0.5 when both grids catch the onsets equally, and a fold is suggested from 0.5. On clicks at 220 with the tracked beats drifting off at 267.87 for the last 5.5 s (like ENDYMION's outro), it's 1.0. A real change to 267.87 over the last 5% scores 0.0, and over the last 30% it's past the edge limit and isn't looked at. ENDYMION itself needs its features in `tests/real/` to say.
+
+### applying and dismissing
+
+Applying is one edit. Half and double split the tempo segment at both edges of the span without refitting anything, since a refit moves the lines, and set the span to the segment's bpm times 0.5 or 2 from the old line on its first bar line. Half keeps every other line and double adds one between each pair. The bpm is the segment's own times the factor, not the suggestion's rounded `suggested_bpm`: at 4 decimals that drifts 0.014 ms over 80 beats, past the 0.01 ms the lines have to stay within. A fold puts the stretch on its neighbour's grid, like "match" twice. The edit log gets the whole tempo map before and after, and the suggestion's status.
+
+Dismissing only logs the status. A re-analysis keeps every applied and dismissed suggestion as it was, the way it keeps manual segments, and drops a fresh one that is a decided one again (same kind, more than half the same span) or that sits on a manual tempo segment with another bpm than the one it was made on, a stretch already retimed by hand.
+
+### limits
+
+- Nothing here has run on a real song's drums yet. The three songs in `tests/real/` were analyzed before 2.3, so their beats files have no `grid_features` and the suggestion tests skip. They need analyzing again and copying over.
+- The kick leaking into the snare band lowers the score of every class. Real kicks with a hard beater will leak more than the test drums, and a snare buried under guitars and synths in the 150–3000 Hz band will read weaker. The thresholds are tuned on synthetic drums only.
+- A double time feel with kick and snare both on every beat isn't a plain backbeat and comes out unknown.
+- The accent rule is tuned on clicks. On music it should mostly stay out of madmom's way, which is the point, but a song whose loudest attack keeps landing on the same odd beat for 4 bars would get that meter.
