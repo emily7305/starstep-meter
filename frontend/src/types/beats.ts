@@ -17,10 +17,30 @@ export type ResidualMs = number;
 export type TimeMs = number;
 export type Beats = Beat[];
 /**
+ * 5-16 khz, hats, cymbals and the snare's noise
+ */
+export type High = number;
+/**
+ * 30-150 hz, kick and bass attacks
+ */
+export type Low = number;
+/**
+ * 150-3000 hz, snare body and most other attacks
+ */
+export type Mid = number;
+/**
+ * a grid line or half line of the analysis' tempo map
+ */
+export type TimeMs1 = number;
+/**
+ * band onset strengths at every grid line and half line of the analysis' tempo map, plus the lines the fold check carried into an edge stretch, sorted by time. what the notation suggestions are worked out from, so they can be checked again without the audio
+ */
+export type GridFeatures = GridFeature[];
+/**
  * what the octave check did to the tracker's tempo, mixed when it differs between tempo segments, see docs/decisions.md
  */
 export type Octave = "kept" | "doubled" | "halved" | "mixed";
-export type SchemaVersion = "2.2";
+export type SchemaVersion = "2.3";
 /**
  * same file as the report it belongs to
  */
@@ -29,6 +49,7 @@ export type Tracker = "madmom" | "librosa";
 
 export interface BeatsFile {
   beats: Beats;
+  grid_features: GridFeatures;
   octave: Octave;
   schema_version: SchemaVersion;
   sha256: Sha256;
@@ -41,4 +62,10 @@ export interface Beat {
   raw_time_ms: RawTimeMs;
   residual_ms: ResidualMs;
   time_ms: TimeMs;
+}
+export interface GridFeature {
+  high: High;
+  low: Low;
+  mid: Mid;
+  time_ms: TimeMs1;
 }

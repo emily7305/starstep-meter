@@ -45,6 +45,43 @@
       ],
       "title": "Beat",
       "type": "object"
+    },
+    "GridFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "high": {
+          "description": "5-16 khz, hats, cymbals and the snare's noise",
+          "minimum": 0,
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "description": "30-150 hz, kick and bass attacks",
+          "minimum": 0,
+          "title": "Low",
+          "type": "number"
+        },
+        "mid": {
+          "description": "150-3000 hz, snare body and most other attacks",
+          "minimum": 0,
+          "title": "Mid",
+          "type": "number"
+        },
+        "time_ms": {
+          "description": "a grid line or half line of the analysis' tempo map",
+          "minimum": 0,
+          "title": "Time Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "time_ms",
+        "low",
+        "mid",
+        "high"
+      ],
+      "title": "GridFeature",
+      "type": "object"
     }
   },
   "$id": "beats.schema.json",
@@ -56,6 +93,14 @@
         "$ref": "#/$defs/Beat"
       },
       "title": "Beats",
+      "type": "array"
+    },
+    "grid_features": {
+      "description": "band onset strengths at every grid line and half line of the analysis' tempo map, plus the lines the fold check carried into an edge stretch, sorted by time. what the notation suggestions are worked out from, so they can be checked again without the audio",
+      "items": {
+        "$ref": "#/$defs/GridFeature"
+      },
+      "title": "Grid Features",
       "type": "array"
     },
     "octave": {
@@ -70,8 +115,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "2.2",
-      "default": "2.2",
+      "const": "2.3",
+      "default": "2.3",
       "title": "Schema Version",
       "type": "string"
     },
@@ -95,7 +140,8 @@
     "sha256",
     "tracker",
     "octave",
-    "beats"
+    "beats",
+    "grid_features"
   ],
   "title": "BeatsFile",
   "type": "object"

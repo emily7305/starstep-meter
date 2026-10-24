@@ -11,7 +11,9 @@ from backend.schema.models import (
     Beat,
     BeatsFile,
     Edit,
+    GridFeature,
     MeterSegment,
+    NotationSuggestion,
     Section,
     TempoSegment,
     TimingReport,
@@ -36,8 +38,19 @@ def full_report() -> TimingReport:
             TempoSegment(start_ms=1234.5, end_ms=90000.0, bpm=174.0123, anchor_ms=-12.75, confidence=0.93, source="auto"),
             TempoSegment(start_ms=90000.0, end_ms=210000.25, bpm=87.5, anchor_ms=90000.0, confidence=None, source="manual"),
         ],
-        meter_map=[MeterSegment(start_bar=0, numerator=7, denominator=8, confidence=0.5, source="auto")],
+        meter_map=[
+            MeterSegment(start_ms=1234.5, end_ms=90000.0, numerator=7, denominator=8, confidence=0.5, source="auto"),
+            MeterSegment(start_ms=90000.0, end_ms=210000.25, numerator=4, denominator=4, confidence=None, source="manual"),
+        ],
         sections=[Section(label="drop", start_ms=20000.0, end_ms=60000.5, source="manual")],
+        notation_suggestions=[
+            NotationSuggestion(
+                start_ms=30000.0, end_ms=45000.5, kind="half", suggested_bpm=87.0062, grid_bpm=174.0123, score=0.75
+            ),
+            NotationSuggestion(
+                start_ms=90000.0, end_ms=96000.0, kind="fold", suggested_bpm=174.0123, grid_bpm=87.5, score=0.5, status="applied"
+            ),
+        ],
         edits=[
             Edit(
                 field="tempo_map/1/bpm",
@@ -70,9 +83,32 @@ def minimal_report() -> TimingReport:
     )
 
 
+def full_beats() -> BeatsFile:
+    return BeatsFile(
+        sha256=SHA,
+        tracker="madmom",
+        octave="doubled",
+        beats=[
+            Beat(time_ms=1234.5, raw_time_ms=1230.0, residual_ms=0.25, bar=0, beat_in_bar=1, is_downbeat=True),
+            Beat(time_ms=1579.3, raw_time_ms=1570.0, residual_ms=-0.5, bar=0, beat_in_bar=2, is_downbeat=False),
+            Beat(time_ms=1924.1, raw_time_ms=1920.0, residual_ms=0.0, bar=0, beat_in_bar=3, is_downbeat=False),
+            Beat(time_ms=2268.9, raw_time_ms=2260.0, residual_ms=1.125, bar=1, beat_in_bar=1, is_downbeat=True),
+        ],
+        # a grid line and the half line after it
+        grid_features=[
+            GridFeature(time_ms=1234.5, low=0.8125, mid=0.5, high=0.125),
+            GridFeature(time_ms=1406.9, low=0.0, mid=0.25, high=0.0625),
+        ],
+    )
+
+
 def valid_payload() -> dict:
     # json-mode dict, deep copied so a test can break one field without touching the next
     return copy.deepcopy(json.loads(full_report().model_dump_json()))
+
+
+def valid_beats_payload() -> dict:
+    return copy.deepcopy(json.loads(full_beats().model_dump_json()))
 
 
 # --- round trips ---
@@ -91,6 +127,7 @@ def test_full_report_round_trip_is_lossless():
     assert back.edits[1].timestamp.utcoffset() == timedelta(hours=-5)
     assert back.edits[1].old == report.edits[1].old
     assert back.edits[1].new == report.edits[1].new
+    assert [n.status for n in back.notation_suggestions] == ["open", "applied"]
 
 
 def test_full_report_round_trip_through_a_plain_dict():
@@ -111,42 +148,34 @@ def test_minimal_report_round_trip_is_lossless():
 
     assert back == report
     assert back.model_dump_json(indent=2) == text
-    assert back.schema_version == "2.2"
+    assert back.schema_version == "2.3"
     assert back.tempo_map[0].confidence is None
-    assert (back.meter_map, back.sections, back.edits) == ([], [], [])
+    assert (back.meter_map, back.notation_suggestions, back.sections, back.edits) == ([], [], [], [])
 
 
 def test_minimal_report_writes_nulls_and_empty_lists_explicitly():
     # the committed schema marks these required, so the file has to carry them
     payload = json.loads(minimal_report().model_dump_json())
 
-    assert payload["schema_version"] == "2.2"
+    assert payload["schema_version"] == "2.3"
     assert payload["tempo_map"][0]["confidence"] is None
     assert payload["meter_map"] == []
+    assert payload["notation_suggestions"] == []
     assert payload["sections"] == []
     assert payload["edits"] == []
 
 
 def test_beats_file_round_trip_is_lossless():
-    beats = BeatsFile(
-        sha256=SHA,
-        tracker="madmom",
-        octave="doubled",
-        beats=[
-            Beat(time_ms=1234.5, raw_time_ms=1230.0, residual_ms=0.25, bar=0, beat_in_bar=1, is_downbeat=True),
-            Beat(time_ms=1579.3, raw_time_ms=1570.0, residual_ms=-0.5, bar=0, beat_in_bar=2, is_downbeat=False),
-            Beat(time_ms=1924.1, raw_time_ms=1920.0, residual_ms=0.0, bar=0, beat_in_bar=3, is_downbeat=False),
-            Beat(time_ms=2268.9, raw_time_ms=2260.0, residual_ms=1.125, bar=1, beat_in_bar=1, is_downbeat=True),
-        ],
-    )
+    beats = full_beats()
 
     text = beats.model_dump_json(indent=2)
     back = BeatsFile.model_validate_json(text)
 
     assert back == beats
     assert back.model_dump_json(indent=2) == text
-    assert back.schema_version == "2.2"
-    assert BeatsFile(sha256=SHA, tracker="librosa", octave="kept").beats == []
+    assert back.schema_version == "2.3"
+    empty = BeatsFile(sha256=SHA, tracker="librosa", octave="kept")
+    assert (empty.beats, empty.grid_features) == ([], [])
 
 
 @pytest.mark.parametrize("tracker", ["aubio", "", "Madmom"])
@@ -196,12 +225,22 @@ def test_export_schema_check_passes(capsys):
 def test_valid_payload_is_actually_valid():
     # the rule tests below break one thing at a time, so the base has to be clean
     assert TimingReport.model_validate(valid_payload()) == full_report()
+    assert BeatsFile.model_validate(valid_beats_payload()) == full_beats()
 
 
 @pytest.mark.parametrize(
     "path",
-    [(), ("source",), ("trim",), ("tempo_map", 0), ("meter_map", 0), ("sections", 0), ("edits", 0)],
-    ids=["top-level", "source", "trim", "tempo-segment", "meter-segment", "section", "edit"],
+    [
+        (),
+        ("source",),
+        ("trim",),
+        ("tempo_map", 0),
+        ("meter_map", 0),
+        ("sections", 0),
+        ("notation_suggestions", 0),
+        ("edits", 0),
+    ],
+    ids=["top-level", "source", "trim", "tempo-segment", "meter-segment", "section", "notation-suggestion", "edit"],
 )
 def test_unknown_field_is_rejected(path):
     payload = valid_payload()
@@ -212,6 +251,22 @@ def test_unknown_field_is_rejected(path):
 
     with pytest.raises(ValidationError, match="colour"):
         TimingReport.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [(), ("beats", 0), ("grid_features", 0)],
+    ids=["top-level", "beat", "grid-feature"],
+)
+def test_unknown_field_is_rejected_in_a_beats_file(path):
+    payload = valid_beats_payload()
+    node = payload
+    for key in path:
+        node = node[key]
+    node["colour"] = "teal"
+
+    with pytest.raises(ValidationError, match="colour"):
+        BeatsFile.model_validate(payload)
 
 
 @pytest.mark.parametrize("container", ["tempo_map", "meter_map", "sections"])
@@ -253,12 +308,12 @@ def test_section_end_before_start_is_rejected():
 @pytest.mark.parametrize("denominator", [3, 5, 6, 12, 0, -4], ids=lambda d: f"den{d}")
 def test_meter_denominator_must_be_a_power_of_two(denominator):
     with pytest.raises(ValidationError):
-        MeterSegment(start_bar=0, numerator=4, denominator=denominator, source="auto")
+        MeterSegment(start_ms=0.0, end_ms=2000.0, numerator=4, denominator=denominator, source="auto")
 
 
 @pytest.mark.parametrize("denominator", [1, 2, 4, 8, 16, 32], ids=lambda d: f"den{d}")
 def test_meter_denominator_accepts_powers_of_two(denominator):
-    segment = MeterSegment(start_bar=0, numerator=4, denominator=denominator, source="auto")
+    segment = MeterSegment(start_ms=0.0, end_ms=2000.0, numerator=4, denominator=denominator, source="auto")
     assert segment.denominator == denominator
 
 
@@ -322,7 +377,10 @@ def test_aware_timestamp_with_z_suffix_is_accepted():
         ("source/sample_rate", 0),
         ("source/duration_ms", -1.0),
         ("meter_map/0/numerator", 0),
-        ("meter_map/0/start_bar", -1),
+        ("meter_map/0/start_ms", -1.0),
+        # ends before it starts
+        ("meter_map/0/end_ms", 1000.0),
+        ("meter_map/0/end_ms", 1234.5),
     ],
     ids=lambda c: f"{c[0]}={c[1]}",
 )
@@ -374,6 +432,15 @@ def test_tempo_segments_have_to_touch(start):
     payload["tempo_map"][1]["start_ms"] = start
 
     with pytest.raises(ValidationError, match="contiguous"):
+        TimingReport.model_validate(payload)
+
+
+@pytest.mark.parametrize("start", [89999.0, 90000.5], ids=["overlap", "gap"])
+def test_meter_segments_have_to_touch(start):
+    payload = valid_payload()
+    payload["meter_map"][1]["start_ms"] = start
+
+    with pytest.raises(ValidationError, match="meter segments have to be contiguous"):
         TimingReport.model_validate(payload)
 
 

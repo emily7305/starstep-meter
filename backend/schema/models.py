@@ -1,4 +1,4 @@
-"""Timing report schema v2.2.
+"""Timing report schema v2.3.
 
 All times are milliseconds from the first sample of the decoded audio
 (ffmpeg's output, before any trimming). Bars are 0-based, beats inside
@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "2.2"
+SCHEMA_VERSION = "2.3"
 
 # every segment says where it came from, re-analysis only ever replaces "auto"
 SegmentSource = Literal["auto", "manual"]
@@ -95,16 +95,26 @@ class TempoSegment(_Strict):
 
 
 class MeterSegment(_Strict):
-    start_bar: int = Field(ge=0)
-    numerator: int = Field(ge=1)
-    denominator: int = Field(ge=1)
+    # by time, not by bar number. halving a span's bpm or splitting a segment renumbers every bar
+    # after it, and a manual meter has to stay where it was put
+    start_ms: float = Field(
+        ge=0,
+        description="where this meter starts, the first starts at tempo_map[0].start_ms. inside a tempo segment "
+        "it's a bar line and bars restart there, at a tempo segment's start the segment's anchor is bar 1",
+    )
+    end_ms: float = Field(ge=0, description="where it stops, the same value as the next meter segment's start_ms")
+    numerator: int = Field(ge=1, le=32)
+    # a bar is numerator * 4 / denominator beats of the tempo segment's grid, the bpm counts quarter notes
+    denominator: int = Field(ge=1, le=64)
     confidence: float | None = Field(default=None, ge=0, le=1)
     source: SegmentSource
 
     @model_validator(mode="after")
-    def _power_of_two(self) -> MeterSegment:
+    def _checked(self) -> MeterSegment:
         if self.denominator & (self.denominator - 1):
             raise ValueError("meter denominator must be a power of two")
+        if self.end_ms <= self.start_ms:
+            raise ValueError("meter segment end_ms has to be after start_ms")
         return self
 
 
@@ -134,6 +144,31 @@ class OffbeatRun(_Strict):
         return self
 
 
+NotationKind = Literal["half", "double", "fold"]
+SuggestionStatus = Literal["open", "applied", "dismissed"]
+
+
+class NotationSuggestion(_Strict):
+    # the audio can't say how a chart writes a pulse, so these are only ever applied by hand
+    start_ms: float = Field(ge=0, description="a bar line, or the start of the tempo segment for a fold")
+    end_ms: float = Field(ge=0)
+    kind: NotationKind = Field(
+        description="half: the span feels like half the grid's tempo, double: twice it, "
+        "fold: a first or last stretch that may be its neighbour's tempo the analysis didn't fold in"
+    )
+    suggested_bpm: float = Field(gt=0)
+    grid_bpm: float = Field(gt=0, description="bpm of the tempo segment the suggestion was made on")
+    score: float = Field(ge=0, le=1, description="how clear the evidence is, 1 is as clear as it gets")
+    # applied and dismissed are manual decisions, kept through re-analysis like manual segments
+    status: SuggestionStatus = "open"
+
+    @model_validator(mode="after")
+    def _ordered(self) -> NotationSuggestion:
+        if self.end_ms <= self.start_ms:
+            raise ValueError("suggestion end_ms has to be after start_ms")
+        return self
+
+
 class Edit(_Strict):
     field: str = Field(description="path of the changed value, e.g. tempo_map/0/bpm")
     old: JsonValue
@@ -142,11 +177,12 @@ class Edit(_Strict):
 
 
 class TimingReport(_Strict):
-    schema_version: Literal["2.2"] = SCHEMA_VERSION
+    schema_version: Literal["2.3"] = SCHEMA_VERSION
     source: AudioSource
     trim: Trim
     # contiguous, the first downbeat is tempo_map[0].anchor_ms. no player compensation, see docs/decisions.md
     tempo_map: list[TempoSegment] = Field(min_length=1)
+    # contiguous over the tempo map's extent, empty means 4/4 from every tempo segment's anchor
     meter_map: list[MeterSegment] = Field(default_factory=list)
     sections: list[Section] = Field(default_factory=list)
     offbeat_runs: list[OffbeatRun] = Field(
@@ -154,15 +190,23 @@ class TimingReport(_Strict):
         description="stretches where the analysis found the tracked beats half a beat off the tempo map's grid. "
         "the grid is on the real beats there, the tracker followed the off-beat. analysis output, edits don't change it",
     )
+    notation_suggestions: list[NotationSuggestion] = Field(
+        default_factory=list,
+        description="places where a chart may write the pulse at another tempo (half or double time feel) or "
+        "fold an edge into its neighbour. never applied by the analysis, an edit applies or dismisses each one",
+    )
     # append-only, one entry per manual change
     edits: list[Edit] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _contiguous(self) -> TimingReport:
-        # every moment between the first start and the last end has exactly one tempo
+        # every moment between the first start and the last end has exactly one tempo, and one meter
         for prev, nxt in zip(self.tempo_map, self.tempo_map[1:]):
             if nxt.start_ms != prev.end_ms:
                 raise ValueError("tempo segments have to be contiguous, each start_ms equal to the previous end_ms")
+        for prev_m, nxt_m in zip(self.meter_map, self.meter_map[1:]):
+            if nxt_m.start_ms != prev_m.end_ms:
+                raise ValueError("meter segments have to be contiguous, each start_ms equal to the previous end_ms")
         return self
 
 
@@ -182,9 +226,18 @@ class Beat(_Strict):
     is_downbeat: bool
 
 
+class GridFeature(_Strict):
+    # onset strength in three bands at one grid position, all on one scale per song so bands compare.
+    # numbers about the timing only, there's no way back to the audio from these
+    time_ms: float = Field(ge=0, description="a grid line or half line of the analysis' tempo map")
+    low: float = Field(ge=0, description="30-150 hz, kick and bass attacks")
+    mid: float = Field(ge=0, description="150-3000 hz, snare body and most other attacks")
+    high: float = Field(ge=0, description="5-16 khz, hats, cymbals and the snare's noise")
+
+
 class BeatsFile(_Strict):
     # beats live in their own file next to report.json, a long song has thousands
-    schema_version: Literal["2.2"] = SCHEMA_VERSION
+    schema_version: Literal["2.3"] = SCHEMA_VERSION
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="same file as the report it belongs to")
     # librosa is the fallback when madmom isn't installed, it has no downbeats so bars are guessed
     tracker: Literal["madmom", "librosa"]
@@ -193,3 +246,9 @@ class BeatsFile(_Strict):
         "tempo segments, see docs/decisions.md"
     )
     beats: list[Beat] = Field(default_factory=list)
+    grid_features: list[GridFeature] = Field(
+        default_factory=list,
+        description="band onset strengths at every grid line and half line of the analysis' tempo map, plus the "
+        "lines the fold check carried into an edge stretch, sorted by time. what the notation suggestions are "
+        "worked out from, so they can be checked again without the audio",
+    )

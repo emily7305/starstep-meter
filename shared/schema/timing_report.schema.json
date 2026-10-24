@@ -97,11 +97,19 @@
           "title": "Confidence"
         },
         "denominator": {
+          "maximum": 64,
           "minimum": 1,
           "title": "Denominator",
           "type": "integer"
         },
+        "end_ms": {
+          "description": "where it stops, the same value as the next meter segment's start_ms",
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
         "numerator": {
+          "maximum": 32,
           "minimum": 1,
           "title": "Numerator",
           "type": "integer"
@@ -114,20 +122,87 @@
           "title": "Source",
           "type": "string"
         },
-        "start_bar": {
+        "start_ms": {
+          "description": "where this meter starts, the first starts at tempo_map[0].start_ms. inside a tempo segment it's a bar line and bars restart there, at a tempo segment's start the segment's anchor is bar 1",
           "minimum": 0,
-          "title": "Start Bar",
-          "type": "integer"
+          "title": "Start Ms",
+          "type": "number"
         }
       },
       "required": [
-        "start_bar",
+        "start_ms",
+        "end_ms",
         "numerator",
         "denominator",
         "confidence",
         "source"
       ],
       "title": "MeterSegment",
+      "type": "object"
+    },
+    "NotationSuggestion": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "grid_bpm": {
+          "description": "bpm of the tempo segment the suggestion was made on",
+          "exclusiveMinimum": 0,
+          "title": "Grid Bpm",
+          "type": "number"
+        },
+        "kind": {
+          "description": "half: the span feels like half the grid's tempo, double: twice it, fold: a first or last stretch that may be its neighbour's tempo the analysis didn't fold in",
+          "enum": [
+            "half",
+            "double",
+            "fold"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "score": {
+          "description": "how clear the evidence is, 1 is as clear as it gets",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "start_ms": {
+          "description": "a bar line, or the start of the tempo segment for a fold",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        },
+        "status": {
+          "default": "open",
+          "enum": [
+            "open",
+            "applied",
+            "dismissed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "suggested_bpm": {
+          "exclusiveMinimum": 0,
+          "title": "Suggested Bpm",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "kind",
+        "suggested_bpm",
+        "grid_bpm",
+        "score",
+        "status"
+      ],
+      "title": "NotationSuggestion",
       "type": "object"
     },
     "OffbeatRun": {
@@ -347,6 +422,14 @@
       "title": "Meter Map",
       "type": "array"
     },
+    "notation_suggestions": {
+      "description": "places where a chart may write the pulse at another tempo (half or double time feel) or fold an edge into its neighbour. never applied by the analysis, an edit applies or dismisses each one",
+      "items": {
+        "$ref": "#/$defs/NotationSuggestion"
+      },
+      "title": "Notation Suggestions",
+      "type": "array"
+    },
     "offbeat_runs": {
       "description": "stretches where the analysis found the tracked beats half a beat off the tempo map's grid. the grid is on the real beats there, the tracker followed the off-beat. analysis output, edits don't change it",
       "items": {
@@ -356,8 +439,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "2.2",
-      "default": "2.2",
+      "const": "2.3",
+      "default": "2.3",
       "title": "Schema Version",
       "type": "string"
     },
@@ -391,6 +474,7 @@
     "meter_map",
     "sections",
     "offbeat_runs",
+    "notation_suggestions",
     "edits"
   ],
   "title": "TimingReport",

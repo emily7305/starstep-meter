@@ -1,8 +1,8 @@
 """Bring a stored report or beats file from an older schema up to the current one.
 
 Works on the parsed json before validation, one version step at a time. 1.1,
-2.0 and 2.1 can be upgraded, 1.0 reports have no codec or decoder padding and
-those can only come from the original file, so they still need a fresh upload.
+2.0, 2.1 and 2.2 can be upgraded, 1.0 reports have no codec or decoder padding
+and those can only come from the original file, so they still need a fresh upload.
 """
 
 from __future__ import annotations
@@ -11,13 +11,16 @@ from typing import Any
 
 
 def upgrade_report(data: Any) -> Any:
-    """A 1.1, 2.0 or 2.1 report as 2.2. Anything else comes back untouched and fails validation as usual."""
-    return _version_step(_report_2_0_to_2_1(_report_1_1_to_2_0(data)), "2.1", "2.2")
+    """A 1.1, 2.0, 2.1 or 2.2 report as 2.3. Anything else comes back untouched and fails validation as usual."""
+    data = _version_step(_report_2_0_to_2_1(_report_1_1_to_2_0(data)), "2.1", "2.2")
+    return _report_2_2_to_2_3(data)
 
 
 def upgrade_beats(data: Any) -> Any:
-    """A 1.1, 2.0 or 2.1 beats file as 2.2."""
-    return _version_step(_beats_2_0_to_2_1(_beats_1_1_to_2_0(data)), "2.1", "2.2")
+    """A 1.1, 2.0, 2.1 or 2.2 beats file as 2.3."""
+    data = _version_step(_beats_2_0_to_2_1(_beats_1_1_to_2_0(data)), "2.1", "2.2")
+    # 2.2 -> 2.3: grid_features defaults to empty, the suggestions just can't be checked without the audio
+    return _version_step(data, "2.2", "2.3")
 
 
 def _version_step(data: Any, old: str, new: str) -> Any:
@@ -25,6 +28,16 @@ def _version_step(data: Any, old: str, new: str) -> Any:
     if not isinstance(data, dict) or data.get("schema_version") != old:
         return data
     return {**data, "schema_version": new}
+
+
+def _report_2_2_to_2_3(data: Any) -> Any:
+    """2.2 -> 2.3: meter segments go by time instead of bar number, and notation_suggestions starts empty.
+
+    Nothing wrote a meter segment before 2.3, so meter_map is empty and stays empty (4/4 from each
+    tempo segment's anchor, as it was drawn). One written by hand has no time to go by and is left
+    as it was, so it fails validation instead of landing somewhere it wasn't meant to.
+    """
+    return _version_step(data, "2.2", "2.3")
 
 
 def _report_1_1_to_2_0(data: Any) -> Any:

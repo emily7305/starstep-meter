@@ -957,7 +957,7 @@ def test_split_without_a_beats_file_keeps_the_grid(client: TestClient, settings:
 # --- stored 1.1 and 1.0 reports ---
 
 
-def test_stored_1_1_report_is_served_as_2_2(client: TestClient, settings: Settings) -> None:
+def test_stored_1_1_report_is_served_as_2_3(client: TestClient, settings: Settings) -> None:
     job_id = write_done_job(settings)
     old = make_report_1_1()
     path = settings.jobs_dir / job_id / "report.json"
@@ -966,7 +966,7 @@ def test_stored_1_1_report_is_served_as_2_2(client: TestClient, settings: Settin
     resp = client.get(f"/api/jobs/{job_id}/report")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["schema_version"] == "2.2"
+    assert body["schema_version"] == "2.3"
     assert "beat_offset_ms" not in body
     assert body["tempo_map"] == [
         {
@@ -987,7 +987,7 @@ def test_stored_1_1_report_is_served_as_2_2(client: TestClient, settings: Settin
     assert json.loads(path.read_text(encoding="utf-8")) == old
 
 
-def test_patch_on_a_stored_1_1_report_writes_2_2(client: TestClient, settings: Settings) -> None:
+def test_patch_on_a_stored_1_1_report_writes_2_3(client: TestClient, settings: Settings) -> None:
     job_id = write_done_job(settings)
     old = make_report_1_1()
     path = settings.jobs_dir / job_id / "report.json"
@@ -996,7 +996,7 @@ def test_patch_on_a_stored_1_1_report_writes_2_2(client: TestClient, settings: S
     resp = patch_anchor(client, job_id, 2130.0)
     assert resp.status_code == 200, resp.text
     on_disk = json.loads(path.read_text(encoding="utf-8"))
-    assert on_disk["schema_version"] == "2.2"
+    assert on_disk["schema_version"] == "2.3"
     assert "beat_offset_ms" not in on_disk
     assert stored_report(settings, job_id) == TimingReport.model_validate(resp.json())
     # the old entry stays first and untouched, the old offset is the anchor's old value
@@ -1008,7 +1008,7 @@ def test_patch_on_a_stored_1_1_report_writes_2_2(client: TestClient, settings: S
     }
 
 
-def test_stored_1_1_beats_file_is_served_as_2_2(client: TestClient, settings: Settings) -> None:
+def test_stored_1_1_beats_file_is_served_as_2_3(client: TestClient, settings: Settings) -> None:
     job_id = write_done_job(settings)
     old = json.loads(make_beats().model_dump_json())
     old["schema_version"] = "1.1"
@@ -1017,7 +1017,7 @@ def test_stored_1_1_beats_file_is_served_as_2_2(client: TestClient, settings: Se
 
     resp = client.get(f"/api/jobs/{job_id}/beats")
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {**old, "schema_version": "2.2", "octave": "kept"}
+    assert resp.json() == {**old, "schema_version": "2.3", "octave": "kept"}
 
 
 def test_schema_1_0_report_is_409_for_get_and_patch(client: TestClient, settings: Settings) -> None:
