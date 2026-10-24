@@ -30,7 +30,9 @@ const STAGE_LABELS: Record<JobStage, string> = {
   queued: "queued",
   decode: "decoding",
   trim: "trimming",
-  tempo: "estimating tempo",
+  beats: "tracking beats",
+  snap: "snapping to onsets",
+  tempo: "fitting tempo",
   done: "done",
   failed: "failed",
 };

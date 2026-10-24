@@ -1,6 +1,6 @@
 import type { FailedStage, JobError, JobStatus } from "../types/api";
 
-const STEPS = ["upload", "decode", "trim", "tempo", "done"] as const;
+const STEPS = ["upload", "decode", "trim", "beats", "snap", "tempo", "done"] as const;
 
 // finished = how many pills from the left are done
 // at = what the next pill (index finished) is doing
@@ -14,7 +14,9 @@ const FAILED_INDEX: Record<FailedStage, number> = {
   queued: 1,
   decode: 1,
   trim: 2,
-  tempo: 3,
+  beats: 3,
+  snap: 4,
+  tempo: 5,
 };
 
 function failedPosition(error: JobError | null): TrackPosition {
@@ -29,8 +31,12 @@ export function trackFor(status: JobStatus): TrackPosition {
       return { finished: 1, at: "active" };
     case "trim":
       return { finished: 2, at: "active" };
-    case "tempo":
+    case "beats":
       return { finished: 3, at: "active" };
+    case "snap":
+      return { finished: 4, at: "active" };
+    case "tempo":
+      return { finished: 5, at: "active" };
     default:
       // queued, upload is finished but nothing has picked the job up yet
       return { finished: 1, at: "waiting" };

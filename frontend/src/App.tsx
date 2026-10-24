@@ -130,8 +130,8 @@ export function App() {
         ...r,
         busy: false,
         errorText,
-        // cap at 4 so a failed report fetch lands on the done pill, not past the end
-        track: { finished: Math.min(r.track.finished, 4), at: "failed" },
+        // cap at 6 so a failed report fetch lands on the done pill, not past the end
+        track: { finished: Math.min(r.track.finished, 6), at: "failed" },
       }));
     }
   }, [file]);

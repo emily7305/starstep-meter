@@ -2,10 +2,10 @@
 
 export type JobState = "queued" | "running" | "done" | "failed";
 
-export type JobStage = "queued" | "decode" | "trim" | "tempo" | "done" | "failed";
+export type JobStage = "queued" | "decode" | "trim" | "beats" | "snap" | "tempo" | "done" | "failed";
 
 // a job can't fail "at" done or failed, so those two are left out
-export type FailedStage = "queued" | "decode" | "trim" | "tempo";
+export type FailedStage = "queued" | "decode" | "trim" | "beats" | "snap" | "tempo";
 
 export interface JobError {
   stage: FailedStage;
