@@ -86,7 +86,7 @@ def fit_grid(
     # rounding (t - t0) / period over the whole song needs a period that's already close,
     # 0.5% off puts the index a whole beat out after ~100 beats. so start on a short span
     # from the median gap and double it, each fit is precise enough for the next span
-    # todo: stepping by local gaps was the first try, two neighbouring outliers broke it
+    # stepping by local gaps was the first version, two neighbouring outliers broke it
     period = float(np.median(np.diff(times)))
     span = FIRST_SPAN_BEATS * period
     # the first beat could be an outlier itself, so start from the mean phase of the first span

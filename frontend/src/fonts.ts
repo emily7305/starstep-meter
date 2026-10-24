@@ -1,5 +1,5 @@
 // japanese glyphs for song titles, loaded only when a name actually has some
-// the css alone is ~110 KB of @font-face rules, too much to put in front of first paint
+// the css alone is over 100 KB of @font-face rules, too much to put in front of first paint
 // every rule has a unicode-range, so the browser then only fetches the slices it needs
 
 // kana, cjk punctuation, kanji, fullwidth forms
