@@ -30,7 +30,7 @@ COLUMNS = (
     "file", "duration_ms", "codec", "sample_rate", "tracker", "octave",
     "segments", "segment_starts_ms", "segment_bpms", "segment_confidences",
     "residual_rms_ms", "residual_p95_ms", "residual_max_ms", "outliers", "confidence",
-    "ratio_merged", "offbeat_runs",
+    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions",
     "beats", "beats_snapped", "beats_not_snapped", "median_snap_move_ms", "error",
 )
 _CHUNK = 1024 * 1024
@@ -75,6 +75,8 @@ def _row(name: str, out: AnalysisOutput) -> dict[str, str]:
         confidence=f"{tempo.confidence:.3f}",
         ratio_merged=" ".join(f"{m.ratio}:{m.start_ms:.0f}-{m.end_ms:.0f}" for s in tempo.segments for m in s.ratio_merges),
         offbeat_runs=" ".join(f"{r.start_ms:.0f}-{r.end_ms:.0f}" for s in tempo.segments for r in s.offbeat_runs),
+        meter=" ".join(f"{r.numerator}/{r.denominator}:{r.start_ms:.0f}" for r in out.meter.runs),
+        notation_suggestions=" ".join(f"{s.kind}:{s.start_ms:.0f}-{s.end_ms:.0f}:{s.score:.2f}" for s in out.report.notation_suggestions),
         beats=str(beats),
         beats_snapped=str(snapped),
         beats_not_snapped=str(beats - snapped),

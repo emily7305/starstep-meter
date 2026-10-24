@@ -15,7 +15,7 @@ HEADER = [
     "file", "duration_ms", "codec", "sample_rate", "tracker", "octave",
     "segments", "segment_starts_ms", "segment_bpms", "segment_confidences",
     "residual_rms_ms", "residual_p95_ms", "residual_max_ms", "outliers", "confidence",
-    "ratio_merged", "offbeat_runs",
+    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions",
     "beats", "beats_snapped", "beats_not_snapped", "median_snap_move_ms", "error",
 ]
 
@@ -70,6 +70,8 @@ def test_two_songs_give_two_rows_and_the_txt_is_ignored(capsys, tmp_path):
         assert row["segments"] == "1"
         assert float(row["segment_bpms"]) == pytest.approx(bpm, abs=0.01)
         assert int(row["beats_snapped"]) + int(row["beats_not_snapped"]) == int(row["beats"])
+        assert row["meter"].startswith("4/4:")
+        assert row["notation_suggestions"] == ""
         assert row["error"] == ""
     # progress and the summary line go to stderr
     assert captured.out == ""
@@ -98,6 +100,8 @@ def test_a_broken_file_becomes_an_error_row_and_the_rest_still_run(capsys, tmp_p
     assert good["error"] == ""
     assert good["duration_ms"] != ""
     assert good["segment_bpms"] != ""
+    assert good["meter"].startswith("4/4:")
+    assert good["notation_suggestions"] == ""
     assert "junk.mp3  failed at decode" in captured.err
     assert captured.err.strip().splitlines()[-1] == f"wrote {out} (2 files, 1 failed)"
 
@@ -115,6 +119,8 @@ def test_recursive_finds_subfolders_with_posix_names(tmp_path):
     assert _run(songs, out, "--recursive") == 0
     _, rows = _read(out)
     assert [row["file"] for row in rows] == ["sub/song.wav"]
+    assert rows[0]["meter"].startswith("4/4:")
+    assert rows[0]["notation_suggestions"] == ""
     assert rows[0]["error"] == ""
 
 
