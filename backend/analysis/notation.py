@@ -135,7 +135,9 @@ def _classify(profile: np.ndarray, config: NotationConfig, phase: int | None = N
     top = float(profile[r])
     if top <= 0:
         return "unknown", 0.0, r
-    at = lambda step: float(profile[(r + step) % 8]) / top  # noqa: E731
+    def at(step: int) -> float:
+        return float(profile[(r + step) % 8]) / top
+
     v4 = at(4)
     near = (at(2), at(6))
     odd = max(at(1), at(3), at(5), at(7))
