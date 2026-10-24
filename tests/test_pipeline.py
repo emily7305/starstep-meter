@@ -45,16 +45,16 @@ def test_run_analysis_builds_the_report_and_beats(tmp_path):
     assert report.trim.start_ms == pytest.approx(track.content_start_ms, abs=10.0)
     assert report.trim.end_ms == pytest.approx(track.content_end_ms, abs=10.0)
 
-    # one auto segment from the first sound, the grid phase is in beat_offset_ms
+    # one auto segment from the first sound to the last, its anchor is the first downbeat
     assert len(report.tempo_map) == 1
     segment = report.tempo_map[0]
     assert segment.source == "auto"
     assert segment.start_ms == report.trim.start_ms
     assert segment.confidence is not None and segment.confidence > 0
     assert segment.bpm == pytest.approx(120.0, abs=0.01)
+    assert segment.end_ms == report.trim.end_ms
     # unaccented clicks, any click can be the downbeat but it has to be one of them
-    assert report.beat_offset_ms is not None
-    assert np.min(np.abs(track.onsets_ms - report.beat_offset_ms)) <= 5.0
+    assert np.min(np.abs(track.onsets_ms - segment.anchor_ms)) <= 5.0
     assert report.meter_map == []
     assert report.sections == []
     assert report.edits == []
@@ -65,7 +65,8 @@ def test_run_analysis_builds_the_report_and_beats(tmp_path):
     assert beats.beats[0].time_ms == pytest.approx(track.onsets_ms[0], abs=5.0)
     assert all(abs(b.residual_ms) < 1.0 for b in beats.beats)
     downbeats = [b for b in beats.beats if b.is_downbeat]
-    assert downbeats and downbeats[0].time_ms == pytest.approx(report.beat_offset_ms, abs=1.0)
+    assert downbeats and downbeats[0].time_ms == pytest.approx(segment.anchor_ms, abs=1.0)
+    assert beats.octave == "kept"
 
 
 @pytest.mark.ffmpeg
