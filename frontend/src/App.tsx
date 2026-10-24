@@ -101,7 +101,7 @@ export function App() {
   const [draft, setDraft] = useState<AnchorDraft | null>(null);
   const [selected, setSelected] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "saved" });
-  // a split or merge is out, segment indices are about to change under the controls
+  // a split, merge or match is out, segment indices are about to change under the controls
   const [reshaping, setReshaping] = useState(false);
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
   const [jobsError, setJobsError] = useState<string | null>(null);
@@ -206,10 +206,12 @@ export function App() {
   const edit = useCallback((op: TempoEditOp) => {
     const current = reportRef.current;
     if (current === null || saver.current === null) return;
-    if (op.op === "split" || op.op === "merge") {
+    if (op.op === "split" || op.op === "merge" || op.op === "match") {
       setReshaping(true);
       // keep the selection on the segment the edit was about once the indices move
-      setSelected(op.op === "split" ? segmentAt(current.tempo_map, op.at_ms) + 1 : op.segment);
+      if (op.op === "split") setSelected(segmentAt(current.tempo_map, op.at_ms) + 1);
+      else if (op.op === "match" && op.side === "previous") setSelected(op.segment - 1);
+      else setSelected(op.segment);
     }
     void saver.current.submit(op);
   }, []);

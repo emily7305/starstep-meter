@@ -85,6 +85,11 @@ export function ReportView({ report, beats }: Props) {
             <span className="segments__meta">
               {seg.source === "manual" ? "manual" : seg.confidence === null ? "auto" : `auto ${seg.confidence.toFixed(2)}`}
             </span>
+            {seg.ratio_merged.map((note) => (
+              <span key={`${note.start_ms}-${note.end_ms}`} className="segments__felt">
+                kept {formatBpm(note.bpm)} ({note.ratio}) from {formatMs(note.start_ms)} to {formatMs(note.end_ms)}
+              </span>
+            ))}
           </li>
         ))}
       </ol>

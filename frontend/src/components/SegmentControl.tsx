@@ -1,8 +1,8 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { formatFineMs } from "../format";
+import { formatBpm, formatFineMs } from "../format";
 import { type SaveState, validBpm } from "../tempoEdits";
 import type { TempoEditOp } from "../types/api";
-import type { TempoSegment } from "../types/timingReport";
+import type { RatioMergedSection, TempoSegment } from "../types/timingReport";
 
 interface Props {
   segment: TempoSegment;
@@ -35,6 +35,20 @@ function stateText(state: SaveState): string {
 // four decimals, x2 and /2 of a fitted bpm shouldn't look rounded away
 function bpmText(bpm: number): string {
   return `${bpm.toFixed(4)} bpm`;
+}
+
+// half and double time, then dotted and triplet feel, the same ratios the analysis checks
+const FACTORS: Array<{ label: string; factor: number; name: string }> = [
+  { label: "÷2", factor: 1 / 2, name: "half" },
+  { label: "×2", factor: 2, name: "double" },
+  { label: "×3/4", factor: 3 / 4, name: "3/4 of" },
+  { label: "×4/3", factor: 4 / 3, name: "4/3 of" },
+  { label: "×2/3", factor: 2 / 3, name: "2/3 of" },
+  { label: "×3/2", factor: 3 / 2, name: "3/2 of" },
+];
+
+function feltText(note: RatioMergedSection): string {
+  return `${formatFineMs(note.start_ms)} → ${formatFineMs(note.end_ms)} · ${formatBpm(note.bpm)} (${note.ratio})`;
 }
 
 export function SegmentControl(props: Props) {
@@ -70,24 +84,18 @@ export function SegmentControl(props: Props) {
         {bpmText(segment.bpm)}
       </output>
       <div className="segment__buttons">
-        <button
-          type="button"
-          className="btn btn--step mono"
-          disabled={disabled || !validBpm(segment.bpm / 2)}
-          onClick={() => onEdit({ op: "set_bpm", segment: index, bpm: segment.bpm / 2 })}
-          aria-label="half the bpm, the grid is rebuilt from the anchor"
-        >
-          ÷2
-        </button>
-        <button
-          type="button"
-          className="btn btn--step mono"
-          disabled={disabled || !validBpm(segment.bpm * 2)}
-          onClick={() => onEdit({ op: "set_bpm", segment: index, bpm: segment.bpm * 2 })}
-          aria-label="double the bpm, the grid is rebuilt from the anchor"
-        >
-          ×2
-        </button>
+        {FACTORS.map(({ label, factor, name }) => (
+          <button
+            key={label}
+            type="button"
+            className="btn btn--step mono"
+            disabled={disabled || !validBpm(segment.bpm * factor)}
+            onClick={() => onEdit({ op: "set_bpm", segment: index, bpm: segment.bpm * factor })}
+            aria-label={`${name} the bpm, the grid is rebuilt from the anchor`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       <form className="segment__set" onSubmit={submitBpm}>
         <input
@@ -155,7 +163,52 @@ export function SegmentControl(props: Props) {
         >
           merge →
         </button>
+        <button
+          type="button"
+          className="btn btn--step"
+          disabled={disabled || index === 0}
+          title="take the previous segment's bpm and anchor and join it"
+          onClick={() => onEdit({ op: "match", segment: index, side: "previous" })}
+        >
+          match previous
+        </button>
+        <button
+          type="button"
+          className="btn btn--step"
+          disabled={disabled || index >= count - 1}
+          title="take the next segment's bpm and anchor and join it"
+          onClick={() => onEdit({ op: "match", segment: index, side: "next" })}
+        >
+          match next
+        </button>
       </div>
+
+      {segment.ratio_merged.length > 0 && (
+        <>
+          <span className="segment__sub">kept on this grid</span>
+          <ul className="segment__felt">
+            {segment.ratio_merged.map((note) => (
+              <li key={`${note.start_ms}-${note.end_ms}`} className="segment__felt-item">
+                <span className="mono" title={`fit ${note.fit.toFixed(2)}, its beats on this grid against its own`}>
+                  {feltText(note)}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn--step"
+                  disabled={disabled}
+                  title="split at both ends so this stretch gets its own tempo back"
+                  onClick={() => {
+                    onEdit({ op: "split", at_ms: note.start_ms });
+                    onEdit({ op: "split", at_ms: note.end_ms });
+                  }}
+                >
+                  split out
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
       <p className="segment__state" data-failed={saveState.kind === "failed"}>
         {disabled ? "" : stateText(saveState)}

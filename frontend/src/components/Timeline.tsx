@@ -20,7 +20,7 @@ interface Props {
   draft: AnchorDraft | null;
   selected: number;
   saveState: SaveState;
-  // false while a split or merge is out, the indices on screen are about to change
+  // false while a split, merge or match is out, the indices on screen are about to change
   editable: boolean;
   onSelect: (segment: number) => void;
   onNudge: (steps: number) => void;
