@@ -227,6 +227,8 @@ frontend/.vite/
 # runtime and test data
 data/
 tests/fixtures/
+# real-song reports and beats for the regression tests, never committed
+tests/real/
 
 # audio
 *.wav
