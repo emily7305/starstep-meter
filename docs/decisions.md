@@ -95,6 +95,8 @@ Measured on the synthetic tests (clicks peak around -18 dBFS RMS, so the thresho
 
 ## tempo (milestone 1 placeholder)
 
+Replaced in milestone 2 by the beat grid fit below. `estimate_tempo` stays because the librosa fallback passes its octave-checked bpm to `librosa.beat.beat_track`, which slips to half tempo on fast songs when it guesses by itself.
+
 This is a coarse estimate. Milestone 2 replaces it with a linear regression over tracked beats, and that's where the two-decimal BPM target actually gets tested. It only runs on the trimmed region.
 
 1. Onset strength envelope with `librosa.onset.onset_strength`, hop of 256 samples at 44.1 kHz (5.8 ms per frame). The hop is scaled with the sample rate (279 at 48 kHz) so frames are the same length in ms.
@@ -138,3 +140,54 @@ Copy is tool copy: lowercase labels, no exclamation marks. Stage names show as `
 - Upload size: FastAPI parses the multipart body before the route function runs, so a check inside the route would only fire after the whole file was spooled. A small custom route class checks `Content-Length` first and returns 413 when it's over the limit by more than 64 KiB of multipart slack. The byte count in ingest catches anything closer to the limit.
 - The server binds to 127.0.0.1. `--host` with anything else prints a warning. There's no CORS middleware because the Vite dev server proxies `/api`.
 - Job ids are `uuid4().hex` and are checked against `^[0-9a-f]{32}$` before they're used in a path.
+
+## beat tracking (milestone 2)
+
+madmom's `RNNDownBeatProcessor` plus `DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)`, run on the trimmed region with 0.5 s of padding on each side. Beats more than 50 ms before the trim start or after the trim end are dropped. The tracker can only put a beat out there by guessing, because the padding is below the trim threshold.
+
+- madmom treats a numpy array's sample rate as a label and never resamples it, and its networks were trained at 44.1 kHz. So 48 kHz audio is resampled to 44.1 kHz with soxr (linear phase, so no time shift) before tracking. Beat times come back in seconds, so nothing else changes.
+- The DBN's tempo range is 55–240 bpm. madmom's default upper limit is 215, which would halve the faster rhythm game songs. 230 bpm clicks track correctly with the higher limit.
+- Downbeats need something to find. On clicks where every beat sounds the same, madmom picks an arbitrary beat as beat 1, which is correct behaviour. The accuracy tests use accented downbeats, and `make_click_track.py --accent` makes them for the manual check.
+- If madmom isn't installed, or is installed but fails to import (the PyPI 0.16.1 build does that), `auto` falls back to librosa. Asking for `--tracker madmom` by name turns either case into an error instead.
+- The librosa fallback is `librosa.beat.beat_track` on the milestone 1 onset envelope with the milestone 1 bpm. It has no downbeats, so the first beat is taken as beat 1 of a 4/4 bar, and bar positions are counted on the fitted grid so a dropped beat doesn't slip the bar. The beats file says `tracker: "librosa"` and the confidence is halved.
+
+Raw tracker error against the click onsets, before snapping: madmom −6.4 to −17.6 ms (mean about −11), librosa +4.3 to +12.3 ms. madmom's beats are 10 ms quantized and come in about one frame early, which matches what milestone 1 saw.
+
+Speed: madmom takes about 3 s for 20 s of audio on this cloud VM (4 cores). A 4 minute click track runs the whole CLI in 36 s, and nearly all of that is the network.
+
+## onset snap (milestone 2)
+
+For each tracked beat, compute a spectral flux only around that beat and move the beat to the nearest strong flux peak within ±20 ms. If there isn't one, keep the raw beat. The window is `--snap-window-ms` on the CLI and `STARSTEP_SNAP_WINDOW_MS` for the server.
+
+- The FFT window is 256 samples at 44.1 kHz (5.8 ms), scaled with the sample rate, and the hop is 1/8 of it (0.73 ms) with parabolic interpolation on the peak. Computing it locally keeps it cheap. A 0.7 ms hop over a whole 4 minute song would be about 170 MB of spectrogram.
+- The flux is on linear magnitude, credited to the later of the two frames it compares. I measured the variants on jittered beats over wav, mp3 and aac at both sample rates. The mean bias was −0.46 ms with a 4 ms window, −0.77 ms with 5.8 ms and −1.66 ms with 11.6 ms. Adding log compression (`log1p(γ·|X|)`) made each one 0.6 to 2 ms earlier. The spread was under 0.2 ms in every case. 5.8 ms is a compromise. Shorter sits closer to the attack, but on real mixes I'd expect it to get noisy. Revisit with real songs.
+- Strong means at least half of the biggest peak in that beat's window, and nearest means nearest to the raw beat. A window whose biggest peak is under 20% of the median over all beats counts as having no onset, which covers a beat in a quiet passage or in silence. Both thresholds are tuned on clicks only.
+- The bias is not corrected. On sharp attacks it's a steady −0.73 ms, but it depends on how fast the attack rises, so a constant correction tuned on clicks would be wrong for everything else.
+
+Snapped beats land −0.71 to −0.77 ms from the click onsets, for both trackers, all codecs and both sample rates. So snapping removes madmom's one-frame lead and librosa's late bias alike.
+
+One thing to watch: madmom's worst raw beat was 17.6 ms early, which is only 2.4 ms inside the 20 ms window. If real songs push it further, the snap would miss the attack or catch an earlier one. Centering the window on the raw beat plus one frame would buy margin, but I want to see real songs first.
+
+## tempo fit (milestone 2)
+
+`time_ms = offset_ms + period_ms × index`, least squares over the snapped beats in the trimmed region. Time is regressed on the beat index rather than the other way round, because the index is exact and all the noise is in the times. The slope is the beat period (bpm = 60000 / period), and with index 0 on the first downbeat the intercept is `beat_offset_ms`. This replaces the milestone 1 tempo estimate.
+
+Assigning indices is the part that broke. The first version stepped through the beats and added `round(gap / median gap)` each time, which survives a missed beat but not two displaced beats next to each other. A 0.66-period gap followed by a 1.55-period gap became 1 + 2 instead of 1 + 1, every later beat was one index off, and the fit landed 130 ms out on a 550 beat list. Rounding `(t − t0) / period` globally doesn't work either with only the median gap to go on, because 0.5% of period error puts the index a whole beat out after about 100 beats. So now:
+
+1. Start with the median gap as the period and the circular mean phase of the first 16 beats as the intercept. The first beat could be an outlier itself.
+2. Fit the first 16 beats, then double the span and fit again, rounding indices against the current line each time. Each fit is precise enough for twice its span.
+3. Over all beats, refit until the inlier set stops changing (at most 5 rounds). A beat is an outlier when it's further than max(15 ms, 4 × 1.4826 × MAD) from the line. If two beats round to the same index, only the closer one stays.
+
+Residuals (snapped time minus the fitted grid) are stored for every beat in the beats file, outliers included. `confidence` is the share of beats within 10 ms of the grid, halved for librosa. It's 1.0 on clean clicks, 0.985 with three doubled beats in 200, and about 0.05 to 0.17 on random times. It's meant to drop when a song doesn't fit one steady tempo, which is exactly what a later tempo-change milestone needs to detect. The 10 ms tolerance is a guess.
+
+On 300 random synthetic beat lists (70–230 bpm, 30–600 beats, σ = 2 ms, 5% dropped beats, 3% displaced by 30 ms to 0.4 period, up to 3 pickup beats), every index came out right. The worst bpm error was 0.015, on 33 to 84 beat lists at over 200 bpm. That's the noise limit (σ·√12/n^1.5 for the period), not a fit problem. The worst offset error was 0.9 ms.
+
+## measured accuracy (milestone 2)
+
+Whole pipeline (ffmpeg decode, trim, track, snap, fit) on accented click tracks, ground truth from the generator:
+
+- The test suite covers 10 cases with madmom and 2 with librosa: 87.5–200 bpm, offsets including 137.5, 1234.567, 87.5, 2003.25 and 41.3 ms, 3/4, a −90 dBFS noise floor, mp3 at 44.1 and 48 kHz, and m4a. The worst offset error is 0.75 ms and the worst bpm error 0.0002 (the 4 decimal rounding). The test tolerances are 5 ms and 0.01 bpm.
+- A random sweep of 22 runs over both trackers (80–230 bpm, offsets 20–2500 ms, wav, mp3 CBR and V2, aac, vorbis, 44.1 and 48 kHz) gave offset errors between −0.72 and −0.75 ms and bpm errors of at most 0.0002.
+- With two pickup clicks, the offset still points at the first downbeat, and the pickups get indices −2 and −1 and bar 0.
+
+Click tracks are the easy case. Real music has soft attacks, swing, and tempo drift, and none of that is tested yet.
