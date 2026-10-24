@@ -4,13 +4,15 @@ Beat, tempo, and meter analysis for rhythm game charting. Personal project.
 
 *✦ star steps, right on the beat ✦*
 
-Milestone 1 runs on your own machine. You upload a song in the browser, and the backend decodes it with ffmpeg, finds where the music starts and ends (the trim), and estimates one constant BPM, which the browser shows as text. A CLI does the same for one file. It does not do the beat offset, tempo changes, meter, sections, waveform, beat grid, click track, or export yet; those are later milestones. The BPM is a single number for the whole file, so it only fits songs with a steady tempo. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports (when they exist) contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
+Milestone 2 runs on your own machine. You upload a song in the browser, and the backend decodes it with ffmpeg, finds where the music starts and ends (the trim), and tracks beats and downbeats with madmom, or with a librosa fallback when madmom isn't installed. Each tracked beat is snapped onto the nearest onset, and a linear fit through the snapped beats gives the bpm and `beat_offset_ms`, the time of the first downbeat. The beats are written to their own file next to the report. The browser shows a waveform timeline with the beat grid on it and a zoomed view for checking the grid against an attack, and the offset can be edited in 1 ms steps, with every edit recorded in the report's `edits`. The report also records the codec and the decoder padding of the source file. A CLI does the same for one file.
+
+It does not do tempo changes (a song gets one constant tempo, so it only fits songs with a steady tempo), meter in the report, sections, a click track, or export with per-player offset compensation yet; those are later milestones. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports (when they exist) contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
 
 ## Dependencies and licenses
 
 This project's code is licensed under PolyForm Noncommercial 1.0.0 (see `LICENSE`), so it is for noncommercial use only.
 
-madmom is used for beat and downbeat tracking from milestone 2 on. Its code is BSD-licensed, and its pretrained models carry their own CC BY-NC-SA 4.0 terms. This project does not redistribute madmom or its models. Whoever runs the tool installs them separately.
+madmom is used for beat and downbeat tracking when it's installed. Without it, the librosa fallback runs with lower confidence and a guessed downbeat. madmom's code is BSD-licensed, and its pretrained models carry their own CC BY-NC-SA 4.0 terms. This project does not redistribute madmom or its models. Whoever runs the tool installs them separately.
 
 The licenses below were read from the installed packages' own metadata (Python `importlib.metadata`, npm `package.json`) on 2026-10-24.
 
@@ -58,6 +60,7 @@ These come in through librosa. soxr is LGPL-2.1-or-later, so it is the one to wa
 | react-dom | 19.3.1 | MIT |
 | `@fontsource/m-plus-rounded-1c` | 5.3.0 | OFL-1.1 |
 | `@fontsource/ibm-plex-mono` | 5.3.0 | OFL-1.1 |
+| wavesurfer.js | 7.12.12 | BSD-3-Clause |
 
 ### npm dev
 
@@ -124,7 +127,7 @@ npm install
 
 ### madmom (optional)
 
-madmom is only needed from milestone 2 on:
+Without madmom, beat tracking falls back to librosa, with lower confidence and a guessed downbeat. An install that is present but fails to import falls back the same way, and `--tracker madmom` turns either case into an error. To install it:
 
 ```powershell
 python -m pip install -e ".[madmom]"
@@ -177,6 +180,8 @@ npm run dev
 
 Open http://127.0.0.1:5173 in the browser. Vite proxies `/api` to the backend, so both need to be running.
 
+After a job finishes, the timeline shows the waveform with the beat grid. With the timeline focused, ← and → move the beat offset in 1 ms steps, and so do the −1 ms and +1 ms buttons. A change is saved about half a second after the last step, and it shows up in the report's edits list.
+
 ### Settings
 
 Settings come from environment variables. Set them in the terminal before you start the backend. In PowerShell:
@@ -198,6 +203,7 @@ python -m backend.api
 | `STARSTEP_DATA_DIR` | `data/` in the repo | Where uploads and job files are stored |
 | `STARSTEP_MAX_UPLOAD_MB` | 100 | Largest upload accepted, in MB |
 | `STARSTEP_TRIM_THRESHOLD_DB` | -60 | Trim threshold in dB, relative to the loudest 20 ms frame |
+| `STARSTEP_SNAP_WINDOW_MS` | 20 | How far, in ms, onset snap may move a tracked beat |
 | `STARSTEP_WORKERS` | 1 | Number of analysis workers |
 
 ### CLI without the server
@@ -208,11 +214,11 @@ The CLI runs the same analysis on one file and prints the report JSON:
 python -m backend.analysis.cli path\to\song.mp3 -v
 ```
 
-With `-v`, stage progress and debug numbers go to stderr. `--threshold-db` sets the trim threshold. `--work-dir` keeps the copied original and the decoded WAV in a folder you choose instead of a temp dir.
+With `-v`, stage progress and debug numbers go to stderr, including the `beats` line (the tracker and how many beats it found), the `snap` line (how many beats snapped to an onset, and the median move) and the `tempo` line (the fitted bpm, first downbeat and confidence). `--threshold-db` sets the trim threshold. `--tracker auto|madmom|librosa` picks the beat tracker. `auto`, the default, uses madmom when it's installed and falls back to librosa otherwise, `madmom` is an error if madmom is missing or fails to import, and `librosa` skips madmom. `--snap-window-ms` sets how far onset snap may move a tracked beat, 20 ms by default. `--beats PATH` also writes the beats file to PATH, and the report still goes to stdout. `--work-dir` keeps the copied original and the decoded WAV in a folder you choose instead of a temp dir.
 
 ### Storage
 
-Each job keeps a copy of the upload and the decoded WAV under `data/jobs/<job id>/`. The decoded WAV is mono float32, about 10 MB per minute at 44.1 kHz. Old job folders are not removed automatically yet, so delete them by hand. `data/` is git-ignored.
+Each job keeps a copy of the upload, the decoded WAV, and `beats.json` (every tracked beat, with its raw and snapped time) under `data/jobs/<job id>/`. The decoded WAV is mono float32, about 10 MB per minute at 44.1 kHz. Old job folders are not removed automatically yet, so delete them by hand. `data/` is git-ignored.
 
 ## Tests
 
@@ -223,7 +229,7 @@ python -m pytest
 python -m backend.schema.export_schema --check
 ```
 
-Tests that need ffmpeg are skipped, not failed, when it is missing. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
+Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
 
 Frontend checks run from `frontend`:
 
@@ -234,10 +240,12 @@ npm run check:types
 npm run build
 ```
 
+The frontend tests cover the beat-to-pixel mapping and the offset edits.
+
 When you change `backend/schema/models.py`:
 
-1. Run `python -m backend.schema.export_schema`.
-2. In `frontend`, run `npm run gen:types`.
+1. Run `python -m backend.schema.export_schema`. It writes both schemas, `shared/schema/timing_report.schema.json` and `shared/schema/beats.schema.json`.
+2. In `frontend`, run `npm run gen:types`. It regenerates both TypeScript files, `frontend/src/types/timingReport.ts` and `frontend/src/types/beats.ts`.
 3. Add a line to `docs/schema-changelog.md`. Bump `schema_version` for breaking changes.
 
 ## Milestone 1 manual check
@@ -267,6 +275,55 @@ python -m backend.analysis.cli click-120.wav
 ```
 
 Don't commit the generated audio. `*.wav` and `*.mp3` are git-ignored anyway.
+
+## Milestone 2 listening check
+
+The expected values below are for madmom. With the librosa fallback the confidence is halved and the downbeat is a guess.
+
+Generate a 120 BPM click track with accented downbeats and an offset that isn't a round number:
+
+```bash
+python scripts/make_click_track.py click-137.wav --bpm 120 --lead 0.1375 --accent
+```
+
+The first click, which is a downbeat, is at 137.506 ms and not 137.5, because the generator rounds to whole samples.
+
+First the CLI check:
+
+```bash
+python -m backend.analysis.cli click-137.wav -v
+```
+
+Expected: `beat_offset_ms` about 136.77, and bpm 120.0 with confidence 1.0. Onset snap lands about 0.7 ms before a click's first sample on these clicks (see `docs/decisions.md`), which is why the offset is a little under 137.506. The test tolerance is 5 ms. With `-v`, the snap line shows a median move of about +7 ms, which is madmom's early bias being removed.
+
+Then the UI check. Start the backend and the frontend as described in Running, upload `click-137.wav`, and wait for the job to finish.
+
+1. The mint bar lines should sit on every 4th click, the louder, higher ones, with thinner beat lines on the others.
+2. Press play and listen. Each accented click should sound exactly as the playhead crosses a bar line.
+3. In the zoomed view at 40 ms wide, the grid line should sit on the attack, and the readout shows the grid within about ±0.05 ms of the tracked beat.
+4. With the timeline focused, press → three times. The offset reads 139.774 ms (from 136.774 ms). After about half a second "saved" appears, and the edits list shows `136.774 ms → 139.774 ms`.
+5. Confirm on the server with `curl http://127.0.0.1:8000/api/jobs/<job id>/report`. The job id is the folder name under `data/jobs/`. The report there should show the same offset and the same edit.
+6. Press ← three times to go back. That is a second edit, and the log keeps both.
+
+Next the MP3 check. Convert the file and upload that as well:
+
+```bash
+ffmpeg -i click-137.wav -b:a 192k click-137.mp3
+```
+
+The decoder padding row shows 1105 samples (25.057 ms), and the beat offset stays about 136.8 ms, because ffmpeg honours the LAME gapless header. A player that ignores that header would play this MP3 about 25 ms late. That correction is for export later, and it is not part of `beat_offset_ms`.
+
+For the Japanese title check, copy the WAV to a Japanese name and upload it:
+
+```bash
+cp click-137.wav "テスト曲 120.wav"
+```
+
+The name should show in the rounded face (M PLUS Rounded 1c) in the timeline, the picker and the report, not in a system font.
+
+Last, try a real song. Play from a few bars in and watch whether the bar lines land on the kick or snare you hear. If they drift across the song, it isn't one steady tempo, the confidence in the report will be lower, and that is for a later milestone.
+
+Don't commit the generated audio.
 
 ## Docs
 
