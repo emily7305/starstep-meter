@@ -7,7 +7,7 @@
   --line: #dccfdc;
   --accent: #e0136f;
   --accent-ink: #ffffff;
-  /* downbeats, later milestone, nothing uses it yet */
+  /* bar lines on the beat grid, the only cool accent so downbeats never read as the playhead */
   --mint: #3cc2a4;
   --danger: #a3123f;
 
@@ -129,85 +129,181 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-.timeline__ruler {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: var(--ruler-h);
-  border-bottom: 1px solid var(--line);
-  /* tall ticks every 48px, short ones every 12px, so every 4th is the tall one */
-  background-image:
-    linear-gradient(to right, var(--ink-faint) 1px, transparent 1px),
-    linear-gradient(to right, var(--line) 1px, transparent 1px);
-  background-size:
-    48px 12px,
-    12px 6px;
-  background-repeat: repeat-x;
-  background-position:
-    left bottom,
-    left bottom;
+.timeline:focus-visible {
+  outline-offset: -2px;
 }
 
-.timeline__center {
+.timeline__wave {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(var(--ruler-h) + (100% - var(--ruler-h)) / 2);
-  height: 1px;
-  background: var(--line);
+  inset: 22px 0 0 0;
 }
 
-.timeline__playhead {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 24px;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--accent);
-  color: var(--accent);
+.timeline__wave::part(cursor) {
+  /* wavesurfer's cursor is the playhead, same accent as everywhere else */
+  border-radius: 0;
 }
 
-.timeline__cap {
+.timeline__file {
   position: absolute;
-  top: 6px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: block;
-}
-
-.timeline__label {
-  position: absolute;
-  top: calc(var(--ruler-h) + 8px);
-  left: 38px;
+  top: 3px;
+  left: var(--gutter);
+  right: var(--gutter);
+  margin: 0;
   font-size: 12px;
+  line-height: 16px;
   color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .timeline__body {
   position: absolute;
-  inset: var(--ruler-h) 0 0 0;
+  inset: 0;
   display: grid;
   place-items: center;
   padding: 0 56px;
+  pointer-events: none;
 }
 
 .timeline__placeholder {
   margin: 0;
   max-width: 100%;
   padding: 2px 14px;
-  /* covers the center line so the text doesn't read as struck through */
   background: var(--bg-sunk);
   color: var(--ink-soft);
   text-align: center;
   overflow-wrap: anywhere;
 }
 
-.timeline__placeholder--loaded {
+.timeline__placeholder[data-failed="true"] {
+  color: var(--danger);
+}
+
+/* detail strip under the timeline */
+
+.detail {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(220px, 260px);
+  gap: 24px 32px;
+  align-items: start;
+  padding: 16px var(--gutter);
+  border-bottom: 1px solid var(--line);
+}
+
+@media (max-width: 899px) {
+  .detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.transport {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  column-gap: 20px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 150px;
+}
+
+.transport__time {
+  margin: 0;
   font-size: 14px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.transport__total {
+  color: var(--ink-faint);
+}
+
+.transport__zoom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transport__level {
+  min-width: 9ch;
+  font-size: 12px;
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+.detail__loupe {
+  min-width: 0;
+}
+
+.loupe {
+  background: var(--bg-sunk);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.loupe__canvas {
+  display: block;
+}
+
+.loupe__caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.loupe__readout {
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.loupe__spans {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.offset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.offset__label {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.offset__value {
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.offset__buttons {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.offset__meta,
+.offset__state,
+.offset__hint {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.offset__state[data-failed="true"] {
+  color: var(--danger);
+}
+
+.offset__hint {
+  color: var(--ink-faint);
 }
 
 /* content */
@@ -278,6 +374,53 @@ body {
 
 .btn--primary:active:not(:disabled) {
   transform: translateY(1px);
+}
+
+.btn--step {
+  min-width: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.btn--step:hover:not(:disabled) {
+  border-color: var(--ink-soft);
+}
+
+.btn--step:disabled,
+.btn--outline:disabled {
+  color: var(--ink-faint);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+
+.btn--chip {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.btn--chip[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.btn--link {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .btn--primary:disabled {
@@ -480,6 +623,61 @@ body {
 
 .row__note {
   font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.row__tag {
+  margin-right: 8px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.report__warn {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.subsection-label {
+  margin: 28px 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.empty--small {
+  font-size: 13px;
+}
+
+.edits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.edits__item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.edits__field {
+  color: var(--ink-soft);
+}
+
+.edits__change {
+  flex: 1;
+  color: var(--ink);
+  text-align: right;
+}
+
+.edits__time {
   color: var(--ink-faint);
 }
 

@@ -4,6 +4,17 @@ export function formatMs(v: number): string {
   return `${v.toFixed(1)} ms`;
 }
 
+// offsets get all three decimals, 1 ms steps on a value like 136.774 should stay readable
+export function formatFineMs(v: number): string {
+  return `${v.toFixed(3)} ms`;
+}
+
+export function formatDeltaMs(v: number): string {
+  // -0.000 reads like a bug, and a real minus sign lines up with the plus in mono
+  const value = Math.abs(v) < 0.0005 ? 0 : v;
+  return `${value < 0 ? "−" : "+"}${Math.abs(value).toFixed(3)} ms`;
+}
+
 export function formatBpm(v: number): string {
   return `${v.toFixed(2)} bpm`;
 }
