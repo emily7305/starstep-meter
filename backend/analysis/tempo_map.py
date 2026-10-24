@@ -37,8 +37,10 @@ class TempoMapConfig:
     bpm_shift_ratio: float = 0.004
     # and any shift has to be this many standard errors out, so a short noisy side can't fake one
     shift_z: float = 5.0
-    # residuals go through a running median this long first, a few odd beats aren't a drift
-    smooth_beats: int = 7
+    # residuals go through a running median this long first, a few odd beats aren't a drift.
+    # 16 is four bars of 4/4: a real song's beats sit off the grid for up to ~4 beats at a time
+    # (fills, a different instrument taking the attack), 7 called that a drift
+    smooth_beats: int = 16
     # two bars of 4/4. shorter changes get merged away, the ui can still split them by hand
     min_segment_beats: int = 8
     # how far a boundary may move when it's refined beat by beat
@@ -129,7 +131,28 @@ def _line(x: np.ndarray, y: np.ndarray) -> _Line:
     resid = y - (intercept + slope * x)
     dof = max(1, len(x) - 2)
     sigma = max(_SIGMA_FLOOR_MS, float(np.sqrt(np.dot(resid, resid) / dof)))
+    # real beats stay off the grid for a few beats in a row (lag 1 autocorrelation about 0.67 on
+    # a real song), which makes white-noise standard errors far too small. widen sigma by the
+    # usual ar(1) factor so the shift tests don't call that wobble significant
+    rho = _lag1(resid)
+    sigma *= float(np.sqrt((1.0 + rho) / (1.0 - rho)))
     return _Line(intercept, slope, sigma, len(x), x_mean, sxx)
+
+
+# past this the ar(1) factor runs off to infinity on residuals that are really a trend
+_MAX_LAG1 = 0.9
+
+
+def _lag1(resid: np.ndarray) -> float:
+    if len(resid) < 4:
+        return 0.0
+    centred = resid - resid.mean()
+    energy = float(np.dot(centred, centred))
+    if energy <= 0.0:
+        return 0.0
+    return min(_MAX_LAG1, max(0.0, float(np.dot(centred[:-1], centred[1:]) / energy)))
+
+
 
 
 def rough_indices(times_ms: np.ndarray) -> np.ndarray:
