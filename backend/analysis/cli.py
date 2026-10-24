@@ -76,6 +76,10 @@ def _analyze(src: Path, work_dir: Path, args: argparse.Namespace) -> int:
         # its beats aren't on the lines, so they count as outliers above
         for m in seg.ratio_merges:
             log(f"        kept {m.start_ms:.3f} -> {m.end_ms:.3f} ms on this grid, {m.bpm:.4f} bpm on its own ({m.ratio}), fit {m.fit:.2f}")
+        if seg.half_shifted:
+            log("        grid moved half a beat from the tracked beats, the onsets are stronger there")
+        for r in seg.offbeat_runs:
+            log(f"        off-beat {r.start_ms:.3f} -> {r.end_ms:.3f} ms, {r.beats} beats half a beat off the grid")
     if args.beats is not None:
         args.beats.write_text(out.beats.model_dump_json(indent=2) + "\n", encoding="utf-8")
         log(f"wrote   {args.beats}")

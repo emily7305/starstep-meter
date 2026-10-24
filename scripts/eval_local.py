@@ -30,6 +30,7 @@ COLUMNS = (
     "file", "duration_ms", "codec", "sample_rate", "tracker", "octave",
     "segments", "segment_starts_ms", "segment_bpms", "segment_confidences",
     "residual_rms_ms", "residual_p95_ms", "residual_max_ms", "outliers", "confidence",
+    "ratio_merged", "offbeat_runs",
     "beats", "beats_snapped", "beats_not_snapped", "median_snap_move_ms", "error",
 )
 _CHUNK = 1024 * 1024
@@ -72,6 +73,8 @@ def _row(name: str, out: AnalysisOutput) -> dict[str, str]:
         residual_max_ms=f"{residuals.max():.3f}",
         outliers=str(int((~tempo.inliers).sum())),
         confidence=f"{tempo.confidence:.3f}",
+        ratio_merged=" ".join(f"{m.ratio}:{m.start_ms:.0f}-{m.end_ms:.0f}" for s in tempo.segments for m in s.ratio_merges),
+        offbeat_runs=" ".join(f"{r.start_ms:.0f}-{r.end_ms:.0f}" for s in tempo.segments for r in s.offbeat_runs),
         beats=str(beats),
         beats_snapped=str(snapped),
         beats_not_snapped=str(beats - snapped),

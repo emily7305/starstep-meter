@@ -19,12 +19,21 @@ from backend.analysis.beats import (
 )
 from backend.analysis.decode import DecodedAudio, decode_to_wav, load_mono
 from backend.analysis.octave import OctaveCheck, check_octave_per_segment, summary
-from backend.analysis.snap import DEFAULT_WINDOW_MS, SnapResult, snap_to_onsets
+from backend.analysis.snap import DEFAULT_WINDOW_MS, SnapResult, onset_strengths, snap_to_onsets
 from backend.analysis.tempo_edit import keep_manual_segments
 from backend.analysis.tempo_map import TempoMapConfig, TempoMapResult, build_tempo_map
 from backend.analysis.tempo_range import TempoRange
 from backend.analysis.trim import DEFAULT_THRESHOLD_DB, TrimResult, find_trim, stretch_level
-from backend.schema.models import AudioSource, Beat, BeatsFile, RatioMergedSection, TempoSegment, TimingReport, Trim
+from backend.schema.models import (
+    AudioSource,
+    Beat,
+    BeatsFile,
+    OffbeatRun,
+    RatioMergedSection,
+    TempoSegment,
+    TimingReport,
+    Trim,
+)
 
 Stage = Literal["queued", "decode", "trim", "beats", "snap", "tempo", "done", "failed"]
 STAGES: tuple[Stage, ...] = ("queued", "decode", "trim", "beats", "snap", "tempo", "done", "failed")
@@ -120,6 +129,12 @@ def build_report(
         trim=Trim(start_ms=_ms(trim.start_ms), end_ms=_ms(trim.end_ms)),
         # the first segment starts at the first sound, its anchor is the first downbeat
         tempo_map=tempo_map,
+        # from this analysis, manual edits don't move them and a re-analysis replaces them
+        offbeat_runs=[
+            OffbeatRun(start_ms=_ms(r.start_ms), end_ms=_ms(r.end_ms), beats=r.beats)
+            for seg in tempo.segments
+            for r in seg.offbeat_runs
+        ],
         edits=edits,
     )
 
@@ -212,6 +227,7 @@ def run_analysis(
             downbeats_known=tracked.downbeats_known,
             config=config.tempo_map,
             loudness=stretch_level(samples, sample_rate, trim.start_ms, trim.end_ms),
+            onsets=lambda times: onset_strengths(samples, sample_rate, times),
         )
     except Exception as exc:
         # keep whatever the stage said, the ui shows it as is
