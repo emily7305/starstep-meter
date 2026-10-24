@@ -20,7 +20,7 @@ import { StageTrack, trackFor, type TrackPosition } from "./components/StageTrac
 import { Timeline } from "./components/Timeline";
 import { UploadPanel, type UploadProgress } from "./components/UploadPanel";
 import { ensureJapaneseFont } from "./fonts";
-import { failureText, stageLabel } from "./format";
+import { failureText, reanalysisFailureText, stageLabel } from "./format";
 import { fileSha256, jobIdFromSearch, searchWithJob } from "./jobs";
 import { pollJob } from "./poll";
 import { EditSaver, nudged, type SaveState } from "./tempoEdits";
@@ -50,6 +50,12 @@ function offlineOr(err: unknown, fallback: (message: string) => string): string 
   return fallback(err instanceof Error ? err.message : "unknown error");
 }
 
+function failedText(status: JobStatus): string {
+  if (!status.error) return "analysis failed";
+  // a report to show means it was a re-analysis that failed, the first analysis has nothing to fall back on
+  return status.report_available ? reanalysisFailureText(status.error) : failureText(status.error);
+}
+
 function applyStatus(run: RunState, status: JobStatus): RunState {
   if (status.status === "failed") {
     return {
@@ -57,7 +63,7 @@ function applyStatus(run: RunState, status: JobStatus): RunState {
       busy: false,
       stage: status.stage,
       track: trackFor(status),
-      errorText: status.error ? failureText(status.error) : "analysis failed",
+      errorText: failedText(status),
     };
   }
   return { ...run, stage: status.stage, track: trackFor(status) };
@@ -218,8 +224,9 @@ export function App() {
           signal,
           onUpdate: (status) => setRun((r) => applyStatus(r, status)),
         });
-        // applyStatus already put the failure on screen
-        if (last.status === "failed") return;
+        // applyStatus already put the failure on screen. a failed re-analysis still has the last good
+        // report, so that carries on to be fetched and shown under the failure
+        if (last.status === "failed" && !last.report_available) return;
 
         const next = await fetchReport(id, signal);
         // the grid still draws without the beats file, it just can't tell the bar length

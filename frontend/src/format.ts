@@ -58,7 +58,15 @@ const HINTS: Record<string, string> = {
   "ffprobe not found on PATH": "check that ffprobe is on PATH",
 };
 
+function hintFor(error: JobError): string {
+  return HINTS[error.message] ?? error.message;
+}
+
 export function failureText(error: JobError): string {
-  const hint = HINTS[error.message] ?? error.message;
-  return `analysis failed at ${error.stage} — ${hint}`;
+  return `analysis failed at ${error.stage} — ${hintFor(error)}`;
+}
+
+// the report on screen is the one from before the run that failed
+export function reanalysisFailureText(error: JobError): string {
+  return `re-analysis failed at ${error.stage} — ${hintFor(error)}. showing the last good report`;
 }

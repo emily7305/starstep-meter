@@ -21,6 +21,9 @@ class JobStatus(BaseModel):
     status: Literal["queued", "running", "done", "failed"]
     stage: Stage
     error: JobError | None = None
+    # filled in when the status is read, never stored. true for a failed job that still has the
+    # last good report from before a failed re-analysis
+    report_available: bool = False
 
 
 class JobCreated(BaseModel):

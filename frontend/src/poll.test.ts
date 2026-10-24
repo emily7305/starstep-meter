@@ -3,11 +3,11 @@ import { failureText } from "./format";
 import { pollJob } from "./poll";
 import type { JobStage, JobStatus } from "./types/api";
 
-const queued: JobStatus = { status: "queued", stage: "queued", error: null };
-const done: JobStatus = { status: "done", stage: "done", error: null };
+const queued: JobStatus = { status: "queued", stage: "queued", error: null, report_available: false };
+const done: JobStatus = { status: "done", stage: "done", error: null, report_available: false };
 
 function running(stage: JobStage): JobStatus {
-  return { status: "running", stage, error: null };
+  return { status: "running", stage, error: null, report_available: false };
 }
 
 // hands out the scripted statuses one per call, fetching past the end is a test bug
@@ -56,6 +56,7 @@ describe("pollJob", () => {
       status: "failed",
       stage: "failed",
       error: { stage: "decode", message: "ffmpeg not found on PATH" },
+      report_available: false,
     };
     const fetchStatus = scripted([queued, running("decode"), failed]);
     const sleep = fakeSleep();

@@ -6,7 +6,7 @@ import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import cast
 
-from backend.analysis.pipeline import AnalysisConfig, Stage, StageError, run_analysis
+from backend.analysis.pipeline import DECODED_NAME, AnalysisConfig, Stage, StageError, run_analysis
 from backend.api.models import ErrorStage, JobError, JobStatus
 from backend.api.settings import Settings
 from backend.api.storage import JobStore
@@ -43,6 +43,8 @@ class JobRunner:
         recovered = 0
         for job_id in self._store.job_ids():
             try:
+                # a re-analysis that died mid-run leaves its staging folder behind
+                self._store.clear_rerun(job_id)
                 status = self._store.read_status(job_id)
                 if status is None or status.status not in ("queued", "running"):
                     continue
@@ -77,6 +79,8 @@ class JobRunner:
     def _record_failure(self, job_id: str, stage: ErrorStage, message: str) -> None:
         # runs on a worker thread, nothing is going to see an exception from here
         try:
+            # before the status, so failed is never visible with the staging folder still there
+            self._store.clear_rerun(job_id)
             self._mark_failed(job_id, stage, message)
         except Exception:
             log.exception("could not record the failure of job %s", job_id)
@@ -94,15 +98,23 @@ class JobRunner:
             original = self._store.find_original(job_id)
             if original is None:
                 raise FileNotFoundError("original upload is missing")
+            # a report already there means a re-analysis. it decodes into a staging folder, so a
+            # failure can't leave a wav that doesn't match the report that stays
+            reanalysis = self._store.has_report(job_id)
+            work_dir = self._store.fresh_rerun_dir(job_id) if reanalysis else self._store.job_dir(job_id)
             out = run_analysis(
                 original,
-                self._store.job_dir(job_id),
+                work_dir,
                 record.filename,
                 record.sha256,
                 on_stage=on_stage,
                 config=self._config,
                 previous=self._previous_report(job_id),
             )
+            if reanalysis:
+                self._store.replace_decoded(job_id, work_dir / DECODED_NAME)
+                # gone before done can be seen, nothing needs it past the move
+                self._store.clear_rerun(job_id)
             # beats and report first, so "done" is never visible without something to fetch
             self._store.write_beats(job_id, out.beats)
             self._store.write_report(job_id, out.report)

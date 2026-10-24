@@ -108,7 +108,7 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert len(job_id) == 32 and set(job_id) <= set("0123456789abcdef")
 
     body, seen = wait_for_job(client, job_id)
-    assert body == {"status": "done", "stage": "done", "error": None}
+    assert body == {"status": "done", "stage": "done", "error": None, "report_available": False}
     assert is_subsequence(seen, STAGE_ORDER), seen
 
     resp = client.get(f"/api/jobs/{job_id}/report")
@@ -168,7 +168,7 @@ def test_reanalyze_keeps_a_manual_segment_and_the_edit_log(client: TestClient, s
     assert resp.status_code == 202, resp.text
     assert resp.json() == {"job_id": job_id}
     body, seen = wait_for_job(client, job_id)
-    assert body == {"status": "done", "stage": "done", "error": None}
+    assert body == {"status": "done", "stage": "done", "error": None, "report_available": False}
     assert is_subsequence(seen, STAGE_ORDER), seen
 
     resp = client.get(f"/api/jobs/{job_id}/report")
@@ -280,7 +280,12 @@ def test_job_folder_without_status_is_not_a_job(client: TestClient, settings: Se
 def test_report_is_409_while_a_job_is_still_running(client: TestClient, settings: Settings) -> None:
     # written after startup, so recover() has already run and leaves it alone
     job_id = write_job_dir(settings, "running", "tempo")
-    assert client.get(f"/api/jobs/{job_id}").json() == {"status": "running", "stage": "tempo", "error": None}
+    assert client.get(f"/api/jobs/{job_id}").json() == {
+        "status": "running",
+        "stage": "tempo",
+        "error": None,
+        "report_available": False,
+    }
     resp = client.get(f"/api/jobs/{job_id}/report")
     assert resp.status_code == 409
     assert resp.json()["detail"] == "report not ready, job is at tempo"
@@ -319,7 +324,7 @@ def test_restart_keeps_finished_jobs(settings: Settings) -> None:
 
     with TestClient(create_app(settings)) as second:
         resp = second.get(f"/api/jobs/{job_id}")
-        assert resp.json() == {"status": "done", "stage": "done", "error": None}
+        assert resp.json() == {"status": "done", "stage": "done", "error": None, "report_available": False}
         resp = second.get(f"/api/jobs/{job_id}/report")
         assert resp.status_code == 200
         assert resp.json() == report_before

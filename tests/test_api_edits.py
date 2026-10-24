@@ -566,8 +566,10 @@ def test_patch_on_an_unfinished_job_is_409_and_writes_nothing(
 ) -> None:
     # written after startup, so recover() has already run and leaves them alone
     job_id = write_job_dir(settings, status, stage, error)
-    # files are there on purpose, it's the status that has to stop the edit
-    add_files(settings, job_id, make_multi_report())
+    # files are there on purpose, it's the status that has to stop the edit. a failed job has none, one that
+    # failed a re-analysis still serves its last good report, see test_reanalysis_failure.py
+    if status != "failed":
+        add_files(settings, job_id, make_multi_report())
     before = snapshot(settings.jobs_dir)
 
     resp = patch_edit(client, job_id, body)
@@ -590,7 +592,9 @@ def test_beats_and_audio_are_409_until_the_job_is_done(
     client: TestClient, settings: Settings, route: str, status: str, stage: str, error: dict | None
 ) -> None:
     job_id = write_job_dir(settings, status, stage, error)
-    add_files(settings, job_id)
+    # a failed job has no files, same as above
+    if status != "failed":
+        add_files(settings, job_id)
 
     resp = client.get(f"/api/jobs/{job_id}/{route}")
     assert resp.status_code == 409
@@ -1161,7 +1165,12 @@ def test_reanalyze_queues_a_finished_job(
     assert resp.status_code == 202, resp.text
     assert resp.json() == {"job_id": job_id}
     assert submitted == [job_id]
-    assert client.get(f"/api/jobs/{job_id}").json() == {"status": "queued", "stage": "queued", "error": None}
+    assert client.get(f"/api/jobs/{job_id}").json() == {
+        "status": "queued",
+        "stage": "queued",
+        "error": None,
+        "report_available": False,
+    }
 
 
 # --- beats and audio ---

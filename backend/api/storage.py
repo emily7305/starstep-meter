@@ -25,6 +25,8 @@ JOB_FILE = "job.json"
 STATUS_FILE = "status.json"
 REPORT_FILE = "report.json"
 BEATS_FILE = "beats.json"
+# where a re-analysis works, so a failed one leaves the folder as it was
+RERUN_DIR = ".rerun"
 
 _JOB_ID = re.compile(r"^[0-9a-f]{32}$")
 _REPLACE_TRIES = 5
@@ -132,8 +134,12 @@ class JobStore:
         return JobRecord.model_validate_json(text)
 
     def write_status(self, job_id: str, status: JobStatus) -> None:
-        stored = _StatusFile(**status.model_dump(), updated_at=_utc_now())
-        _write_atomic(self.job_dir(job_id) / STATUS_FILE, stored.model_dump_json(indent=2) + "\n")
+        # report_available is worked out when the status is read, a stored copy would go stale
+        stored = _StatusFile(**status.model_dump(exclude={"report_available"}), updated_at=_utc_now())
+        _write_atomic(
+            self.job_dir(job_id) / STATUS_FILE,
+            stored.model_dump_json(indent=2, exclude={"report_available"}) + "\n",
+        )
 
     def read_status(self, job_id: str) -> JobStatus | None:
         # a folder with no status.json is an upload that never finished, same as no job
@@ -145,6 +151,9 @@ class JobStore:
         except FileNotFoundError:
             return None
         return JobStatus.model_validate_json(text)
+
+    def has_report(self, job_id: str) -> bool:
+        return (self.job_dir(job_id) / REPORT_FILE).is_file()
 
     def write_report(self, job_id: str, report: TimingReport) -> None:
         _write_atomic(self.job_dir(job_id) / REPORT_FILE, report.model_dump_json(indent=2) + "\n")
@@ -205,3 +214,18 @@ class JobStore:
 
     def decoded_path(self, job_id: str) -> Path:
         return self.job_dir(job_id) / DECODED_NAME
+
+    def fresh_rerun_dir(self, job_id: str) -> Path:
+        # empty, whatever an earlier run left behind is no use to this one
+        self.clear_rerun(job_id)
+        path = self.job_dir(job_id) / RERUN_DIR
+        path.mkdir()
+        return path
+
+    def clear_rerun(self, job_id: str) -> None:
+        # ignore_errors, same as remove, this only ever cleans up
+        shutil.rmtree(self.job_dir(job_id) / RERUN_DIR, ignore_errors=True)
+
+    def replace_decoded(self, job_id: str, staged: Path) -> None:
+        # a player can have the old wav open, which is what the retry is for on windows
+        _replace_with_retry(staged, self.decoded_path(job_id))

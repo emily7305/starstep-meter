@@ -121,13 +121,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         status = store.read_status(job_id)
         if status is None:
             raise HTTPException(404, "job not found")
-        return status
+        # a failed first analysis has no report, a failed re-analysis still has the last good one
+        available = status.status == "failed" and store.has_report(job_id)
+        return status.model_copy(update={"report_available": available})
 
-    def require_done(job_id: str, what: str) -> None:
+    def require_report(job_id: str, what: str) -> None:
+        # done, or failed with the last good report still on disk. queued and running stay closed,
+        # so no edit can land while a run is about to replace the report
         status = store.read_status(job_id)
         if status is None:
             raise HTTPException(404, "job not found")
         if status.status == "failed":
+            if store.has_report(job_id):
+                return
             error = status.error
             where = f"{error.stage}: {error.message}" if error else "unknown stage"
             raise HTTPException(409, f"job failed at {where}")
@@ -140,7 +146,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @router.get("/jobs/{job_id}/report", response_model=TimingReport)
     def get_report(job_id: str) -> TimingReport:
-        require_done(job_id, "report")
+        require_report(job_id, "report")
         try:
             return store.read_report(job_id)
         except ValidationError as exc:
@@ -149,7 +155,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @router.patch("/jobs/{job_id}/report", response_model=TimingReport)
     def patch_report(job_id: str, body: TempoEdit) -> TimingReport:
         # one tempo map edit per call, every real change lands in edits
-        require_done(job_id, "report")
+        require_report(job_id, "report")
         try:
             beats = store.read_beats(job_id)
         except (OSError, ValidationError):
@@ -183,7 +189,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @router.get("/jobs/{job_id}/beats", response_model=BeatsFile)
     def get_beats(job_id: str) -> BeatsFile:
-        require_done(job_id, "beats")
+        require_report(job_id, "beats")
         try:
             return store.read_beats(job_id)
         except FileNotFoundError as exc:
@@ -195,7 +201,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def get_audio(job_id: str) -> FileResponse:
         # the decoded wav, for playback in the local ui only. it's the file the analysis ran on,
         # so the waveform and the timing numbers share one timeline
-        require_done(job_id, "audio")
+        require_report(job_id, "audio")
         path = store.decoded_path(job_id)
         if not path.is_file():
             raise HTTPException(404, "decoded audio is missing")

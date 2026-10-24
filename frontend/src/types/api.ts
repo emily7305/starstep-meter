@@ -16,6 +16,8 @@ export interface JobStatus {
   status: JobState;
   stage: JobStage;
   error: JobError | null;
+  // a failed job that still has the last good report from before a failed re-analysis
+  report_available: boolean;
 }
 
 export interface UploadResponse {
