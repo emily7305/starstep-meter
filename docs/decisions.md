@@ -228,7 +228,7 @@ librosa's bias (+4.3 to +12.3 ms late, from milestone 2) isn't shifted. It's alr
 
 The test feeds beats 18 to 25 ms early through the snap and through the whole pipeline (with the tracker swapped out). They all snap within 1.5 ms of the click. Without the shift, beats 21 to 25 ms early don't snap at all. A wider window would also have caught them, but on busy songs it can grab the wrong onset, so the window stays at 20.
 
-The eval script's `median_snap_move_ms` column is the same number on real songs (raw tracker beat to where it snapped, bias shift included). If it sits far from 0 there, the bias needs measuring again on real material.
+The eval script's `median_snap_move_ms` column is the move from the raw tracker beat to where it snapped, with the bias shift included. If the bias holds on real songs, it sits near +11 ms over a folder (the 11.8 ms shift, less the 0.7 ms snapped beats land before an attack). One song alone can be off by up to about 5 ms either way, depending on where madmom's 10 ms frames fall, and the 120 bpm click track in the milestone 2 check gives +6.8. A folder median far from +11 means the bias needs measuring again on real material.
 
 ## tempo range and half or double (milestone 3)
 

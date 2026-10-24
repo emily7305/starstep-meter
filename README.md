@@ -4,9 +4,9 @@ Beat, tempo, and meter analysis for rhythm game charting. Personal project.
 
 *✦ star steps, right on the beat ✦*
 
-Milestone 2 runs on your own machine. You upload a song in the browser, and the backend decodes it with ffmpeg, finds where the music starts and ends (the trim), and tracks beats and downbeats with madmom, or with a librosa fallback when madmom isn't installed. Each tracked beat is snapped onto the nearest onset, and a linear fit through the snapped beats gives the bpm and `beat_offset_ms`, the time of the first downbeat. The beats are written to their own file next to the report. The browser shows a waveform timeline with the beat grid on it and a zoomed view for checking the grid against an attack, and the offset can be edited in 1 ms steps, with every edit recorded in the report's `edits`. The report also records the codec and the decoder padding of the source file. A CLI does the same for one file.
+Milestone 3 runs on your own machine, and adds tempo maps to the beat tracking of milestone 2. You upload a song in the browser, and the backend decodes it with ffmpeg, finds where the music starts and ends (the trim), and tracks beats and downbeats with madmom, or with a librosa fallback when madmom isn't installed. A check for half or double tempo runs on the tracked beats, and every tempo path searches 60 to 320 bpm by default. Each tracked beat is snapped onto the nearest onset, and the snapped beats are split into tempo segments. Each segment gets its own bpm and its own anchor, the time of its first downbeat, from a linear fit through its beats, so the first downbeat of the song is `tempo_map[0].anchor_ms`. The beats are written to their own file next to the report. The browser shows a waveform timeline with the segments as bands and the beat grid on them, and a zoomed view for checking the grid against an attack. A segment can be split, merged with a neighbour, given an exact bpm, doubled or halved, and have its anchor moved in 1 ms steps, with every edit recorded in the report's `edits`. A job reopens from the url or from the recent list, and picking a file that was analyzed before offers to reopen it. The report also records the codec and the decoder padding of the source file. A CLI does the same analysis for one file.
 
-It does not do tempo changes (a song gets one constant tempo, so it only fits songs with a steady tempo), meter in the report, sections, a click track, or export with per-player offset compensation yet; those are later milestones. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports (when they exist) contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
+It does not put meter in the report, find sections, make a click track, or export with per-player offset compensation yet; those are later milestones. The tempo map is only tuned on synthetic tracks so far, so on a real song check the bands and fix them by hand where they are wrong. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports (when they exist) contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
 
 ## Dependencies and licenses
 
@@ -180,7 +180,16 @@ npm run dev
 
 Open http://127.0.0.1:5173 in the browser. Vite proxies `/api` to the backend, so both need to be running.
 
-After a job finishes, the timeline shows the waveform with the beat grid. With the timeline focused, ← and → move the beat offset in 1 ms steps, and so do the −1 ms and +1 ms buttons. A change is saved about half a second after the last step, and it shows up in the report's edits list.
+After a job finishes, the timeline shows the waveform with the beat grid and the tempo segments as bands. Each band has a label along the bottom, like `200.00 bpm · manual`. Clicking the waveform selects the tempo segment under the click (in a song with more than one segment, its band gets the pink accent) and puts the nearest tracked beat in the zoomed view. The controls on the right act on that segment:
+
+- The bpm has ÷2 and ×2 buttons, and a field with a "set bpm" button for an exact value. They keep the anchor and rebuild the grid from it.
+- The anchor moves in 1 ms steps with the −1 ms and +1 ms buttons, and with ← and → while the timeline has focus. A change is saved about half a second after the last step.
+- "anchor here" rebuilds the grid from the tracked beat in the zoomed view, and "split here" splits the segment at that beat.
+- "merge ←" and "merge →" merge the segment with the one before it or after it.
+
+Every change shows up in the report's edits list. Splitting or merging a segment that the analysis fitted refits it from the tracked beats, while a segment whose bpm or anchor was set by hand keeps its grid.
+
+The url carries the job id (`?job=...`), so a reload reopens the job with its edits. The source column lists recent jobs, newest first, and any of them can be reopened. Picking a file that was analyzed before and pressing analyze offers to reopen it first, with "reopen" for each earlier job and "analyze again as a new job" to start over. The "re-analyze" button runs the analysis again on the stored upload and keeps the manual segments and the edit log.
 
 ### Settings
 
@@ -204,6 +213,8 @@ python -m backend.api
 | `STARSTEP_MAX_UPLOAD_MB` | 100 | Largest upload accepted, in MB |
 | `STARSTEP_TRIM_THRESHOLD_DB` | -60 | Trim threshold in dB, relative to the loudest 20 ms frame |
 | `STARSTEP_SNAP_WINDOW_MS` | 20 | How far, in ms, onset snap may move a tracked beat |
+| `STARSTEP_MIN_BPM` | 60 | The slowest tempo, in bpm, that any tempo path considers |
+| `STARSTEP_MAX_BPM` | 320 | The fastest tempo, in bpm, that any tempo path considers |
 | `STARSTEP_WORKERS` | 1 | Number of analysis workers |
 
 ### CLI without the server
@@ -214,11 +225,45 @@ The CLI runs the same analysis on one file and prints the report JSON:
 python -m backend.analysis.cli path\to\song.mp3 -v
 ```
 
-With `-v`, stage progress and debug numbers go to stderr, including the `beats` line (the tracker and how many beats it found), the `snap` line (how many beats snapped to an onset, and the median move) and the `tempo` line (the fitted bpm, first downbeat and confidence). `--threshold-db` sets the trim threshold. `--tracker auto|madmom|librosa` picks the beat tracker. `auto`, the default, uses madmom when it's installed and falls back to librosa otherwise, `madmom` is an error if madmom is missing or fails to import, and `librosa` skips madmom. `--snap-window-ms` sets how far onset snap may move a tracked beat, 20 ms by default. `--beats PATH` also writes the beats file to PATH, and the report still goes to stdout. `--work-dir` keeps the copied original and the decoded WAV in a folder you choose instead of a temp dir.
+With `-v`, stage progress and debug numbers go to stderr, including the `beats` line (the tracker and how many beats it found), the `octave` lines (one per rough tempo segment: what the half or double check did, the tracked bpm, and the midpoint and parity ratios it decides on), the `snap` line (how many beats snapped to an onset, the bias shift applied to madmom's beats before the search, and the median move) and the `tempo` line (the number of segments, the residual rms, the outliers and the confidence), followed by one `[i]` line per segment with its start and end, bpm, anchor and beat count. `--threshold-db` sets the trim threshold. `--tracker auto|madmom|librosa` picks the beat tracker. `auto`, the default, uses madmom when it's installed and falls back to librosa otherwise, `madmom` is an error if madmom is missing or fails to import, and `librosa` skips madmom. `--snap-window-ms` sets how far onset snap may move a tracked beat, 20 ms by default. `--min-bpm` and `--max-bpm` set the slowest and fastest tempo any tempo path considers, 60 and 320 by default. `--beats PATH` also writes the beats file to PATH, and the report still goes to stdout. `--work-dir` keeps the copied original and the decoded WAV in a folder you choose instead of a temp dir.
 
 ### Storage
 
 Each job keeps a copy of the upload, the decoded WAV, and `beats.json` (every tracked beat, with its raw and snapped time) under `data/jobs/<job id>/`. The decoded WAV is mono float32, about 10 MB per minute at 44.1 kHz. Old job folders are not removed automatically yet, so delete them by hand. `data/` is git-ignored.
+
+## Real songs: eval_local.py
+
+The thresholds for the trim, the onset snap, the half or double check and the tempo map are tuned on synthetic tracks only. `scripts/eval_local.py` runs the same analysis on a folder of your own songs and writes a csv of timing numbers, one row per song, to paste into a later session for tuning them on real music. It needs ffmpeg and ffprobe on PATH, and it looks for mp3, wav, flac, ogg and m4a files.
+
+In PowerShell:
+
+```powershell
+python scripts\eval_local.py C:\path\to\songs --recursive --tracker madmom --out results\songs.csv
+```
+
+In bash:
+
+```bash
+python scripts/eval_local.py ~/path/to/songs --recursive --tracker madmom --out results/songs.csv
+```
+
+`--recursive` also looks in subfolders. `--tracker auto|madmom|librosa` works as in the CLI. `--min-bpm` and `--max-bpm` set the tempo range, 60 and 320 by default. `--out` is the csv to write. It defaults to `eval_local.csv` in the current directory, and nothing is written next to the songs. Progress goes to stderr, one line per song, and the last line says how many files failed.
+
+The csv has timing data only, never audio. The decoded WAV of a song exists only in a temp folder while that song is analyzed. Error messages have absolute paths replaced: the song folder by `<folder>`, the temp folder by `<tmp>` and the home folder by `~`. The file names of the songs are in the csv, as paths relative to the folder, so read it before you share it.
+
+The columns:
+
+- `file`, `duration_ms`, `codec`, `sample_rate` and `tracker` say which song the row is, how long it is, how it was encoded, and which beat tracker ran.
+- `octave` is what the half or double check did over the song: `kept`, `doubled`, `halved` or `mixed`.
+- `segments` is the number of tempo segments, and `segment_starts_ms`, `segment_bpms` and `segment_confidences` list each segment's start, bpm and confidence in order, separated by spaces.
+- `residual_rms_ms` is the rms distance in ms of the beats that fit their grids, and `residual_p95_ms` and `residual_max_ms` are the 95th percentile and the largest distance over all beats, each measured from the grid of the beat's own segment.
+- `outliers` is the number of beats that were too far from their grid to count as fitting it.
+- `confidence` is the share of all beats within 10 ms of their grid, halved for the librosa fallback.
+- `beats`, `beats_snapped` and `beats_not_snapped` are how many beats the tracker found and how many did and did not find an onset inside the snap window.
+- `median_snap_move_ms` is the median distance in ms that a beat moved from the tracker's output to where it snapped, including the 11.8 ms bias shift for madmom. It is the real-song check of madmom's −11.8 ms bias. If the bias holds, the value comes out close to 11 ms (the shift, less the 0.7 ms or so by which snapped beats land before the attack), and a value far from that means the bias needs measuring again on real songs.
+- `error` is empty for a song that worked, and otherwise holds a one-line message.
+
+A song that fails gets a row with only `file` and `error` filled in, and the run carries on with the next song.
 
 ## Tests
 
@@ -229,7 +274,7 @@ python -m pytest
 python -m backend.schema.export_schema --check
 ```
 
-Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
+Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. The tempo map tests run on synthetic beat lists and click tracks with known change points. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
 
 Frontend checks run from `frontend`:
 
@@ -240,7 +285,7 @@ npm run check:types
 npm run build
 ```
 
-The frontend tests cover the beat-to-pixel mapping and the offset edits.
+The frontend tests cover the beat-to-pixel mapping, the tempo map grid, the edit queue and the job url helpers.
 
 When you change `backend/schema/models.py`:
 
@@ -277,6 +322,8 @@ python -m backend.analysis.cli click-120.wav
 Don't commit the generated audio. `*.wav` and `*.mp3` are git-ignored anyway.
 
 ## Milestone 2 listening check
+
+Since milestone 3 the offset below is the first segment's anchor (`tempo_map[0].anchor_ms`, which replaced `beat_offset_ms`), so its steps are the −1 ms and +1 ms buttons under the segment controls, and the edits list names the field `tempo_map/0/anchor_ms`.
 
 The expected values below are for madmom. With the librosa fallback the confidence is halved and the downbeat is a guess.
 
@@ -321,7 +368,47 @@ cp click-137.wav "テスト曲 120.wav"
 
 The name should show in the rounded face (M PLUS Rounded 1c) in the timeline, the picker and the report, not in a system font.
 
-Last, try a real song. Play from a few bars in and watch whether the bar lines land on the kick or snare you hear. If they drift across the song, it isn't one steady tempo, the confidence in the report will be lower, and that is for a later milestone.
+Last, try a real song. Play from a few bars in and watch whether the bar lines land on the kick or snare you hear. If they drift across the song, it isn't one steady tempo. Since milestone 3 that shows up as more than one tempo segment, see the milestone 3 check below.
+
+Don't commit the generated audio.
+
+## Milestone 3 listening check
+
+The expected values below are for madmom. The librosa fallback tracks at one tempo, so it can't follow the change in this track.
+
+Generate a track that runs at 150 bpm and changes to 200 bpm, with accented downbeats:
+
+```bash
+python scripts/make_click_track.py tempo-check.wav --bpm 150 --beats 128 --lead 0.75 --accent --change 64:200
+```
+
+`--change 64:200` means click 64, counted from 0, is the first one at 200 bpm. The script prints the change at 26350.000 ms and the first click at 750.000 ms.
+
+First the CLI check:
+
+```bash
+python -m backend.analysis.cli tempo-check.wav -v
+```
+
+Expected: two segments, 150.00 bpm and then 200.00 bpm. The `tempo` line says 2 segments and there are two `[i]` lines. The second segment starts at about 26349.3 ms, because onset snap lands about 0.7 ms before a click, as in milestone 2, and the first downbeat (`tempo_map[0].anchor_ms`) is at about 749.3 ms.
+
+Then the UI check. Start the backend and the frontend as described in Running, upload `tempo-check.wav`, and wait for the job to finish. The timeline should show two bands, labelled 150.00 bpm and 200.00 bpm, and the tempo map list in the report should show the same two segments, both auto.
+
+1. Click into the second band. It gets the pink accent, and the controls on the right now show segment 2 of 2.
+2. Press ×2. The band's label reads 400.00 bpm · manual, and the edits list shows `tempo_map/1/bpm` as 200 bpm → 400 bpm (the fitted value can differ from 200 in the fourth decimal), plus a `source` entry (auto → manual) and a `confidence` entry that ends at –.
+3. Press ÷2 to go back. The label reads 200.00 bpm · manual again, and the edits list gets one more `tempo_map/1/bpm` entry, 400 bpm → 200 bpm.
+4. Click the second band again so the timeline has focus, then press → three times. The anchor reads 3 ms later. After about half a second "saved" appears, and the edits list gets one `tempo_map/1/anchor_ms` entry for the 3 ms.
+5. Reload the page. The url holds `?job=...`, so the same job comes back, with the same bands and the same edits.
+6. Pick `tempo-check.wav` again and press analyze. It says the file was analyzed before and offers "reopen" and "analyze again as a new job". Press "reopen".
+7. Press "re-analyze". The second band stays as it was, 200.00 bpm · manual with the moved anchor, and the edits list is unchanged, because re-analysis isn't an edit. The first band is fitted again from the same audio.
+
+Next the fast-song check:
+
+```bash
+python scripts/make_click_track.py fast-270.wav --bpm 270 --beats 160 --lead 0.4375 --accent
+```
+
+It should come out at 270.00 bpm, not 135. If a real fast song comes out at half its tempo, ×2 on its segment fixes it. The cases that are still ambiguous are off-beat eighth notes at 50 to 80% of the weaker beats' level, fast songs where every other beat is much quieter, and a switch to exactly half or double tempo on a steady beat (see "tempo range and half or double" in `docs/decisions.md`).
 
 Don't commit the generated audio.
 
