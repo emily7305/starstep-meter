@@ -237,8 +237,8 @@ class DrumTrack:
         return self.first_beat_ms + 4 * bar * self.beat_ms
 
 
-# hits per 4 beat bar of the pulse, in beats. half time puts the backbeat every other bar line's
-# middle, double time puts a kick on every beat and the snare between them
+# (kicks, snares) per 4 beat bar of the pulse, in beats. half time has one kick and the snare on
+# beat 3, double time a kick on every beat and the snare on every off-beat
 _PATTERNS: dict[Feel, tuple[tuple[float, ...], tuple[float, ...]]] = {
     "plain": ((0.0, 2.0), (1.0, 3.0)),
     "half": ((0.0,), (2.0,)),

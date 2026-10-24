@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lead", type=float, default=0.5, help="leading silence in seconds")
     parser.add_argument("--tail", type=float, default=1.0, help="trailing silence in seconds")
     parser.add_argument("--sample-rate", type=int, default=44100)
-    # half puts the backbeat every other bar, double puts a kick on every beat
+    # half has the snare on beat 3 only, double a kick on every beat and the snare between
     parser.add_argument(
         "--section", type=_section, action="append", default=[], metavar="BAR:COUNT:FEEL", help="half or double time bars, repeatable"
     )
