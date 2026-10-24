@@ -39,6 +39,14 @@ class ClickTrackSpec:
     beats_per_bar: int = 4
     # clicks before the first downbeat
     pickup_beats: int = 0
+    # (beat index, bpm) pairs. that beat is the first one of the new tempo, the gap
+    # before it still belongs to the old one
+    tempo_changes: tuple[tuple[int, float], ...] = ()
+    # gaussian jitter on every onset after the first, in ms. 0 is a perfect grid
+    jitter_ms: float = 0.0
+    # plain click halfway between beats at this fraction of amplitude, like eighth note hats
+    # 0 means none. it's what makes half or double tempo a real question
+    offbeat_level: float = 0.0
     seed: int = 0
 
     def cache_name(self) -> str:
@@ -57,6 +65,8 @@ class ClickTrack:
     content_start_ms: float
     content_end_ms: float
     duration_ms: float
+    # onset of the first beat of each new tempo, same order as spec.tempo_changes
+    change_ms: np.ndarray
     sample_rate: int = field(init=False)
 
     def __post_init__(self) -> None:
@@ -69,12 +79,24 @@ def _click(sample_rate: int, freq_hz: float, length_ms: float, decay_ms: float) 
     return np.sin(2.0 * np.pi * freq_hz * t) * np.exp(-t / (decay_ms / 1000.0))
 
 
+def beat_times_s(spec: ClickTrackSpec) -> np.ndarray:
+    # each gap uses the tempo in force at the beat it starts from
+    bpm = np.full(spec.beats, float(spec.bpm))
+    for index, new_bpm in sorted(spec.tempo_changes):
+        bpm[index:] = new_bpm
+    gaps = 60.0 / bpm[:-1]
+    times = spec.lead_silence_s + np.concatenate(([0.0], np.cumsum(gaps)))
+    if spec.jitter_ms > 0.0:
+        # own stream, so adding jitter doesn't change the noise floor of an existing spec
+        rng = np.random.default_rng([spec.seed, 1])
+        times[1:] += rng.normal(0.0, spec.jitter_ms / 1000.0, spec.beats - 1)
+    return times
+
+
 def click_track(spec: ClickTrackSpec = ClickTrackSpec()) -> ClickTrack:
     sr = spec.sample_rate
-    beat_s = 60.0 / spec.bpm
-    lead = spec.lead_silence_s
     # onsets are rounded to whole samples, truth is taken from the rounded index so it's exact
-    onset_idx = np.round((lead + np.arange(spec.beats) * beat_s) * sr).astype(np.int64)
+    onset_idx = np.round(beat_times_s(spec) * sr).astype(np.int64)
 
     plain = _click(sr, spec.click_freq_hz, spec.click_ms, spec.click_decay_ms) * spec.amplitude
     accent = _click(sr, spec.click_freq_hz * 1.5, spec.click_ms, spec.click_decay_ms) * min(spec.amplitude * 1.6, 0.95)
@@ -88,6 +110,9 @@ def click_track(spec: ClickTrackSpec = ClickTrackSpec()) -> ClickTrack:
     for i, start in enumerate(onset_idx):
         wave = accent if (spec.accent_downbeats and is_downbeat[i]) else plain
         audio[start:start + click_len] += wave
+    if spec.offbeat_level > 0.0:
+        for start in (onset_idx[:-1] + onset_idx[1:]) // 2:
+            audio[start:start + click_len] += plain * spec.offbeat_level
 
     if spec.noise_floor_db is not None:
         rng = np.random.default_rng(spec.seed)
@@ -102,6 +127,7 @@ def click_track(spec: ClickTrackSpec = ClickTrackSpec()) -> ClickTrack:
         content_start_ms=float(onset_idx[0] * to_ms),
         content_end_ms=content_end_idx * to_ms,
         duration_ms=total * to_ms,
+        change_ms=np.array([onset_idx[index] * to_ms for index, _ in sorted(spec.tempo_changes)]),
     )
 
 
