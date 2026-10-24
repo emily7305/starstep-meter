@@ -3,6 +3,7 @@ import pytest
 
 from backend.analysis import tempo
 from backend.analysis.tempo import TempoError, estimate_tempo, onset_hop
+from backend.analysis.tempo_range import DEFAULT_MAX_BPM, DEFAULT_MIN_BPM, TempoRange
 from backend.analysis.trim import find_trim
 from tests.synth import ClickTrackSpec, click_track
 
@@ -17,6 +18,11 @@ CASES = [
     pytest.param(ClickTrackSpec(bpm=174, sample_rate=48000), id="174bpm-48k"),
     # the noise floor and the accents both make the envelope messier
     pytest.param(ClickTrackSpec(bpm=174, noise_floor_db=-90.0, accent_downbeats=True), id="174bpm-noise90-accent"),
+    # past the old 240 ceiling. librosa's coarse guess for 270 is 90, a third, so these need the 3x candidates
+    pytest.param(ClickTrackSpec(bpm=250, beats=84), id="250bpm-44k"),
+    pytest.param(ClickTrackSpec(bpm=270, beats=90, accent_downbeats=True), id="270bpm-44k-accent"),
+    pytest.param(ClickTrackSpec(bpm=300, beats=100), id="300bpm-44k"),
+    pytest.param(ClickTrackSpec(bpm=270, beats=90, sample_rate=48000), id="270bpm-48k"),
 ]
 
 
@@ -59,3 +65,25 @@ def test_onset_hop_48k_keeps_the_frame_length():
     assert hop == pytest.approx(279, abs=1)
     # same frame length in ms as 256 samples at 44.1 khz, that's the point of scaling it
     assert hop / 48000 == pytest.approx(256 / 44100, rel=0.01)
+
+
+def test_default_range_is_60_to_320():
+    assert (DEFAULT_MIN_BPM, DEFAULT_MAX_BPM) == (60.0, 320.0)
+    assert TempoRange() == TempoRange(60.0, 320.0)
+
+
+@pytest.mark.parametrize("bounds", [(0.0, 320.0), (-5.0, 100.0), (200.0, 200.0), (300.0, 100.0)])
+def test_bad_range_is_refused(bounds):
+    with pytest.raises(ValueError, match="min_bpm"):
+        TempoRange(*bounds)
+
+
+def test_the_range_caps_the_estimate():
+    # with the old 240 ceiling a 270 bpm track can only come out at half
+    track = click_track(ClickTrackSpec(bpm=270, beats=90))
+    trim = find_trim(track.samples, track.sample_rate)
+
+    capped = estimate_tempo(track.samples, track.sample_rate, trim.start_ms, trim.end_ms, TempoRange(60.0, 240.0))
+
+    assert capped.bpm == pytest.approx(135.0, abs=BPM_TOLERANCE)
+    assert all(bpm <= 240.0 for bpm in capped.octave_support)

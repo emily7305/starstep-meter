@@ -15,6 +15,7 @@ import librosa
 import numpy as np
 
 from backend.analysis.tempo import estimate_tempo, onset_hop
+from backend.analysis.tempo_range import TempoRange
 
 Tracker = Literal["madmom", "librosa"]
 TrackerChoice = Literal["auto", "madmom", "librosa"]
@@ -23,9 +24,6 @@ TrackerChoice = Literal["auto", "madmom", "librosa"]
 MADMOM_SAMPLE_RATE = 44100
 MADMOM_FPS = 100
 MADMOM_BEATS_PER_BAR = (3, 4)
-# madmom's own default stops at 215, rhythm game songs go faster than that
-MADMOM_MIN_BPM = 55.0
-MADMOM_MAX_BPM = 240.0
 # a little audio either side of the trim points so the network sees the first attack in context
 PAD_S = 0.5
 # raw madmom beats come up to ~20 ms before the attack, so a beat just ahead of the trim start is real
@@ -61,7 +59,7 @@ def _region(samples: np.ndarray, sample_rate: int, start_ms: float, end_ms: floa
     return samples[lo:hi], lo
 
 
-def _track_madmom(region: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.ndarray]:
+def _track_madmom(region: np.ndarray, sample_rate: int, tempo_range: TempoRange) -> tuple[np.ndarray, np.ndarray]:
     from madmom.audio.signal import Signal
     from madmom.features.downbeats import DBNDownBeatTrackingProcessor, RNNDownBeatProcessor
 
@@ -70,10 +68,14 @@ def _track_madmom(region: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.
         region = librosa.resample(region, orig_sr=sample_rate, target_sr=MADMOM_SAMPLE_RATE, res_type="soxr_hq")
     signal = Signal(np.ascontiguousarray(region, dtype=np.float32), sample_rate=MADMOM_SAMPLE_RATE, num_channels=1)
     activations = RNNDownBeatProcessor()(signal)
+    # madmom's own default stops at 215, rhythm game songs go a lot faster.
+    # num_tempi=None keeps every whole-frame beat interval as a state instead of 60 log-spaced
+    # ones. over 60-320 the 60 got coarse enough that a 3/4 click track came out in 4/4
     tracker = DBNDownBeatTrackingProcessor(
         beats_per_bar=list(MADMOM_BEATS_PER_BAR),
-        min_bpm=MADMOM_MIN_BPM,
-        max_bpm=MADMOM_MAX_BPM,
+        min_bpm=tempo_range.min_bpm,
+        max_bpm=tempo_range.max_bpm,
+        num_tempi=None,
         fps=MADMOM_FPS,
     )
     beats = tracker(activations)
@@ -82,11 +84,11 @@ def _track_madmom(region: np.ndarray, sample_rate: int) -> tuple[np.ndarray, np.
     return beats[:, 0] * 1000.0, beats[:, 1].astype(np.int64)
 
 
-def _track_librosa(region: np.ndarray, sample_rate: int) -> np.ndarray:
+def _track_librosa(region: np.ndarray, sample_rate: int, tempo_range: TempoRange) -> np.ndarray:
     hop = onset_hop(sample_rate)
     env = librosa.onset.onset_strength(y=region, sr=sample_rate, hop_length=hop)
     # the milestone 1 estimate has the octave check, librosa's own guess slips to half tempo on fast songs
-    tempo = estimate_tempo(region, sample_rate, 0.0, len(region) / sample_rate * 1000.0)
+    tempo = estimate_tempo(region, sample_rate, 0.0, len(region) / sample_rate * 1000.0, tempo_range)
     _, frames = librosa.beat.beat_track(onset_envelope=env, sr=sample_rate, hop_length=hop, bpm=tempo.bpm, trim=False)
     return np.asarray(librosa.frames_to_time(frames, sr=sample_rate, hop_length=hop) * 1000.0, dtype=np.float64)
 
@@ -97,6 +99,7 @@ def track_beats(
     start_ms: float,
     end_ms: float,
     tracker: TrackerChoice = "auto",
+    tempo_range: TempoRange = TempoRange(),
 ) -> TrackedBeats:
     if samples.ndim != 1:
         raise ValueError("track_beats expects mono samples")
@@ -113,14 +116,14 @@ def track_beats(
     times = positions = None
     if use == "madmom":
         try:
-            times, positions = _track_madmom(region, sample_rate)
+            times, positions = _track_madmom(region, sample_rate, tempo_range)
         except ImportError as exc:
             # installed but broken, like the pypi 0.16.1 build that wants pkg_resources
             if tracker == "madmom":
                 raise BeatTrackingError(f"madmom is installed but doesn't import ({exc})") from exc
             use = "librosa"
     if times is None or positions is None:
-        times = _track_librosa(region, sample_rate)
+        times = _track_librosa(region, sample_rate, tempo_range)
         positions = np.zeros(len(times), dtype=np.int64)
 
     times = times + offset / sample_rate * 1000.0

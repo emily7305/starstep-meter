@@ -11,15 +11,16 @@ from dataclasses import dataclass
 import librosa
 import numpy as np
 
+from backend.analysis.tempo_range import TempoRange
+
 # 256 samples at 44.1 khz is ~5.8 ms per onset frame, scaled so 48 khz gets the same frame length
 ONSET_HOP_AT_44K = 256
-# octave candidates outside this range are never picked
-# idk if 240 is too low for speedcore stuff, it's fine for now
-MIN_BPM = 60.0
-MAX_BPM = 240.0
 # the faster of two octave candidates wins if its autocorrelation peak is at least this
 # fraction of the strongest one. tuned on click tracks only, real music will need more
 OCTAVE_SUPPORT = 0.5
+# librosa's coarse guess leans towards 120 bpm, a 270 bpm click track comes out at 90,
+# so thirds and 3:2 are candidates too and not just halves and doubles
+CANDIDATE_RATIOS = (1 / 3, 1 / 2, 2 / 3, 1.0, 3 / 2, 2.0, 3.0)
 # lag refinement keeps going out to this many beats, or half the envelope, whichever is shorter
 REFINE_MAX_BEATS = 32
 MIN_DURATION_S = 3.0
@@ -59,17 +60,18 @@ def _peak_near(ac: np.ndarray, lag: float, rel_width: float = 0.03) -> float:
     return float(ac[lo:hi + 1].max())
 
 
-def _pick_octave(ac: np.ndarray, frame_rate: float, coarse_bpm: float) -> tuple[float, dict[float, float]]:
+def _pick_octave(ac: np.ndarray, frame_rate: float, coarse_bpm: float, tempo_range: TempoRange) -> tuple[float, dict[float, float]]:
     support: dict[float, float] = {}
-    for bpm in (coarse_bpm / 2.0, coarse_bpm, coarse_bpm * 2.0):
-        if MIN_BPM <= bpm <= MAX_BPM:
+    # candidates outside the range are never picked
+    for bpm in (coarse_bpm * ratio for ratio in CANDIDATE_RATIOS):
+        if tempo_range.contains(bpm):
             support[bpm] = _peak_near(ac, 60.0 * frame_rate / bpm)
     if not support:
-        # coarse estimate and both octaves are out of range, keep what librosa said
+        # every candidate is out of range, keep what librosa said
         return coarse_bpm, {coarse_bpm: _peak_near(ac, 60.0 * frame_rate / coarse_bpm)}
 
     strongest = max(support.values())
-    # a click at every beat also lines up at 2 beats, 4 beats... so slower octaves always look
+    # a click at every beat also lines up at 2 beats, 3 beats... so slower candidates always look
     # supported. the fastest candidate that still has a real peak is the actual pulse
     for bpm in sorted(support, reverse=True):
         if support[bpm] >= OCTAVE_SUPPORT * strongest:
@@ -109,7 +111,13 @@ def _refine_period(ac: np.ndarray, period: float) -> float:
     return period
 
 
-def estimate_tempo(samples: np.ndarray, sample_rate: int, start_ms: float, end_ms: float) -> TempoResult:
+def estimate_tempo(
+    samples: np.ndarray,
+    sample_rate: int,
+    start_ms: float,
+    end_ms: float,
+    tempo_range: TempoRange = TempoRange(),
+) -> TempoResult:
     start = int(round(start_ms / 1000.0 * sample_rate))
     end = int(round(end_ms / 1000.0 * sample_rate))
     region = samples[start:end]
@@ -127,7 +135,7 @@ def estimate_tempo(samples: np.ndarray, sample_rate: int, start_ms: float, end_m
         raise TempoError("tempo estimate failed")
 
     ac = _unbiased_autocorrelation(env)
-    picked, support = _pick_octave(ac, frame_rate, coarse)
+    picked, support = _pick_octave(ac, frame_rate, coarse, tempo_range)
     period = _refine_period(ac, 60.0 * frame_rate / picked)
     bpm = 60.0 * frame_rate / period
 
