@@ -71,3 +71,26 @@ This is a coarse estimate. Milestone 2 replaces it with a linear regression over
 Measured on synthetic click tracks (40 beats, 15 tempos from 60 to 233.3 BPM, 44.1 and 48 kHz, plain, -90 dBFS noise, and accented downbeats): the worst error is 0.017 BPM and there are no octave errors. librosa's raw estimate on the same tracks reported half tempo for 174 BPM and up at 44.1 kHz, and for 160 and 180 and up at 48 kHz. It was up to 0.99 BPM off on the rest. So the octave check and refinement are doing real work.
 
 Known limits: click tracks are the easy case. Real music with strong eighth notes will push the octave check towards double time, and swing or tempo drift isn't handled at all. 60–240 is a guess at a sane range for charts, and songs above 240 will come out at half tempo. `confidence` stays null until there's something meaningful to put there.
+
+## ui direction
+
+Soft and pastel, a little cutecore, but restrained. It should feel like a well-made rhythm game editor, not a landing page. The timeline is the hero. It's a full-width band at the top, empty in milestone 1, and everything else sits underneath it.
+
+Palette (CSS custom properties in `frontend/src/styles.css`):
+
+- `--bg #f4f0f4`: very pale cool pink-gray. It's cool on purpose, because warm off-whites read as beige.
+- `--bg-sunk #ebe4ec`: the timeline well and the raw JSON block.
+- `--ink #3b1f3f`: deep plum for text. It's softer than black but still has strong contrast on the background.
+- `--ink-soft #6f5a73`, `--ink-faint #a796a9`, `--line #dccfdc`: labels, ticks, hairlines.
+- `--accent #e0136f`: the one saturated pink. It's only for the playhead, selection, and the primary action, so it always means "this is where you are / what you do next". It's this shade rather than a lighter pink so white button text passes contrast (about 4.7:1).
+- `--mint #3cc2a4`: reserved for downbeats on the beat grid later, and unused until then. It's the only cool accent, so downbeats will stand out from the pink playhead.
+- `--danger #a3123f`: errors. It's a deep crimson so it doesn't get confused with the accent.
+
+Fonts, self-hosted through `@fontsource` packages (no font CDN):
+
+- M PLUS Rounded 1c for headings, labels and body. It's rounded and friendly without being a novelty face, and it has Japanese glyphs, which matter for song titles.
+- IBM Plex Mono for every number, filename, hash and the JSON. Timing values are always mono, right-aligned, with tabular figures and units (`2000.0 ms`, `120.00 bpm`), so columns of numbers line up and are easy to compare.
+
+Not used, on purpose: beige or cream backgrounds, orange, serif headings, gradients, glass effects, card grids, icon badges, the Vite starter look, the default Tailwind palette, and Inter/system-ui as the main face. Layout separation is hairlines and whitespace, not boxes.
+
+Copy is tool copy: lowercase labels, no exclamation marks. Stage names show as `decoding`, `trimming`, `estimating tempo`, and failures read like `analysis failed at decode — check that ffmpeg is on PATH`.
