@@ -74,8 +74,11 @@ Rules that hold from now on:
 Vite + React + TypeScript. In dev, Vite proxies `/api` to the backend, so there's no CORS setup.
 
 - Upload goes through `XMLHttpRequest` because fetch can't report upload progress.
-- `poll.ts` holds the polling loop as a plain async function with an injectable sleep. It's the part with a vitest test.
-- The page is laid out around the timeline. It's a full-width band at the top, empty in milestone 1, and the waveform goes there in milestone 2. Controls and the report sit underneath.
+- `poll.ts` holds the polling loop as a plain async function with an injectable sleep.
+- The page is laid out around the timeline. It's a full-width band at the top with the wavesurfer waveform and the beat grid in it. Under it is a strip with the transport, the zoomed view and the offset editor, and then the source and report columns.
+- `grid.ts` has the beat-to-pixel maths and `offset.ts` the offset edit logic (`withOffsetEdit`, and `OffsetSaver`, which debounces and serialises the patches). Both are plain modules with vitest tests, and the components only wire them up.
+- `beatGridPlugin.ts` is the wavesurfer plugin that draws the grid, `components/Loupe.tsx` the zoomed view, `components/Timeline.tsx` owns the wavesurfer instance.
+- `fonts.ts` loads the Japanese font slices on demand.
 
 ## tests (`tests/`)
 
