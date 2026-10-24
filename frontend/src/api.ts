@@ -1,0 +1,141 @@
+import type { HealthStatus, JobStatus, UploadResponse } from "./types/api";
+import type { TimingReport } from "./types/timingReport";
+
+export class ApiError extends Error {
+  readonly status: number;
+  // true when the backend never answered (or the proxy answered for it)
+  readonly offline: boolean;
+
+  constructor(message: string, status: number, offline = false) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.offline = offline;
+  }
+}
+
+export function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
+function offlineError(status = 0): ApiError {
+  return new ApiError("backend offline", status, true);
+}
+
+function parseDetail(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (typeof parsed === "object" && parsed !== null && "detail" in parsed) {
+      return typeof parsed.detail === "string" ? parsed.detail : null;
+    }
+  } catch {
+    // not json, falls through
+  }
+  return null;
+}
+
+function errorFromResponse(status: number, body: string): ApiError {
+  const detail = parseDetail(body);
+  if (detail !== null) return new ApiError(detail, status);
+  // vite's proxy answers 5xx with an empty body when nothing is listening on :8000
+  if (status >= 500) return offlineError(status);
+  return new ApiError(`http ${status}`, status);
+}
+
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  let text: string;
+  let status: number;
+  let ok: boolean;
+  try {
+    const res = await fetch(path, { signal, headers: { accept: "application/json" } });
+    status = res.status;
+    ok = res.ok;
+    text = await res.text();
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    throw offlineError();
+  }
+  if (!ok) throw errorFromResponse(status, text);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError("unexpected response from server", status);
+  }
+}
+
+export function fetchHealth(signal?: AbortSignal): Promise<HealthStatus> {
+  return getJson<HealthStatus>("/api/health", signal);
+}
+
+export function fetchJobStatus(jobId: string, signal?: AbortSignal): Promise<JobStatus> {
+  return getJson<JobStatus>(`/api/jobs/${encodeURIComponent(jobId)}`, signal);
+}
+
+export function fetchReport(jobId: string, signal?: AbortSignal): Promise<TimingReport> {
+  return getJson<TimingReport>(`/api/jobs/${encodeURIComponent(jobId)}/report`, signal);
+}
+
+function parseJobId(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (typeof parsed === "object" && parsed !== null && "job_id" in parsed) {
+      return typeof parsed.job_id === "string" ? parsed.job_id : null;
+    }
+  } catch {
+    // same as above, a bad body just means no id
+  }
+  return null;
+}
+
+// fetch can't report upload progress, so this one stays on xhr
+// onProgress gets 0..1
+export function uploadAudio(
+  file: File,
+  onProgress: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<UploadResponse> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("upload aborted", "AbortError"));
+      return;
+    }
+
+    const xhr = new XMLHttpRequest();
+    const onAbort = () => xhr.abort();
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      cleanup();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const jobId = parseJobId(xhr.responseText);
+        if (jobId === null) {
+          reject(new ApiError("unexpected response from server", xhr.status));
+          return;
+        }
+        onProgress(1);
+        resolve({ job_id: jobId });
+      } else {
+        reject(errorFromResponse(xhr.status, xhr.responseText));
+      }
+    };
+    xhr.onerror = () => {
+      cleanup();
+      reject(offlineError());
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new DOMException("upload aborted", "AbortError"));
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    const body = new FormData();
+    body.append("file", file);
+    xhr.open("POST", "/api/jobs");
+    xhr.setRequestHeader("accept", "application/json");
+    xhr.send(body);
+  });
+}
