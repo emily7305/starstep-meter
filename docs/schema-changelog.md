@@ -62,3 +62,14 @@ Milestone 3c, off-beat runs. Additive, but 2.1 readers reject the new field, so 
 - `BeatsFile` has no new fields, its `schema_version` moves with the report's.
 
 2.1 reports and beats files are upgraded when they're read by changing the version only, with an empty `offbeat_runs`. Older ones go through the earlier steps first.
+
+## 2.3
+
+Milestone 4, meter and notation suggestions. Additive for everything that was ever written, but the version moves, since 2.2 readers reject the new fields and the meter segment changes shape.
+
+- A meter segment goes by time: `start_ms`, `end_ms` (contiguous over the tempo map's extent, like tempo segments), `numerator` (1 to 32), `denominator` (a power of two up to 64), `confidence` and `source`. `start_bar` is gone, a bar number moves whenever a span's bpm is halved or a segment is split. A bar is `numerator × 4 / denominator` beats of the tempo segment's grid. A meter segment that starts with a tempo segment counts bars from its anchor, one that starts inside it starts a bar there. The analysis writes the meter map with source `auto`, an empty one still means 4/4 from every anchor. Why and how bar lines are drawn is in `docs/decisions.md` (meter and notation).
+- The report gains `notation_suggestions`, each with `start_ms`, `end_ms`, `kind` (`half`, `double` or `fold`), `suggested_bpm`, `grid_bpm` (the bpm of the segment it was made on), `score` (0 to 1) and `status` (`open`, `applied` or `dismissed`). The analysis never applies one. An edit applies or dismisses it, and a re-analysis keeps the decided ones.
+- New edits: `meter_map/<i>/<field>` for a meter set by hand, `meter_map` before and after for a meter split or merge, and `notation_suggestions/<i>/status` for apply and dismiss (apply also logs `tempo_map` before and after).
+- `BeatsFile` gains `grid_features`, the band onset strengths (`low`, `mid`, `high`) at every grid line and half line of the analysis' tempo map, plus the lines the fold check carried into an edge stretch. Timing and band numbers only, never audio. The suggestions can be worked out again from them without the audio.
+
+2.2 reports and beats files are upgraded when they're read by changing the version only, with an empty meter map, no suggestions and no grid features. Nothing wrote a meter segment before 2.3, so a 2.2 `meter_map` is empty. One written by hand with `start_bar` has no time to go by and is left as it was, so it fails validation instead of landing somewhere it wasn't meant to. Older files go through the earlier steps first.
