@@ -244,6 +244,26 @@ def test_a_metric_modulation_stays_split(tmp_path):
 
 
 @pytest.mark.ffmpeg
+@pytest.mark.usefixtures("madmom")
+def test_an_off_beat_section_keeps_the_grid_on_the_beats(tmp_path):
+    # 32 beats where only the off-beats click. madmom follows them, the grid has to stay put
+    spec = ClickTrackSpec(
+        bpm=260, beats=288, lead_silence_s=0.5531, accent_downbeats=True, patterns=((128, 32, (0.5, 1.5, 2.5, 3.5)),)
+    )
+    out, track = _analyze(tmp_path, spec)
+
+    (segment,) = out.report.tempo_map
+    assert segment.bpm == pytest.approx(260.0, abs=BPM_TOLERANCE)
+    assert segment.anchor_ms == pytest.approx(track.downbeats_ms[0], abs=OFFSET_TOLERANCE_MS)
+    (run,) = out.report.offbeat_runs
+    period = 60000.0 / 260.0
+    section_start = track.content_start_ms + 128 * period
+    # madmom takes a beat or two to go over to the off-beat and to come back
+    assert section_start <= run.start_ms < section_start + 4 * period
+    assert section_start + 28 * period <= run.end_ms <= section_start + 32 * period
+
+
+@pytest.mark.ffmpeg
 @pytest.mark.parametrize("tracker", ["madmom", "librosa"])
 @pytest.mark.parametrize("bpm", [128.0, 270.0])
 def test_steady_track_with_small_jitter_is_one_segment(tmp_path, tracker, bpm):
