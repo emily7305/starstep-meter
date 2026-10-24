@@ -1,0 +1,293 @@
+{
+  "$defs": {
+    "AudioSource": {
+      "additionalProperties": false,
+      "properties": {
+        "duration_ms": {
+          "description": "length of the decoded audio",
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "number"
+        },
+        "filename": {
+          "description": "original upload name, for display only",
+          "title": "Filename",
+          "type": "string"
+        },
+        "sample_rate": {
+          "description": "sample rate of the decoded audio in Hz",
+          "exclusiveMinimum": 0,
+          "title": "Sample Rate",
+          "type": "integer"
+        },
+        "sha256": {
+          "description": "sha256 of the original file, not the decoded wav",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename",
+        "sha256",
+        "duration_ms",
+        "sample_rate"
+      ],
+      "title": "AudioSource",
+      "type": "object"
+    },
+    "Edit": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "description": "path of the changed value, e.g. tempo_map/0/bpm",
+          "title": "Field",
+          "type": "string"
+        },
+        "new": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "old": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "old",
+        "new",
+        "timestamp"
+      ],
+      "title": "Edit",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MeterSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "denominator": {
+          "minimum": 1,
+          "title": "Denominator",
+          "type": "integer"
+        },
+        "numerator": {
+          "minimum": 1,
+          "title": "Numerator",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "start_bar": {
+          "minimum": 0,
+          "title": "Start Bar",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start_bar",
+        "numerator",
+        "denominator",
+        "confidence",
+        "source"
+      ],
+      "title": "MeterSegment",
+      "type": "object"
+    },
+    "Section": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "start_ms",
+        "end_ms",
+        "source"
+      ],
+      "title": "Section",
+      "type": "object"
+    },
+    "TempoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "bpm": {
+          "exclusiveMinimum": 0,
+          "title": "Bpm",
+          "type": "number"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "source": {
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "bpm",
+        "confidence",
+        "source"
+      ],
+      "title": "TempoSegment",
+      "type": "object"
+    },
+    "Trim": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ms": {
+          "description": "end of the last audible sound",
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "start_ms": {
+          "description": "first audible sound",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms"
+      ],
+      "title": "Trim",
+      "type": "object"
+    }
+  },
+  "$id": "timing_report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "beat_offset_ms": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Beat Offset Ms"
+    },
+    "edits": {
+      "items": {
+        "$ref": "#/$defs/Edit"
+      },
+      "title": "Edits",
+      "type": "array"
+    },
+    "meter_map": {
+      "items": {
+        "$ref": "#/$defs/MeterSegment"
+      },
+      "title": "Meter Map",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sections": {
+      "items": {
+        "$ref": "#/$defs/Section"
+      },
+      "title": "Sections",
+      "type": "array"
+    },
+    "source": {
+      "$ref": "#/$defs/AudioSource"
+    },
+    "tempo_map": {
+      "items": {
+        "$ref": "#/$defs/TempoSegment"
+      },
+      "title": "Tempo Map",
+      "type": "array"
+    },
+    "trim": {
+      "$ref": "#/$defs/Trim"
+    }
+  },
+  "required": [
+    "schema_version",
+    "source",
+    "trim",
+    "beat_offset_ms",
+    "tempo_map",
+    "meter_map",
+    "sections",
+    "edits"
+  ],
+  "title": "TimingReport",
+  "type": "object"
+}
