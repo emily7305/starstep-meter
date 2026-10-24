@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { crispX, gridLines, type GridParams } from "../grid";
+import { crispX } from "../grid";
+import { mapLines, type TempoGrid } from "../tempoMap";
 import type { Palette } from "../theme";
 
 interface Props {
   audio: AudioBuffer | null;
-  grid: GridParams | null;
-  // audio time at the centre, it stays put while the offset moves so the line slides over the attack
+  grid: TempoGrid | null;
+  // audio time at the centre, it stays put while the anchor moves so the line slides over the attack
   centerMs: number | null;
   spanMs: number;
   // snapped beat times from the beats file, drawn as ticks to compare against the grid
@@ -85,7 +86,7 @@ function draw(canvas: HTMLCanvasElement, widthPx: number, props: Props): void {
   }
 
   if (grid !== null) {
-    for (const line of gridLines(grid, startMs, endMs)) {
+    for (const line of mapLines(grid, startMs, endMs)) {
       const widthDevice = line.isBar ? 2 : 1;
       const x = crispX(toX(line.timeMs), dpr, widthDevice);
       ctx.fillStyle = line.isBar ? palette.mint : palette.ink;
