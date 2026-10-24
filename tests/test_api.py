@@ -115,24 +115,22 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert resp.status_code == 200, resp.text
     report = TimingReport.model_validate(resp.json())
 
-    assert report.schema_version == "1.1"
+    assert report.schema_version == "2.0"
     assert report.source.filename == "click 120.wav"
     assert report.source.codec == "pcm_f32le"
     assert report.source.decoder_padding_samples == 0
     assert report.source.sha256 == hashlib.sha256(data).hexdigest()
     assert report.source.sample_rate == 44100
     assert abs(report.trim.start_ms - track.content_start_ms) <= 10
-    # unaccented clicks, so which click is beat 1 is up to the tracker, but it has to be a click
-    assert report.beat_offset_ms is not None
-    phase = (report.beat_offset_ms - track.content_start_ms + 250.0) % 500.0 - 250.0
-    assert abs(phase) <= 5.0
-
     assert len(report.tempo_map) == 1
     segment = report.tempo_map[0]
+    # unaccented clicks, so which click is beat 1 is up to the tracker, but it has to be a click
+    phase = (segment.anchor_ms - track.content_start_ms + 250.0) % 500.0 - 250.0
+    assert abs(phase) <= 5.0
     assert abs(segment.bpm - 120) <= 0.01
     assert segment.source == "auto"
     assert segment.confidence is not None and segment.confidence > 0
-    assert segment.start_ms == report.trim.start_ms
+    assert (segment.start_ms, segment.end_ms) == (report.trim.start_ms, report.trim.end_ms)
 
     assert report.meter_map == []
     assert report.sections == []
@@ -148,6 +146,41 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert stored_job["job_id"] == job_id
     assert stored_job["filename"] == "click 120.wav"
     assert stored_job["size_bytes"] == len(data)
+
+
+@pytest.mark.ffmpeg
+def test_reanalyze_keeps_a_manual_segment_and_the_edit_log(client: TestClient, settings: Settings) -> None:
+    path, _ = cached_click_wav(ClickTrackSpec(bpm=120, lead_silence_s=2.0, accent_downbeats=True))
+    job_id = upload(client, "click 120.wav", path.read_bytes()).json()["job_id"]
+    assert wait_for_job(client, job_id)[0]["status"] == "done"
+
+    # far from the 120 the analysis found, so a fresh auto segment couldn't pass for it
+    resp = client.patch(f"/api/jobs/{job_id}/report", json={"op": "set_bpm", "segment": 0, "bpm": 100.0})
+    assert resp.status_code == 200, resp.text
+    edited = resp.json()
+    assert edited["tempo_map"][0]["source"] == "manual"
+    assert edited["tempo_map"][0]["bpm"] == 100.0
+    assert len(edited["edits"]) == 3
+
+    # removed, so the beats checked below can only come from the new run
+    (settings.jobs_dir / job_id / "beats.json").unlink()
+    resp = client.post(f"/api/jobs/{job_id}/reanalyze")
+    assert resp.status_code == 202, resp.text
+    assert resp.json() == {"job_id": job_id}
+    body, seen = wait_for_job(client, job_id)
+    assert body == {"status": "done", "stage": "done", "error": None}
+    assert is_subsequence(seen, STAGE_ORDER), seen
+
+    resp = client.get(f"/api/jobs/{job_id}/report")
+    assert resp.status_code == 200, resp.text
+    again = resp.json()
+    # the manual segment spans the whole song, so it is the whole map
+    assert again["tempo_map"] == edited["tempo_map"]
+    assert again["edits"] == edited["edits"]
+
+    beats = client.get(f"/api/jobs/{job_id}/beats")
+    assert beats.status_code == 200, beats.text
+    assert len(beats.json()["beats"]) == 40
 
 
 def test_unsupported_extension_is_415(client: TestClient, settings: Settings) -> None:
@@ -331,7 +364,7 @@ def test_unexpected_exception_is_recorded_at_the_last_stage(settings: Settings, 
     (job_dir / "original.wav").write_bytes(b"x")
     store.write_job(job_id, "song.wav", "0" * 64, 1)
 
-    def broken_analysis(original_path, work_dir, filename, sha256, on_stage=None, config=None):
+    def broken_analysis(original_path, work_dir, filename, sha256, on_stage=None, config=None, previous=None):
         on_stage("decode")
         on_stage("trim")
         raise ValueError("boom")

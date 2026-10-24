@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -17,11 +17,13 @@ from pydantic import ValidationError
 
 from backend.analysis.ffmpeg_tools import ToolNotFoundError, find_tool
 from backend.analysis.ingest import FileTooLargeError, UnsupportedFileError, check_extension, ingest_stream
+from backend.analysis.tempo_edit import TempoEditError
 from backend.api.jobs import JobRunner
-from backend.api.models import Health, JobCreated, JobStatus, OffsetEdit
+from backend.api.models import Health, JobCreated, JobStatus, JobSummary, TempoEdit
 from backend.api.settings import Settings
 from backend.api.storage import JobStore
-from backend.schema.models import SCHEMA_VERSION, BeatsFile, Edit, TimingReport
+from backend.api.tempo_patch import apply_tempo_edit
+from backend.schema.models import SCHEMA_VERSION, BeatsFile, TimingReport
 
 # multipart boundaries and part headers add a few hundred bytes on top of the file
 # only reject on the header when it's over the limit by more than that, ingest counts the real bytes
@@ -107,6 +109,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         runner.submit(job_id)
         return JobCreated(job_id=job_id)
 
+    @router.get("/jobs", response_model=list[JobSummary])
+    def list_jobs(sha256: str | None = Query(None, pattern=r"^[0-9a-f]{64}$")) -> list[JobSummary]:
+        # newest first. with sha256, only the jobs for that exact file, so the ui can offer to reopen one
+        return store.summaries(sha256)
+
     @router.get("/jobs/{job_id}", response_model=JobStatus)
     def get_job(job_id: str) -> JobStatus:
         status = store.read_status(job_id)
@@ -138,25 +145,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise stale_report(exc) from exc
 
     @router.patch("/jobs/{job_id}/report", response_model=TimingReport)
-    def patch_report(job_id: str, body: OffsetEdit) -> TimingReport:
-        # offset edits only for now, every real change lands in edits
+    def patch_report(job_id: str, body: TempoEdit) -> TimingReport:
+        # one tempo map edit per call, every real change lands in edits
         require_done(job_id, "report")
-        # same rounding as the pipeline, float steps of 1 ms pick up noise in the last digits
-        new = round(body.beat_offset_ms, 3)
+        try:
+            beats = store.read_beats(job_id)
+        except (OSError, ValidationError):
+            # split and merge keep the old grid instead of refitting, nothing else needs the beats
+            beats = None
 
         def apply(report: TimingReport) -> TimingReport:
-            if not 0.0 <= new <= report.source.duration_ms:
-                raise HTTPException(422, f"beat_offset_ms has to be between 0 and {report.source.duration_ms} ms")
-            old = report.beat_offset_ms
-            if old == new:
-                return report
-            edit = Edit(field="beat_offset_ms", old=old, new=new, timestamp=datetime.now(timezone.utc))
-            return report.model_copy(update={"beat_offset_ms": new, "edits": [*report.edits, edit]})
+            try:
+                return apply_tempo_edit(report, body, beats, datetime.now(timezone.utc))
+            except TempoEditError as exc:
+                raise HTTPException(422, str(exc)) from exc
 
         try:
             return store.update_report(job_id, apply)
         except ValidationError as exc:
             raise stale_report(exc) from exc
+
+    @router.post("/jobs/{job_id}/reanalyze", status_code=202, response_model=JobCreated)
+    def reanalyze(job_id: str) -> JobCreated:
+        # runs the analysis again on the stored upload, manual segments and the edit log carry over
+        status = store.read_status(job_id)
+        if status is None:
+            raise HTTPException(404, "job not found")
+        if status.status in ("queued", "running"):
+            raise HTTPException(409, f"job is still at {status.stage}")
+        if store.find_original(job_id) is None:
+            raise HTTPException(409, "the original upload is missing, upload the file again")
+        store.write_status(job_id, JobStatus(status="queued", stage="queued"))
+        runner.submit(job_id)
+        return JobCreated(job_id=job_id)
 
     @router.get("/jobs/{job_id}/beats", response_model=BeatsFile)
     def get_beats(job_id: str) -> BeatsFile:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -15,8 +16,9 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from backend.analysis.ingest import ALLOWED_EXTENSIONS
-from backend.api.models import JobStatus
+from backend.api.models import JobStatus, JobSummary
 from backend.analysis.pipeline import DECODED_NAME
+from backend.schema.migrate import upgrade_beats, upgrade_report
 from backend.schema.models import BeatsFile, TimingReport
 
 JOB_FILE = "job.json"
@@ -148,8 +150,10 @@ class JobStore:
         _write_atomic(self.job_dir(job_id) / REPORT_FILE, report.model_dump_json(indent=2) + "\n")
 
     def read_report(self, job_id: str) -> TimingReport:
+        # a report from an older schema is upgraded on the way in, and written back as the
+        # current one the next time something changes it
         text = (self.job_dir(job_id) / REPORT_FILE).read_text(encoding="utf-8")
-        return TimingReport.model_validate_json(text)
+        return TimingReport.model_validate(upgrade_report(json.loads(text)))
 
     def update_report(self, job_id: str, change: Callable[[TimingReport], TimingReport]) -> TimingReport:
         with self._report_lock:
@@ -162,7 +166,42 @@ class JobStore:
 
     def read_beats(self, job_id: str) -> BeatsFile:
         text = (self.job_dir(job_id) / BEATS_FILE).read_text(encoding="utf-8")
-        return BeatsFile.model_validate_json(text)
+        return BeatsFile.model_validate(upgrade_beats(json.loads(text)))
+
+    def summary(self, job_id: str) -> JobSummary | None:
+        # None for a folder that isn't a finished upload, same as read_status
+        status = self.read_status(job_id)
+        if status is None:
+            return None
+        record = self.read_job(job_id)
+        edits: int | None = None
+        try:
+            edits = len(self.read_report(job_id).edits)
+        except (OSError, ValueError):
+            # no report yet, or one from before 1.1 that can't be read any more
+            pass
+        return JobSummary(
+            job_id=job_id,
+            filename=record.filename,
+            sha256=record.sha256,
+            size_bytes=record.size_bytes,
+            created_at=record.created_at,
+            status=status.status,
+            edits=edits,
+        )
+
+    def summaries(self, sha256: str | None = None) -> list[JobSummary]:
+        out = []
+        for job_id in self.job_ids():
+            try:
+                summary = self.summary(job_id)
+            except (OSError, ValueError):
+                # a half-written or hand-broken job folder shouldn't hide all the others
+                continue
+            if summary is not None and (sha256 is None or summary.sha256 == sha256):
+                out.append(summary)
+        # iso timestamps in utc sort as text, newest first
+        return sorted(out, key=lambda s: s.created_at, reverse=True)
 
     def decoded_path(self, job_id: str) -> Path:
         return self.job_dir(job_id) / DECODED_NAME

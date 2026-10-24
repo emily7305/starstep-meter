@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TypeVar
 
 from backend.analysis.snap import DEFAULT_WINDOW_MS
+from backend.analysis.tempo_range import DEFAULT_MAX_BPM, DEFAULT_MIN_BPM, TempoRange
 from backend.analysis.trim import DEFAULT_THRESHOLD_DB
 
 # parents[0] is backend/api, so [2] lands on the repo root
@@ -34,6 +35,8 @@ class Settings:
     max_upload_mb: int = 100
     trim_threshold_db: float = DEFAULT_THRESHOLD_DB
     snap_window_ms: float = DEFAULT_WINDOW_MS
+    min_bpm: float = DEFAULT_MIN_BPM
+    max_bpm: float = DEFAULT_MAX_BPM
     # one worker is plenty, analysis is cpu bound and it's just me using it
     workers: int = 1
 
@@ -44,6 +47,12 @@ class Settings:
             raise ValueError("workers must be at least 1")
         if self.snap_window_ms <= 0:
             raise ValueError("snap_window_ms must be positive")
+        # TempoRange checks the bounds and names them in its error
+        TempoRange(self.min_bpm, self.max_bpm)
+
+    @property
+    def tempo_range(self) -> TempoRange:
+        return TempoRange(self.min_bpm, self.max_bpm)
 
     @property
     def jobs_dir(self) -> Path:
@@ -61,5 +70,7 @@ class Settings:
             max_upload_mb=_read_env("STARSTEP_MAX_UPLOAD_MB", int, defaults.max_upload_mb),
             trim_threshold_db=_read_env("STARSTEP_TRIM_THRESHOLD_DB", float, defaults.trim_threshold_db),
             snap_window_ms=_read_env("STARSTEP_SNAP_WINDOW_MS", float, defaults.snap_window_ms),
+            min_bpm=_read_env("STARSTEP_MIN_BPM", float, defaults.min_bpm),
+            max_bpm=_read_env("STARSTEP_MAX_BPM", float, defaults.max_bpm),
             workers=_read_env("STARSTEP_WORKERS", int, defaults.workers),
         )
