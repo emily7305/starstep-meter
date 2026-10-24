@@ -47,6 +47,10 @@ class ClickTrackSpec:
     # plain click halfway between beats at this fraction of amplitude, like eighth note hats
     # 0 means none. it's what makes half or double tempo a real question
     offbeat_level: float = 0.0
+    # (first beat, beat count, positions) sections where the clicks follow a rhythm instead of
+    # the beat, the tempo underneath stays the same. positions are in beats from each 4 beat
+    # bar's start, e.g. (0, 1.5, 3) for a dotted 3-3-2 bar, (0, 4/3, 8/3) for a triplet feel
+    patterns: tuple[tuple[int, int, tuple[float, ...]], ...] = ()
     seed: int = 0
 
     def cache_name(self) -> str:
@@ -93,10 +97,26 @@ def beat_times_s(spec: ClickTrackSpec) -> np.ndarray:
     return times
 
 
+def click_positions(spec: ClickTrackSpec) -> np.ndarray:
+    """Where each click sounds, in beats of the underlying grid, fractional inside patterns."""
+    positions = np.arange(spec.beats, dtype=np.float64)
+    keep = np.ones(spec.beats, dtype=bool)
+    extra: list[float] = []
+    for first, count, pattern in spec.patterns:
+        keep[first:first + count] = False
+        for bar in range(0, count, 4):
+            extra.extend(first + bar + p for p in pattern if bar + p < count)
+    return np.sort(np.concatenate((positions[keep], extra)))
+
+
 def click_track(spec: ClickTrackSpec = ClickTrackSpec()) -> ClickTrack:
     sr = spec.sample_rate
+    grid_s = beat_times_s(spec)
+    positions = click_positions(spec)
+    # a click between two beats sits at the same fraction of the gap between them
+    times_s = np.interp(positions, np.arange(spec.beats), grid_s)
     # onsets are rounded to whole samples, truth is taken from the rounded index so it's exact
-    onset_idx = np.round(beat_times_s(spec) * sr).astype(np.int64)
+    onset_idx = np.round(times_s * sr).astype(np.int64)
 
     plain = _click(sr, spec.click_freq_hz, spec.click_ms, spec.click_decay_ms) * spec.amplitude
     accent = _click(sr, spec.click_freq_hz * 1.5, spec.click_ms, spec.click_decay_ms) * min(spec.amplitude * 1.6, 0.95)
@@ -106,7 +126,8 @@ def click_track(spec: ClickTrackSpec = ClickTrackSpec()) -> ClickTrack:
     total = content_end_idx + int(round(spec.tail_silence_s * sr))
     audio = np.zeros(total, dtype=np.float64)
 
-    is_downbeat = ((np.arange(spec.beats) - spec.pickup_beats) % spec.beats_per_bar) == 0
+    whole = positions == np.round(positions)
+    is_downbeat = whole & (((np.round(positions).astype(np.int64) - spec.pickup_beats) % spec.beats_per_bar) == 0)
     for i, start in enumerate(onset_idx):
         wave = accent if (spec.accent_downbeats and is_downbeat[i]) else plain
         audio[start:start + click_len] += wave
@@ -127,7 +148,7 @@ def click_track(spec: ClickTrackSpec = ClickTrackSpec()) -> ClickTrack:
         content_start_ms=float(onset_idx[0] * to_ms),
         content_end_ms=content_end_idx * to_ms,
         duration_ms=total * to_ms,
-        change_ms=np.array([onset_idx[index] * to_ms for index, _ in sorted(spec.tempo_changes)]),
+        change_ms=np.array([np.round(grid_s[index] * sr) * to_ms for index, _ in sorted(spec.tempo_changes)]),
     )
 
 

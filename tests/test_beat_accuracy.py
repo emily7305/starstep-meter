@@ -200,6 +200,49 @@ def test_tempo_changes_land_within_a_beat_with_each_bpm_right(tmp_path, spec, en
     assert segments[0].anchor_ms == pytest.approx(track.downbeats_ms[0], abs=OFFSET_TOLERANCE_MS)
 
 
+# 270 all the way through, with a section where the clicks follow another rhythm. a chart keeps
+# 270 there, so the map should too. madmom follows the felt pulse in each of these
+FELT = [
+    pytest.param(((128, 32, (0.0, 1.5, 3.0)),), id="dotted-3-3-2"),
+    # long enough that the octave check would halve it, every other tracked beat has no click
+    pytest.param(((128, 48, (0.0, 1.5, 3.0)),), id="dotted-3-3-2-long"),
+    pytest.param(((128, 48, (0.0, 4 / 3, 8 / 3)),), id="triplet-feel"),
+]
+
+
+@pytest.mark.ffmpeg
+@pytest.mark.usefixtures("madmom")
+@pytest.mark.parametrize("patterns", FELT)
+def test_a_felt_section_stays_in_the_notated_tempo(tmp_path, patterns):
+    spec = ClickTrackSpec(bpm=270, beats=288, lead_silence_s=0.6113, accent_downbeats=True, patterns=patterns)
+    out, track = _analyze(tmp_path, spec)
+
+    (segment,) = out.report.tempo_map
+    assert segment.bpm == pytest.approx(270.0, abs=BPM_TOLERANCE)
+    assert segment.anchor_ms == pytest.approx(track.downbeats_ms[0], abs=OFFSET_TOLERANCE_MS)
+    # kept in the report so the section can be split back out by hand
+    (merge,) = segment.ratio_merged
+    assert merge.ratio in ("3/4", "4/3", "2/3", "3/2")
+    first, count, _ = patterns[0]
+    felt_start = track.content_start_ms + first * 60000.0 / 270.0
+    # madmom takes a few beats to pick up the new pulse, and to let go of it
+    assert abs(merge.start_ms - felt_start) < 4 * 60000.0 / 270.0
+    assert abs(merge.end_ms - (felt_start + count * 60000.0 / 270.0)) < 4 * 60000.0 / 270.0
+
+
+@pytest.mark.ffmpeg
+@pytest.mark.usefixtures("madmom")
+def test_a_metric_modulation_stays_split(tmp_path):
+    # 270 -> 202.5 is 3/4 like a triplet feel, but it runs to the end, so it's a real change
+    spec = ClickTrackSpec(bpm=270, beats=224, lead_silence_s=0.6113, accent_downbeats=True, tempo_changes=((128, 202.5),))
+    out, track = _analyze(tmp_path, spec)
+
+    segments = out.report.tempo_map
+    assert [s.bpm for s in segments] == [pytest.approx(270.0, abs=BPM_TOLERANCE), pytest.approx(202.5, abs=BPM_TOLERANCE)]
+    assert abs(segments[1].start_ms - track.change_ms[0]) <= OFFSET_TOLERANCE_MS
+    assert segments[0].ratio_merged == segments[1].ratio_merged == []
+
+
 @pytest.mark.ffmpeg
 @pytest.mark.parametrize("tracker", ["madmom", "librosa"])
 @pytest.mark.parametrize("bpm", [128.0, 270.0])
