@@ -15,7 +15,7 @@ from backend.schema.models import TimingReport
 log = logging.getLogger("starstep.jobs")
 
 RESTART_MESSAGE = "server restarted before the job finished"
-_ERROR_STAGES = ("queued", "decode", "trim", "beats", "snap", "tempo")
+_ERROR_STAGES = ("queued", "decode", "trim", "beats", "snap", "tempo", "meter")
 
 
 def _error_stage(stage: str) -> ErrorStage:

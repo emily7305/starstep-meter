@@ -28,7 +28,7 @@ def test_run_analysis_builds_the_report_and_beats(tmp_path):
 
     out = run_analysis(src, work, filename="song.wav", sha256=sha256, on_stage=stages.append)
 
-    assert stages == ["decode", "trim", "beats", "snap", "tempo"]
+    assert stages == ["decode", "trim", "beats", "snap", "tempo", "meter"]
     assert (work / "decoded.wav").exists()
     assert out.decoded.path == work / "decoded.wav"
 
@@ -55,7 +55,12 @@ def test_run_analysis_builds_the_report_and_beats(tmp_path):
     assert segment.end_ms == report.trim.end_ms
     # unaccented clicks, any click can be the downbeat but it has to be one of them
     assert np.min(np.abs(track.onsets_ms - segment.anchor_ms)) <= 5.0
-    assert report.meter_map == []
+    # clicks with no accents come out as 4/4, one meter segment over the whole tempo segment
+    assert len(report.meter_map) == 1
+    meter = report.meter_map[0]
+    assert (meter.start_ms, meter.end_ms) == (segment.start_ms, segment.end_ms)
+    assert (meter.numerator, meter.denominator, meter.source) == (4, 4, "auto")
+    assert meter.confidence is not None and meter.confidence > 0
     assert report.sections == []
     assert report.edits == []
 

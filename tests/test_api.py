@@ -23,7 +23,7 @@ from backend.schema.models import TimingReport
 from tests.synth import ClickTrackSpec, cached_click_wav
 
 POLL_TIMEOUT_S = 60.0
-STAGE_ORDER = ["queued", "decode", "trim", "beats", "snap", "tempo", "done"]
+STAGE_ORDER = ["queued", "decode", "trim", "beats", "snap", "tempo", "meter", "done"]
 
 
 @pytest.fixture
@@ -115,7 +115,7 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert resp.status_code == 200, resp.text
     report = TimingReport.model_validate(resp.json())
 
-    assert report.schema_version == "2.2"
+    assert report.schema_version == "2.3"
     assert report.source.filename == "click 120.wav"
     assert report.source.codec == "pcm_f32le"
     assert report.source.decoder_padding_samples == 0
@@ -132,7 +132,12 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert segment.confidence is not None and segment.confidence > 0
     assert (segment.start_ms, segment.end_ms) == (report.trim.start_ms, report.trim.end_ms)
 
-    assert report.meter_map == []
+    # clicks with no accents come out as 4/4, one meter segment over the whole tempo segment
+    assert len(report.meter_map) == 1
+    meter = report.meter_map[0]
+    assert (meter.start_ms, meter.end_ms) == (segment.start_ms, segment.end_ms)
+    assert (meter.numerator, meter.denominator, meter.source) == (4, 4, "auto")
+    assert meter.confidence is not None and meter.confidence > 0
     assert report.sections == []
     assert report.edits == []
 
@@ -335,6 +340,7 @@ def test_restart_keeps_finished_jobs(settings: Settings) -> None:
     [
         ("running", "decode", "decode"),
         ("running", "tempo", "tempo"),
+        ("running", "meter", "meter"),
         ("queued", "queued", "queued"),
     ],
 )

@@ -80,6 +80,11 @@ def _analyze(src: Path, work_dir: Path, args: argparse.Namespace) -> int:
             log("        grid moved half a beat from the tracked beats, the onsets are stronger there")
         for r in seg.offbeat_runs:
             log(f"        off-beat {r.start_ms:.3f} -> {r.end_ms:.3f} ms, {r.beats} beats half a beat off the grid")
+    log(f"meter   {len(out.meter.runs)} segment(s), {len(out.features.times_ms)} grid positions read")
+    for i, run in enumerate(out.meter.runs):
+        log(f"  [{i}]   {run.start_ms:.3f} -> {run.end_ms:.3f} ms, {run.numerator}/{run.denominator}, confidence {run.confidence:.2f}")
+    for s in sorted(out.suggestions, key=lambda s: s.start_ms):
+        log(f"suggest {s.kind} {s.start_ms:.3f} -> {s.end_ms:.3f} ms, {s.suggested_bpm:.4f} bpm from {s.grid_bpm:.4f}, score {s.score:.2f}")
     if args.beats is not None:
         args.beats.write_text(out.beats.model_dump_json(indent=2) + "\n", encoding="utf-8")
         log(f"wrote   {args.beats}")

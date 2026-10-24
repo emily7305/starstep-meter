@@ -1,4 +1,4 @@
-"""Runs decode -> trim -> beats -> snap -> tempo and builds the report and beats file."""
+"""Runs decode -> trim -> beats -> snap -> tempo -> meter and builds the report and beats file."""
 
 from __future__ import annotations
 
@@ -18,6 +18,18 @@ from backend.analysis.beats import (
     track_beats,
 )
 from backend.analysis.decode import DecodedAudio, decode_to_wav, load_mono
+from backend.analysis.features import GridFeatures, band_flux, grid_features
+from backend.analysis.meter import MeterConfig, MeterResult, infer_meter
+from backend.analysis.meter_edit import keep_manual_meter
+from backend.analysis.notation import (
+    NotationConfig,
+    Suggestion,
+    feature_positions,
+    feel_suggestions,
+    fold_suggestions,
+    from_fits,
+)
+from backend.analysis.notation_edit import keep_decided
 from backend.analysis.octave import OctaveCheck, check_octave_per_segment, summary
 from backend.analysis.snap import DEFAULT_WINDOW_MS, SnapResult, onset_strengths, snap_to_onsets
 from backend.analysis.tempo_edit import keep_manual_segments
@@ -28,6 +40,9 @@ from backend.schema.models import (
     AudioSource,
     Beat,
     BeatsFile,
+    GridFeature,
+    MeterSegment,
+    NotationSuggestion,
     OffbeatRun,
     RatioMergedSection,
     TempoSegment,
@@ -35,10 +50,10 @@ from backend.schema.models import (
     Trim,
 )
 
-Stage = Literal["queued", "decode", "trim", "beats", "snap", "tempo", "done", "failed"]
-STAGES: tuple[Stage, ...] = ("queued", "decode", "trim", "beats", "snap", "tempo", "done", "failed")
+Stage = Literal["queued", "decode", "trim", "beats", "snap", "tempo", "meter", "done", "failed"]
+STAGES: tuple[Stage, ...] = ("queued", "decode", "trim", "beats", "snap", "tempo", "meter", "done", "failed")
 # the stages run_analysis actually runs, so the only ones a StageError can name
-RunStage = Literal["decode", "trim", "beats", "snap", "tempo"]
+RunStage = Literal["decode", "trim", "beats", "snap", "tempo", "meter"]
 
 DECODED_NAME = "decoded.wav"
 
@@ -57,6 +72,8 @@ class AnalysisConfig:
     tracker: TrackerChoice = "auto"
     tempo_range: TempoRange = TempoRange()
     tempo_map: TempoMapConfig = TempoMapConfig()
+    meter: MeterConfig = MeterConfig()
+    notation: NotationConfig = NotationConfig()
 
 
 @dataclass(frozen=True)
@@ -69,7 +86,11 @@ class AnalysisOutput:
     # one per rough tempo segment
     octave: list[OctaveCheck]
     snap: SnapResult
+    # with each segment's anchor on beat 1 of the meter
     tempo: TempoMapResult
+    meter: MeterResult
+    features: GridFeatures
+    suggestions: list[Suggestion]
 
 
 def _ms(value: float) -> float:
@@ -103,6 +124,35 @@ def tempo_segments(tempo: TempoMapResult) -> list[TempoSegment]:
     return segments
 
 
+def meter_segments(meter: MeterResult) -> list[MeterSegment]:
+    # meter boundaries on a tempo segment's start are the same float as that start, so they round the same
+    return [
+        MeterSegment(
+            start_ms=_ms(r.start_ms),
+            end_ms=_ms(r.end_ms),
+            numerator=r.numerator,
+            denominator=r.denominator,
+            confidence=round(r.confidence, 3),
+            source="auto",
+        )
+        for r in meter.runs
+    ]
+
+
+def notation_suggestions(suggestions: list[Suggestion]) -> list[NotationSuggestion]:
+    return [
+        NotationSuggestion(
+            start_ms=_ms(s.start_ms),
+            end_ms=_ms(s.end_ms),
+            kind=s.kind,
+            suggested_bpm=round(s.suggested_bpm, 4),
+            grid_bpm=round(s.grid_bpm, 4),
+            score=round(min(1.0, max(0.0, s.score)), 3),
+        )
+        for s in sorted(suggestions, key=lambda s: s.start_ms)
+    ]
+
+
 def build_report(
     filename: str,
     sha256: str,
@@ -110,12 +160,19 @@ def build_report(
     trim: TrimResult,
     tempo: TempoMapResult,
     previous: TimingReport | None = None,
+    meter: MeterResult | None = None,
+    suggestions: list[Suggestion] | None = None,
 ) -> TimingReport:
     tempo_map = tempo_segments(tempo)
+    meter_map = meter_segments(meter) if meter is not None else []
+    notes = notation_suggestions(suggestions or [])
     edits = []
     if previous is not None:
-        # re-analysis: manual segments stay exactly as they were, and so does the edit log
+        # re-analysis: manual segments stay exactly as they were, and so does the edit log.
+        # applied and dismissed suggestions are decisions too, they stay and aren't suggested again
         tempo_map = keep_manual_segments(previous.tempo_map, tempo_map)
+        meter_map = keep_manual_meter(previous.meter_map, meter_map)
+        notes = keep_decided(previous.notation_suggestions, notes, tempo_map)
         edits = list(previous.edits)
     return TimingReport(
         source=AudioSource(
@@ -129,17 +186,31 @@ def build_report(
         trim=Trim(start_ms=_ms(trim.start_ms), end_ms=_ms(trim.end_ms)),
         # the first segment starts at the first sound, its anchor is the first downbeat
         tempo_map=tempo_map,
+        meter_map=meter_map,
         # from this analysis, manual edits don't move them and a re-analysis replaces them
         offbeat_runs=[
             OffbeatRun(start_ms=_ms(r.start_ms), end_ms=_ms(r.end_ms), beats=r.beats)
             for seg in tempo.segments
             for r in seg.offbeat_runs
         ],
+        notation_suggestions=notes,
         edits=edits,
     )
 
 
-def build_beats_file(sha256: str, tracked: TrackedBeats, octave: list[OctaveCheck], snap: SnapResult, tempo: TempoMapResult) -> BeatsFile:
+def _feature_number(value: float) -> float:
+    # four significant figures, the detector only ever compares them with each other
+    return float(f"{value:.4g}")
+
+
+def build_beats_file(
+    sha256: str,
+    tracked: TrackedBeats,
+    octave: list[OctaveCheck],
+    snap: SnapResult,
+    tempo: TempoMapResult,
+    features: GridFeatures | None = None,
+) -> BeatsFile:
     if tracked.downbeats_known:
         positions = tracked.positions
     else:
@@ -158,7 +229,18 @@ def build_beats_file(sha256: str, tracked: TrackedBeats, octave: list[OctaveChec
         )
         for i in range(len(tracked.times_ms))
     ]
-    return BeatsFile(sha256=sha256, tracker=tracked.tracker, octave=summary(octave), beats=beats)
+    stored = []
+    if features is not None:
+        stored = [
+            GridFeature(
+                time_ms=max(0.0, _ms(t)),
+                low=_feature_number(v[0]),
+                mid=_feature_number(v[1]),
+                high=_feature_number(v[2]),
+            )
+            for t, v in zip(features.times_ms, features.values)
+        ]
+    return BeatsFile(sha256=sha256, tracker=tracked.tracker, octave=summary(octave), beats=beats, grid_features=stored)
 
 
 def run_analysis(
@@ -229,14 +311,42 @@ def run_analysis(
             loudness=stretch_level(samples, sample_rate, trim.start_ms, trim.end_ms),
             onsets=lambda times: onset_strengths(samples, sample_rate, times),
         )
+
+        enter("meter")
+        # band strengths on every line and half line of the map, what meter and notation read.
+        # they go in the beats file so the suggestions can be checked again without the audio
+        flux = band_flux(samples, sample_rate, trim.start_ms, trim.end_ms)
+        features = grid_features(flux, feature_positions(from_fits(tempo.segments), trim.start_ms, trim.end_ms, config.tempo_map))
+        meter = infer_meter(
+            tempo,
+            snap.times_ms,
+            tracked.positions == 1,
+            accents=lambda times: features.lookup(times).sum(axis=1),
+            config=config.meter,
+        )
+        tempo = meter.tempo
+        segments = from_fits(tempo.segments)
+        suggestions = feel_suggestions(segments, meter.runs, features, config.notation) + fold_suggestions(
+            segments, features, trim.start_ms, trim.end_ms, config.tempo_map, config.notation
+        )
     except Exception as exc:
         # keep whatever the stage said, the ui shows it as is
         raise StageError(stage, str(exc) or type(exc).__name__) from exc
 
-    report = build_report(filename, sha256, decoded, trim, tempo, previous)
-    beats = build_beats_file(sha256, tracked, octave, snap, tempo)
+    report = build_report(filename, sha256, decoded, trim, tempo, previous, meter, suggestions)
+    beats = build_beats_file(sha256, tracked, octave, snap, tempo, features)
     return AnalysisOutput(
-        report=report, beats=beats, decoded=decoded, trim=trim, tracked=tracked, octave=octave, snap=snap, tempo=tempo
+        report=report,
+        beats=beats,
+        decoded=decoded,
+        trim=trim,
+        tracked=tracked,
+        octave=octave,
+        snap=snap,
+        tempo=tempo,
+        meter=meter,
+        features=features,
+        suggestions=suggestions,
     )
 
 
