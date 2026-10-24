@@ -14,12 +14,14 @@ from backend.schema.models import AudioSource, TempoSegment, TimingReport, Trim
 
 Stage = Literal["queued", "decode", "trim", "tempo", "done", "failed"]
 STAGES: tuple[Stage, ...] = ("queued", "decode", "trim", "tempo", "done", "failed")
+# the stages run_analysis actually runs, so the only ones a StageError can name
+RunStage = Literal["decode", "trim", "tempo"]
 
 DECODED_NAME = "decoded.wav"
 
 
 class StageError(RuntimeError):
-    def __init__(self, stage: Stage, message: str) -> None:
+    def __init__(self, stage: RunStage, message: str) -> None:
         super().__init__(message)
         self.stage = stage
         self.message = message
@@ -59,12 +61,12 @@ def run_analysis(
     work_dir: Path,
     filename: str,
     sha256: str,
-    on_stage: Callable[[Stage], None] | None = None,
+    on_stage: Callable[[RunStage], None] | None = None,
     config: AnalysisConfig = AnalysisConfig(),
 ) -> AnalysisOutput:
-    stage: Stage = "decode"
+    stage: RunStage = "decode"
 
-    def enter(next_stage: Stage) -> None:
+    def enter(next_stage: RunStage) -> None:
         nonlocal stage
         stage = next_stage
         if on_stage is not None:
