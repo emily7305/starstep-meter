@@ -58,3 +58,16 @@ Measured on the synthetic tests (clicks peak around -18 dBFS RMS, so the thresho
 - flac through ffmpeg: identical to WAV.
 - mp3 192k CBR: start -0.8 ms, end +0.4 ms. mp3 V2 with a -90 dBFS noise floor: start up to -7.4 ms. This isn't a timing shift (the cross-correlation lag is 0), it's mp3 pre-echo putting a little energy before each transient, which the threshold catches. The mp3 trim test uses a ±15 ms tolerance because of this. flac and wav use ±10 ms.
 - vorbis q5: start about -3 ms, end about +3 ms. aac 192k: start -1 to -4 ms. Same pre-echo story.
+
+## tempo (milestone 1 placeholder)
+
+This is a coarse estimate. Milestone 2 replaces it with a linear regression over tracked beats, and that's where the two-decimal BPM target actually gets tested. It only runs on the trimmed region.
+
+1. Onset strength envelope with `librosa.onset.onset_strength`, hop of 256 samples at 44.1 kHz (5.8 ms per frame). The hop is scaled with the sample rate (279 at 48 kHz) so frames are the same length in ms.
+2. `librosa.feature.tempo` for a first guess. It's in `librosa.feature` in 0.10+, and the old `librosa.beat.tempo` alias is deprecated.
+3. Octave check. Take the guess, half of it and double of it, keep the ones in 60–240 BPM, and look up the autocorrelation of the onset envelope at each one's beat period. A click on every beat also lines up at 2 and 4 beats, so slower octaves always look supported. The fastest candidate whose peak is at least half the strongest peak wins.
+4. Refinement. librosa's tempo bins are whole frame lags, about 1.4 BPM apart at 120 BPM and 2.9 BPM apart at 174 with this hop, which alone can miss ±1 BPM. So the code finds the autocorrelation peak at 1, 2, 3, ... up to 32 beat periods (or half the envelope), interpolates each one parabolically, and fits lag = k × period through all of them. The autocorrelation is divided by its overlap count first, so long lags aren't biased short. If the refinement moves more than 3% away from the octave pick, it falls back to the pick.
+
+Measured on synthetic click tracks (40 beats, 15 tempos from 60 to 233.3 BPM, 44.1 and 48 kHz, plain, -90 dBFS noise, and accented downbeats): the worst error is 0.017 BPM and there are no octave errors. librosa's raw estimate on the same tracks reported half tempo for 174 BPM and up at 44.1 kHz, and for 160 and 180 and up at 48 kHz. It was up to 0.99 BPM off on the rest. So the octave check and refinement are doing real work.
+
+Known limits: click tracks are the easy case. Real music with strong eighth notes will push the octave check towards double time, and swing or tempo drift isn't handled at all. 60–240 is a guess at a sane range for charts, and songs above 240 will come out at half tempo. `confidence` stays null until there's something meaningful to put there.
