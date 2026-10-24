@@ -88,8 +88,8 @@ Palette (CSS custom properties in `frontend/src/styles.css`):
 
 Fonts, self-hosted through `@fontsource` packages (no font CDN):
 
-- M PLUS Rounded 1c for headings, labels and body. It's rounded and friendly without being a novelty face, and it has Japanese glyphs, which matter for song titles.
-- IBM Plex Mono for every number, filename, hash and the JSON. Timing values are always mono, right-aligned, with tabular figures and units (`2000.0 ms`, `120.00 bpm`), so columns of numbers line up and are easy to compare.
+- M PLUS Rounded 1c for headings, labels and body. It's rounded and friendly without being a novelty face. Only the latin subsets are imported for now, because the full fontsource package is about 42 MB across the four weights. If Japanese song titles start showing up in the rounded face, switch the imports in `main.tsx` to the full set (the browser only downloads the unicode ranges a page actually uses).
+- IBM Plex Mono for every number, filename, hash and the JSON. It has no Japanese glyphs, so a Japanese filename falls back to a system font. Timing values are always mono, right-aligned, with tabular figures and units (`2000.0 ms`, `120.00 bpm`), so columns of numbers line up and are easy to compare.
 
 Not used, on purpose: beige or cream backgrounds, orange, serif headings, gradients, glass effects, card grids, icon badges, the Vite starter look, the default Tailwind palette, and Inter/system-ui as the main face. Layout separation is hairlines and whitespace, not boxes.
 
