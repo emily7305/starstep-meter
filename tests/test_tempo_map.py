@@ -219,6 +219,10 @@ def test_shift_z_keeps_a_noisy_short_side_from_faking_a_change():
         {"short_bpm_ratio": 0.5},
         {"weak_coverage": 1.5},
         {"weak_energy_db": 3.0},
+        {"ratio_subdivisions": ()},
+        {"edge_max_share": 0.6},
+        {"edge_fit_min": 0.0},
+        {"run_fit_min": 1.5},
     ],
     ids=lambda k: next(iter(k)),
 )
@@ -393,6 +397,130 @@ def test_weak_energy_db_folds_in_a_quiet_outro_and_intro():
 
 def test_consolidate_false_stops_after_segmentation():
     assert len(_map(_felt(), consolidate=False).segments) == 3
+
+
+# --- milestone 3c: sixths, edges, runs of short segments ---
+
+
+def test_a_six_fifths_section_folds_in_on_the_sixths():
+    times = _beats([(220.0, 96), (264.0, 30), (220.0, 96)])[0]
+
+    result = _map(times)
+
+    assert _shape(result) == [(220.0, 222)]
+    (merge,) = result.segments[0].ratio_merges
+    assert str(merge.ratio) == "6/5"
+
+
+def test_ratio_subdivisions_decide_which_ratios_count():
+    # without sixths 6/5 isn't a ratio, the 3b list is what 1, 2, 3, 4 give
+    times = _beats([(220.0, 96), (264.0, 30), (220.0, 96)])[0]
+
+    assert len(_map(times, TempoMapConfig(ratio_subdivisions=(1, 2, 3, 4))).segments) == 3
+
+
+def _intro_stub():
+    # 14 beats at the song's tempo, then a 6/5 feel longer than them, then the song
+    return _beats([(220.0, 14), (264.0, 30), (220.0, 240)])[0]
+
+
+def test_a_felt_section_after_a_short_intro_folds_in():
+    # the intro is shorter than the felt section, so 3b's rule (both sides longer) didn't apply
+    result = _map(_intro_stub())
+
+    assert _shape(result) == [(220.0, 284)]
+    assert str(result.segments[0].ratio_merges[0].ratio) == "6/5"
+
+
+def test_edge_limits_decide_how_long_a_felt_section_next_to_a_stub_can_be():
+    config = TempoMapConfig(edge_max_share=0.05, edge_max_bars=0.0)
+
+    # 30 beats at 264 is 6.8 s of 71 s, over 5%
+    assert len(_map(_intro_stub(), config).segments) > 1
+
+
+def _felt_tail(count=15):
+    # the last few seconds felt at 3/4, about 6% of the track
+    return _beats([(270.0, 300), (202.5, count)])[0]
+
+
+def test_a_felt_section_at_the_end_folds_in():
+    result = _map(_felt_tail())
+
+    assert _shape(result) == [(270.0, 315)]
+    assert str(result.segments[0].ratio_merges[0].ratio) == "3/4"
+
+
+def test_a_felt_section_at_the_start_folds_in():
+    times = _beats([(202.5, 15), (270.0, 300)])[0]
+
+    result = _map(times)
+
+    assert _shape(result) == [(270.0, 315)]
+    assert result.segments[0].start_ms == times[0]
+
+
+def test_a_modulation_for_the_last_30_percent_stays_split():
+    # 64 beats at 202.5 after 200 at 270 is 19 s of 64 s
+    times = _beats([(270.0, 200), (202.5, 64)])[0]
+
+    assert _shape(_map(times)) == [(270.0, 200), (202.5, 64)]
+
+
+def test_edge_max_share_and_bars_decide_what_counts_as_the_edge():
+    config = TempoMapConfig(edge_max_share=0.02, edge_max_bars=1.0)
+
+    assert len(_map(_felt_tail(), config).segments) == 2
+
+
+def test_edge_fit_min_decides_how_well_an_edge_section_has_to_fit():
+    # the section 8 ms late with one beat in seven 12 ms late: its own line catches every beat,
+    # the 270 grid misses the 12 ms ones, a score of about 0.86. enough in the middle, not at the edge
+    times = _felt_tail(count=16)
+    times[300:] += 8.0
+    times[300::7] += 4.0
+
+    assert len(_map(times).segments) == 2
+    assert len(_map(times, TempoMapConfig(edge_fit_min=0.8)).segments) == 1
+
+
+def _slip(right_shift_ms=0.0):
+    # 220, then 24 beats at 215.5 and a slower rest that take 25 grid beats (the tracker lost
+    # one), then 220 again on the same grid
+    period = 60000.0 / 220.0
+    first = 1000.0 + period * np.arange(120)
+    p1 = 60000.0 / 215.5
+    p2 = (25 * period - 15 * p1) / 9
+    run = first[-1] + np.cumsum([period] + [p1] * 14 + [p2] * 9)
+    after = first[-1] + period * (np.arange(145, 245) - 119) + right_shift_ms
+    return np.concatenate((first, run, after))
+
+
+def test_a_run_of_short_segments_between_one_grid_folds_in():
+    times = _slip()
+    assert len(_map(times, consolidate=False).segments) >= 4
+
+    result = _map(times)
+
+    assert _shape(result) == [(220.0, len(times))]
+    # the run's beats are left out of the fit, the grid comes from both sides
+    assert result.segments[0].ratio_merges == ()
+
+
+def test_a_run_between_two_grids_stays_split():
+    # the far side comes back a quarter beat over, a real change of phase
+    times = _slip(right_shift_ms=60000.0 / 220.0 / 4.0)
+
+    assert len(_map(times).segments) > 1
+
+
+def test_run_fit_min_decides_how_well_the_far_side_has_to_sit_on_the_grid():
+    times = _slip()
+    # every other beat after the run 12 ms late, so half of them miss the lines
+    times[145::2] += 12.0
+
+    assert len(_map(times).segments) > 1
+    assert len(_map(times, TempoMapConfig(run_fit_min=0.4)).segments) == 1
 
 
 # --- the rest of the result ---

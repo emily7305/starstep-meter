@@ -20,7 +20,7 @@ lists, click tracks and one real song so far, see docs/decisions.md.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 
 import numpy as np
@@ -56,6 +56,10 @@ class TempoMapConfig:
     # ratio check: a segment within this of a simple ratio of a longer neighbour's bpm is a
     # candidate for being that neighbour's tempo felt differently (dotted, triplet feel)
     ratio_tolerance: float = 0.005
+    # the simple ratios are q/p: its beats land every p steps of 1/q of the neighbour's beat, q
+    # one of these subdivisions and p up to the largest, within half and double time. that
+    # gives 1/2, 3/5, 2/3, 3/4, 4/5, 6/5, 4/3, 3/2 and 2
+    ratio_subdivisions: tuple[int, ...] = (1, 2, 3, 4, 6)
     # a beat counts as on a grid point within this, same as the confidence tolerance
     ratio_hit_ms: float = 10.0
     # it merges when the neighbour's grid, extended at the same phase with its halves, thirds and
@@ -70,6 +74,15 @@ class TempoMapConfig:
     # gave up in a fade), or its median loudness is this far under the song's
     weak_coverage: float = 0.6
     weak_energy_db: float = -12.0
+    # a felt section at the very start or end has only one neighbour to carry it, so it has to
+    # be short, under this share of the song or this many bars of 4/4, whichever is longer,
+    # and fit at least edge_fit_min. a modulation that runs to the end is longer than that
+    edge_max_share: float = 0.1
+    edge_max_bars: float = 8.0
+    edge_fit_min: float = 0.9
+    # two or more short segments in a row fold in when the segment after them sits on the lines
+    # of the one before (or the other way round), this share of what its own lines catch
+    run_fit_min: float = 0.8
 
     def __post_init__(self) -> None:
         if self.residual_shift_ms <= 0 or self.bpm_shift_ratio <= 0 or self.shift_z <= 0:
@@ -87,6 +100,12 @@ class TempoMapConfig:
             raise ValueError("short segment thresholds are out of range")
         if not 0 <= self.weak_coverage <= 1 or self.weak_energy_db > 0:
             raise ValueError("weak segment thresholds are out of range")
+        if not self.ratio_subdivisions or any(q < 1 for q in self.ratio_subdivisions):
+            raise ValueError("ratio_subdivisions has to be a list of whole numbers from 1")
+        if not 0 <= self.edge_max_share < 0.5 or self.edge_max_bars < 0 or not 0 < self.edge_fit_min <= 1:
+            raise ValueError("edge thresholds are out of range")
+        if not 0 < self.run_fit_min <= 1:
+            raise ValueError("run_fit_min is out of range")
 
 
 @dataclass(frozen=True)
@@ -407,9 +426,22 @@ def _refine(x: np.ndarray, y: np.ndarray, ranges: list[tuple[int, int]], config:
     return out
 
 
+def felt_ratios(subdivisions: tuple[int, ...]) -> tuple[Fraction, ...]:
+    """Every q/p within half and double time, q from subdivisions and p up to the largest of them."""
+    out: set[Fraction] = set()
+    for q in subdivisions:
+        for p in range(1, max(subdivisions) + 1):
+            r = Fraction(q, p)
+            # in lowest terms its numerator has to be a subdivision too, 2/4 is 1/2 on whole beats
+            if r.numerator in subdivisions and Fraction(1, 2) <= r <= 2 and r != 1:
+                out.add(r)
+    return tuple(sorted(out))
+
+
 # the ratios a felt tempo has to the notated one in practice: half and double time, dotted
-# (2/3, 3/2) and triplet feel (3/4, 4/3)
-RATIOS = (Fraction(1, 2), Fraction(2, 3), Fraction(3, 4), Fraction(4, 3), Fraction(3, 2), Fraction(2, 1))
+# (2/3, 3/2), triplet feel (3/4, 4/3), and the fives a tracker finds in sixths (6/5) or
+# quarters (4/5)
+RATIOS = felt_ratios(TempoMapConfig().ratio_subdivisions)
 # beats per bar assumed for the short rule, there's no meter yet
 _BAR_BEATS = 4
 
@@ -451,11 +483,7 @@ def _fit_piece(
     period, offset = core.period_ms, core.offset_ms
     indices = np.round((t - offset) / period).astype(np.int64)
     indices[keep] = core.indices
-    residuals = t - (offset + period * indices)
-    for a, b, numerator in subdivided:
-        # a beat folded in by the ratio check sits on a subdivision, measure it against that
-        lo, hi = a - first, b - first
-        residuals[lo:hi] = _off_subdivision(t[lo:hi], offset, period, numerator)
+    residuals = _residuals(t, first, offset, period, indices, subdivided)
     inliers = np.zeros(len(t), dtype=bool)
     inliers[keep] = core.inliers
     return GridFit(
@@ -467,6 +495,17 @@ def _fit_piece(
         residual_rms_ms=core.residual_rms_ms,
         confidence=core.confidence,
     )
+
+
+def _residuals(
+    t: np.ndarray, first: int, offset: float, period: float, indices: np.ndarray, subdivided: list[tuple[int, int, int]]
+) -> np.ndarray:
+    residuals = t - (offset + period * indices)
+    for a, b, numerator in subdivided:
+        # a beat folded in by the ratio check sits on a subdivision, measure it against that
+        lo, hi = a - first, b - first
+        residuals[lo:hi] = _off_subdivision(t[lo:hi], offset, period, numerator)
+    return residuals
 
 
 def _off_subdivision(times: np.ndarray, offset: float, period: float, numerator: int) -> np.ndarray:
@@ -485,8 +524,8 @@ def _hit_share(off_ms: np.ndarray, tol: float) -> float:
     return float(np.mean(np.abs(off_ms) <= tol)) if len(off_ms) else 0.0
 
 
-def _near_ratio(ratio: float, tolerance: float) -> Fraction | None:
-    for candidate in RATIOS:
+def _near_ratio(ratio: float, tolerance: float, candidates: tuple[Fraction, ...] = RATIOS) -> Fraction | None:
+    for candidate in candidates:
         if abs(ratio / float(candidate) - 1.0) <= tolerance:
             return candidate
     return None
@@ -512,6 +551,7 @@ class _Consolidator:
         self.downbeats_known = downbeats_known
         self.config = config
         self.loudness = loudness
+        self.ratios = felt_ratios(config.ratio_subdivisions)
 
     def piece(self, first: int, stop: int, excluded=None, subdivided=None, merges=None) -> _Piece:
         excluded = list(excluded or [])
@@ -544,30 +584,66 @@ class _Consolidator:
         joined = self.piece(a.first, b.stop, a.excluded + b.excluded, a.subdivided + b.subdivided, a.merges + b.merges)
         pieces[k:k + 2] = [joined]
 
+    def song_ms(self) -> float:
+        return max(self.end_ms - self.start_ms, 1e-9)
+
+    def length_ms(self, pieces: list[_Piece], k: int) -> float:
+        start, end = self.span(pieces, k)
+        return end - start
+
+    def own_share(self, s: _Piece) -> float:
+        beats = self.own_beats(s)
+        d = (beats - s.fit.offset_ms) / s.fit.period_ms
+        return _hit_share((d - np.round(d)) * s.fit.period_ms, self.config.ratio_hit_ms)
+
+    def ratio_score(self, s: _Piece, n: _Piece) -> tuple[Fraction, float] | None:
+        """The ratio of s to n and how well n's grid, carried on through s, catches s's beats."""
+        ratio = _near_ratio(s.fit.bpm / n.fit.bpm, self.config.ratio_tolerance, self.ratios)
+        own = self.own_share(s)
+        if ratio is None or own <= 0.0:
+            return None
+        # when the neighbour's tempo carries on underneath, the beats land on its lines, halves,
+        # thirds or 1/numerator (sixths for 6/5). a tracker following a 3-3-2 rhythm puts beats
+        # on the halves and fills the gaps with its own guesses, so its own line can do worse
+        off = _off_subdivision(self.own_beats(s), n.fit.offset_ms, n.fit.period_ms, ratio.numerator)
+        return ratio, _hit_share(off, self.config.ratio_hit_ms) / own
+
+    def near_edge(self, pieces: list[_Piece], k: int, n: _Piece) -> bool:
+        # short enough to be an intro or outro feel rather than a section of its own
+        bars = self.config.edge_max_bars * _BAR_BEATS * n.fit.period_ms
+        return self.length_ms(pieces, k) <= max(self.config.edge_max_share * self.song_ms(), bars)
+
+    def stub(self, pieces: list[_Piece], k: int) -> int | None:
+        # a short first or last segment at the same tempo as the other side of k: the song's own
+        # tempo cut short by the edge, like an intro the tracker hadn't settled into yet
+        for j, other in ((k - 1, k + 1), (k + 1, k - 1)):
+            if j in (0, len(pieces) - 1) and self.short(pieces, j):
+                if abs(pieces[j].fit.bpm / pieces[other].fit.bpm - 1.0) <= self.config.short_bpm_ratio:
+                    return j
+        return None
+
     def ratio_merge(self, pieces: list[_Piece]) -> bool:
         best: tuple[float, int, int, Fraction] | None = None
         # only a segment with a neighbour on both sides. a felt section sits inside the notated
         # tempo and the song comes back out of it, a modulation that runs to the end doesn't
         for k in range(1, len(pieces) - 1):
             s = pieces[k]
-            beats = self.own_beats(s)
-            d = (beats - s.fit.offset_ms) / s.fit.period_ms
-            own = _hit_share((d - np.round(d)) * s.fit.period_ms, self.config.ratio_hit_ms)
-            if own <= 0.0:
-                continue
+            sides = [k - 1, k + 1]
+            stub = self.stub(pieces, k)
+            if stub is not None:
+                other = 2 * k - stub
+                # next to a stub only the other side carries it, so it's held to the edge's length
+                if self.near_edge(pieces, k, pieces[other]):
+                    sides = [other]
             scores: list[tuple[float, int, Fraction]] = []
-            for j in (k - 1, k + 1):
+            for j in sides:
                 n = pieces[j]
                 # the longer side is the notated tempo, the shorter one is what got felt differently
-                ratio = _near_ratio(s.fit.bpm / n.fit.bpm, self.config.ratio_tolerance)
-                if ratio is None or n.stop - n.first <= s.stop - s.first:
+                found = self.ratio_score(s, n)
+                if found is None or n.stop - n.first <= s.stop - s.first:
                     break
-                # when the neighbour's tempo carries on underneath, the beats land on its lines,
-                # halves, thirds or 1/numerator. a tracker following a 3-3-2 rhythm puts beats on
-                # the halves and fills the gaps with its own guesses, so its own line can do worse
-                off = _off_subdivision(beats, n.fit.offset_ms, n.fit.period_ms, ratio.numerator)
-                ext = _hit_share(off, self.config.ratio_hit_ms)
-                scores.append((ext / own, j, ratio))
+                ratio, score = found
+                scores.append((score, j, ratio))
             else:
                 # both sides have to carry it, one that doesn't means the phase really moved there
                 if min(score for score, _, _ in scores) >= self.config.ratio_fit_min:
@@ -577,10 +653,58 @@ class _Consolidator:
         if best is None:
             return False
         score, k, j, ratio = best
+        self.fold(pieces, k, j, ratio, score)
+        return True
+
+    def fold(self, pieces: list[_Piece], k: int, j: int, ratio: Fraction, score: float) -> None:
         start, end = self.span(pieces, k)
         merge = RatioMerge(start_ms=start, end_ms=end, bpm=pieces[k].fit.bpm, ratio=ratio, fit=score)
         self.absorb(pieces, k, j, merge)
-        return True
+
+    def edge_fold(self, pieces: list[_Piece]) -> bool:
+        # a felt section at the very start or end, with one neighbour. stricter than in the middle
+        # since nothing on the other side says the song comes back out of it
+        if len(pieces) < 2:
+            return False
+        for k, j in ((0, 1), (len(pieces) - 1, len(pieces) - 2)):
+            s, n = pieces[k], pieces[j]
+            if n.stop - n.first <= s.stop - s.first or not self.near_edge(pieces, k, n):
+                continue
+            found = self.ratio_score(s, n)
+            if found is not None and found[1] >= self.config.edge_fit_min:
+                self.fold(pieces, k, j, *found)
+                return True
+        return False
+
+    def short_run(self, pieces: list[_Piece]) -> bool:
+        # two or more short segments in a row, where the tracker lost the beat for a few seconds
+        # (215 then 203 in a 220 song) and found it again on the same grid afterwards
+        k = 1
+        while k < len(pieces) - 1:
+            m = k
+            while m < len(pieces) - 1 and self.short(pieces, m):
+                m += 1
+            if m - k >= 2 and m < len(pieces):
+                left, right = pieces[k - 1], pieces[m]
+                same = abs(right.fit.bpm / left.fit.bpm - 1.0) <= self.config.bpm_shift_ratio
+                if same and not self.short(pieces, k - 1) and not self.short(pieces, m):
+                    # the longer side's lines, carried through the run, have to catch the other
+                    # side's beats about as well as its own lines do. whole beats lost inside the
+                    # run don't matter, only that the grid comes out on the same lines
+                    ref, other = (left, right) if left.stop - left.first >= right.stop - right.first else (right, left)
+                    beats = self.own_beats(other)
+                    d = (beats - ref.fit.offset_ms) / ref.fit.period_ms
+                    own = self.own_share(other)
+                    on = _hit_share((d - np.round(d)) * ref.fit.period_ms, self.config.ratio_hit_ms)
+                    if own > 0.0 and on / own >= self.config.run_fit_min:
+                        run = (pieces[k].first, pieces[m - 1].stop)
+                        excluded = left.excluded + right.excluded + [run]
+                        merges = [mg for piece in pieces[k - 1:m + 1] for mg in piece.merges]
+                        joined = self.piece(left.first, right.stop, excluded, left.subdivided + right.subdivided, merges)
+                        pieces[k - 1:m + 1] = [joined]
+                        return True
+            k = max(m, k + 1)
+        return False
 
     def weak_edge(self, pieces: list[_Piece]) -> bool:
         if len(pieces) < 2:
@@ -653,7 +777,15 @@ class _Consolidator:
         pieces = [_Piece(a, b, fit) for (a, b), fit in zip(ranges, fits)]
         # each step changes the neighbours of the next, so go round until nothing moves
         for _ in range(4 * len(pieces)):
-            if not (self.same_grid(pieces) or self.ratio_merge(pieces) or self.weak_edge(pieces) or self.short_merge(pieces)):
+            steps = (
+                self.same_grid,
+                self.ratio_merge,
+                self.edge_fold,
+                self.short_run,
+                self.weak_edge,
+                self.short_merge,
+            )
+            if not any(step(pieces) for step in steps):
                 break
         return pieces
 
@@ -741,8 +873,7 @@ def build_tempo_map(
         seg_start = start_ms if k == 0 else fit.offset_ms + fit.period_ms * float(fit.indices[0])
         segments.append(SegmentFit(p.first, p.stop, seg_start, end_ms, fit, tuple(p.merges)))
     for k in range(len(segments) - 1):
-        cur = segments[k]
-        segments[k] = SegmentFit(cur.first, cur.stop, cur.start_ms, segments[k + 1].start_ms, cur.fit, cur.ratio_merges)
+        segments[k] = replace(segments[k], end_ms=segments[k + 1].start_ms)
 
     residuals = np.concatenate([s.fit.residuals_ms for s in segments])
     indices = np.concatenate([s.fit.indices for s in segments])
