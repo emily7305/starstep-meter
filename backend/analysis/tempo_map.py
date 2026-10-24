@@ -7,13 +7,21 @@ wobbles don't count, every segment needs min_segment_beats and every split
 has to be clear of the noise. Each segment then gets its own fit_grid, so
 its bpm and anchor (its first downbeat) come from its own beats only.
 
+Then a consolidation pass merges what a chart wouldn't split: a section at a
+dotted or triplet ratio of the tempo around it whose beats still land on that
+tempo's grid, a short piece a bit off its neighbour, and a first or last
+segment the tracker gave up on. A ratio merge is kept as a note on the
+segment, so it can be split back out by hand.
+
 The thresholds are all in TempoMapConfig. They're tuned on synthetic beat
-lists and click tracks only, see docs/decisions.md.
+lists, click tracks and one real song so far, see docs/decisions.md.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from fractions import Fraction
 
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
@@ -45,6 +53,23 @@ class TempoMapConfig:
     min_segment_beats: int = 8
     # how far a boundary may move when it's refined beat by beat
     refine_beats: int = 2
+    # ratio check: a segment within this of a simple ratio of a longer neighbour's bpm is a
+    # candidate for being that neighbour's tempo felt differently (dotted, triplet feel)
+    ratio_tolerance: float = 0.005
+    # a beat counts as on a grid point within this, same as the confidence tolerance
+    ratio_hit_ms: float = 10.0
+    # it merges when the neighbour's grid, extended at the same phase with its halves, thirds and
+    # 1/numerator of the ratio, catches at least this share of what the segment's own lines catch
+    ratio_fit_min: float = 0.8
+    # short segments: under max(short_min_ms, short_min_bars of 4/4) and within short_bpm_ratio
+    # of a neighbour, they're the start or end of the neighbour's tempo that came out a bit off
+    short_min_ms: float = 4000.0
+    short_min_bars: float = 8.0
+    short_bpm_ratio: float = 0.02
+    # weak first or last segment: its beats cover less than this share of its span (the tracker
+    # gave up in a fade), or its median loudness is this far under the song's
+    weak_coverage: float = 0.6
+    weak_energy_db: float = -12.0
 
     def __post_init__(self) -> None:
         if self.residual_shift_ms <= 0 or self.bpm_shift_ratio <= 0 or self.shift_z <= 0:
@@ -56,6 +81,26 @@ class TempoMapConfig:
             raise ValueError(f"min_segment_beats has to be at least {MIN_BEATS}")
         if self.refine_beats < 0:
             raise ValueError("refine_beats can't be negative")
+        if not 0 < self.ratio_tolerance < 0.05 or self.ratio_hit_ms <= 0 or not 0 < self.ratio_fit_min <= 1:
+            raise ValueError("ratio check thresholds are out of range")
+        if self.short_min_ms < 0 or self.short_min_bars < 0 or not 0 <= self.short_bpm_ratio < 0.5:
+            raise ValueError("short segment thresholds are out of range")
+        if not 0 <= self.weak_coverage <= 1 or self.weak_energy_db > 0:
+            raise ValueError("weak segment thresholds are out of range")
+
+
+@dataclass(frozen=True)
+class RatioMerge:
+    """A segment the ratio check folded into its neighbour, kept so it can be split back by hand."""
+
+    start_ms: float
+    end_ms: float
+    # what it fitted to on its own
+    bpm: float
+    # its bpm over the neighbour's, near enough
+    ratio: Fraction
+    # how well the neighbour's extended grid caught its beats, against its own grid
+    fit: float
 
 
 @dataclass(frozen=True)
@@ -66,6 +111,7 @@ class SegmentFit:
     start_ms: float
     end_ms: float
     fit: GridFit
+    ratio_merges: tuple[RatioMerge, ...] = ()
 
     @property
     def anchor_ms(self) -> float:
@@ -151,8 +197,6 @@ def _lag1(resid: np.ndarray) -> float:
     if energy <= 0.0:
         return 0.0
     return min(_MAX_LAG1, max(0.0, float(np.dot(centred[:-1], centred[1:]) / energy)))
-
-
 
 
 def rough_indices(times_ms: np.ndarray) -> np.ndarray:
@@ -363,6 +407,277 @@ def _refine(x: np.ndarray, y: np.ndarray, ranges: list[tuple[int, int]], config:
     return out
 
 
+# the ratios a felt tempo has to the notated one in practice: half and double time, dotted
+# (2/3, 3/2) and triplet feel (3/4, 4/3)
+RATIOS = (Fraction(1, 2), Fraction(2, 3), Fraction(3, 4), Fraction(4, 3), Fraction(3, 2), Fraction(2, 1))
+# beats per bar assumed for the short rule, there's no meter yet
+_BAR_BEATS = 4
+
+
+@dataclass
+class _Piece:
+    first: int
+    stop: int
+    fit: GridFit
+    # beat ranges the grid was extended over without fitting them (ratio and weak merges)
+    excluded: list[tuple[int, int]] = field(default_factory=list)
+    # (first, stop, numerator of the ratio) of every ratio merge, for the residuals of those beats
+    subdivided: list[tuple[int, int, int]] = field(default_factory=list)
+    merges: list[RatioMerge] = field(default_factory=list)
+
+
+def _kept(first: int, stop: int, excluded: list[tuple[int, int]]) -> np.ndarray:
+    keep = np.ones(stop - first, dtype=bool)
+    for a, b in excluded:
+        keep[max(a, first) - first:max(min(b, stop) - first, 0)] = False
+    return keep
+
+
+def _fit_piece(
+    times: np.ndarray,
+    downbeats: np.ndarray,
+    first: int,
+    stop: int,
+    excluded: list[tuple[int, int]],
+    subdivided: list[tuple[int, int, int]],
+    downbeats_known: bool,
+) -> GridFit:
+    """fit_grid on the beats that set this piece's tempo, with indices and residuals for all of them."""
+    keep = _kept(first, stop, excluded)
+    t = times[first:stop]
+    if keep.sum() < MIN_BEATS:
+        keep[:] = True
+    core = fit_grid(t[keep], downbeats[first:stop][keep], downbeats_known=downbeats_known)
+    period, offset = core.period_ms, core.offset_ms
+    indices = np.round((t - offset) / period).astype(np.int64)
+    indices[keep] = core.indices
+    residuals = t - (offset + period * indices)
+    for a, b, numerator in subdivided:
+        # a beat folded in by the ratio check sits on a subdivision, measure it against that
+        lo, hi = a - first, b - first
+        residuals[lo:hi] = _off_subdivision(t[lo:hi], offset, period, numerator)
+    inliers = np.zeros(len(t), dtype=bool)
+    inliers[keep] = core.inliers
+    return GridFit(
+        period_ms=period,
+        offset_ms=offset,
+        indices=indices,
+        residuals_ms=residuals,
+        inliers=inliers,
+        residual_rms_ms=core.residual_rms_ms,
+        confidence=core.confidence,
+    )
+
+
+def _off_subdivision(times: np.ndarray, offset: float, period: float, numerator: int) -> np.ndarray:
+    # signed ms to the nearest line, half or third of a grid, or 1/numerator of the ratio it was
+    # felt at. a dotted rhythm lands on the halves of the notated beat, a triplet feel on the
+    # thirds, a dotted eighth pulse (4/3) on the quarters
+    d = (times - offset) / period
+    best = np.full(len(d), np.inf)
+    for sub in sorted({2, 3, numerator}):
+        off = (sub * d - np.round(sub * d)) / sub
+        best = np.where(np.abs(off) < np.abs(best), off, best)
+    return best * period
+
+
+def _hit_share(off_ms: np.ndarray, tol: float) -> float:
+    return float(np.mean(np.abs(off_ms) <= tol)) if len(off_ms) else 0.0
+
+
+def _near_ratio(ratio: float, tolerance: float) -> Fraction | None:
+    for candidate in RATIOS:
+        if abs(ratio / float(candidate) - 1.0) <= tolerance:
+            return candidate
+    return None
+
+
+class _Consolidator:
+    """Merges what segmentation split but a chart wouldn't: felt tempos, short wobbles, weak edges."""
+
+    def __init__(
+        self,
+        times: np.ndarray,
+        downbeats: np.ndarray,
+        start_ms: float,
+        end_ms: float,
+        downbeats_known: bool,
+        config: TempoMapConfig,
+        loudness: Callable[[float, float], float] | None,
+    ) -> None:
+        self.times = times
+        self.downbeats = downbeats
+        self.start_ms = start_ms
+        self.end_ms = end_ms
+        self.downbeats_known = downbeats_known
+        self.config = config
+        self.loudness = loudness
+
+    def piece(self, first: int, stop: int, excluded=None, subdivided=None, merges=None) -> _Piece:
+        excluded = list(excluded or [])
+        subdivided = list(subdivided or [])
+        fit = _fit_piece(self.times, self.downbeats, first, stop, excluded, subdivided, self.downbeats_known)
+        return _Piece(first, stop, fit, excluded, subdivided, list(merges or []))
+
+    def span(self, pieces: list[_Piece], k: int) -> tuple[float, float]:
+        p = pieces[k]
+        start = self.start_ms if k == 0 else float(self.times[p.first])
+        end = self.end_ms if k == len(pieces) - 1 else float(self.times[p.stop])
+        return start, end
+
+    def own_beats(self, p: _Piece) -> np.ndarray:
+        return self.times[p.first:p.stop][_kept(p.first, p.stop, p.excluded)]
+
+    def absorb(self, pieces: list[_Piece], k: int, into: int, merge: RatioMerge | None) -> None:
+        # the neighbour keeps its grid, the absorbed beats are left out of its fit
+        s, n = pieces[k], pieces[into]
+        excluded = n.excluded + [(s.first, s.stop)]
+        subdivided = n.subdivided + s.subdivided + ([(s.first, s.stop, merge.ratio.numerator)] if merge is not None else [])
+        merges = n.merges + s.merges + ([merge] if merge is not None else [])
+        joined = self.piece(min(s.first, n.first), max(s.stop, n.stop), excluded, subdivided, merges)
+        lo = min(k, into)
+        pieces[lo:lo + 2] = [joined]
+
+    def join(self, pieces: list[_Piece], k: int) -> None:
+        # one tempo across both, fitted again over everything either of them fitted
+        a, b = pieces[k], pieces[k + 1]
+        joined = self.piece(a.first, b.stop, a.excluded + b.excluded, a.subdivided + b.subdivided, a.merges + b.merges)
+        pieces[k:k + 2] = [joined]
+
+    def ratio_merge(self, pieces: list[_Piece]) -> bool:
+        best: tuple[float, int, int, Fraction] | None = None
+        # only a segment with a neighbour on both sides. a felt section sits inside the notated
+        # tempo and the song comes back out of it, a modulation that runs to the end doesn't
+        for k in range(1, len(pieces) - 1):
+            s = pieces[k]
+            beats = self.own_beats(s)
+            d = (beats - s.fit.offset_ms) / s.fit.period_ms
+            own = _hit_share((d - np.round(d)) * s.fit.period_ms, self.config.ratio_hit_ms)
+            if own <= 0.0:
+                continue
+            scores: list[tuple[float, int, Fraction]] = []
+            for j in (k - 1, k + 1):
+                n = pieces[j]
+                # the longer side is the notated tempo, the shorter one is what got felt differently
+                ratio = _near_ratio(s.fit.bpm / n.fit.bpm, self.config.ratio_tolerance)
+                if ratio is None or n.stop - n.first <= s.stop - s.first:
+                    break
+                # when the neighbour's tempo carries on underneath, the beats land on its lines,
+                # halves, thirds or 1/numerator. a tracker following a 3-3-2 rhythm puts beats on
+                # the halves and fills the gaps with its own guesses, so its own line can do worse
+                off = _off_subdivision(beats, n.fit.offset_ms, n.fit.period_ms, ratio.numerator)
+                ext = _hit_share(off, self.config.ratio_hit_ms)
+                scores.append((ext / own, j, ratio))
+            else:
+                # both sides have to carry it, one that doesn't means the phase really moved there
+                if min(score for score, _, _ in scores) >= self.config.ratio_fit_min:
+                    score, j, ratio = max(scores, key=lambda item: item[0])
+                    if best is None or score > best[0]:
+                        best = (score, k, j, ratio)
+        if best is None:
+            return False
+        score, k, j, ratio = best
+        start, end = self.span(pieces, k)
+        merge = RatioMerge(start_ms=start, end_ms=end, bpm=pieces[k].fit.bpm, ratio=ratio, fit=score)
+        self.absorb(pieces, k, j, merge)
+        return True
+
+    def weak_edge(self, pieces: list[_Piece]) -> bool:
+        if len(pieces) < 2:
+            return False
+        for k, j in ((len(pieces) - 1, len(pieces) - 2), (0, 1)):
+            s = pieces[k]
+            if pieces[j].stop - pieces[j].first <= s.stop - s.first:
+                continue
+            start, end = self.span(pieces, k)
+            coverage = (s.stop - s.first) * s.fit.period_ms / max(end - start, 1e-9)
+            quiet = self.loudness is not None and self.loudness(start, end) <= self.config.weak_energy_db
+            if coverage < self.config.weak_coverage or quiet:
+                self.absorb(pieces, k, j, None)
+                return True
+        return False
+
+    def short(self, pieces: list[_Piece], k: int) -> bool:
+        start, end = self.span(pieces, k)
+        period = pieces[k].fit.period_ms
+        return end - start < max(self.config.short_min_ms, self.config.short_min_bars * _BAR_BEATS * period)
+
+    def short_merge(self, pieces: list[_Piece]) -> bool:
+        candidates: list[tuple[float, int, int]] = []
+        for k, s in enumerate(pieces):
+            if not self.short(pieces, k):
+                continue
+            for j in (k - 1, k + 1):
+                if 0 <= j < len(pieces):
+                    off = abs(s.fit.bpm / pieces[j].fit.bpm - 1.0)
+                    if off <= self.config.short_bpm_ratio:
+                        candidates.append((off, k, j))
+        for _, k, j in sorted(candidates):
+            if not self.short(pieces, j):
+                # the start or end of the neighbour's tempo that came out a bit off, the neighbour
+                # keeps its grid. a tempo that drifts gives a row of short pieces with no long one
+                # to go into, and a row of joins would flatten it into one line that fits nothing
+                self.absorb(pieces, k, j, None)
+                return True
+            # two short pieces only join while the result is still short, then it goes into a long one
+            lo = min(k, j)
+            joined = pieces[:lo] + [self.piece(pieces[lo].first, pieces[lo + 1].stop)] + pieces[lo + 2:]
+            if self.short(joined, lo):
+                self.join(pieces, lo)
+                return True
+        return False
+
+    def same_grid(self, pieces: list[_Piece]) -> bool:
+        # the boundary test from the merge pass, on the beats each side fitted with indices
+        # from the grid, since folded-in sections have spoilt the rough ones
+        for k in range(len(pieces) - 1):
+            a, b = pieces[k], pieces[k + 1]
+            # grid-rounded indices make any neighbour look like the same tempo, so only near-equal
+            # tempos get this far. anything further apart is the ratio check's or stays split
+            if abs(b.fit.bpm / a.fit.bpm - 1.0) > self.config.bpm_shift_ratio:
+                continue
+            keep = np.concatenate((_kept(a.first, a.stop, a.excluded), _kept(b.first, b.stop, b.excluded)))
+            t = self.times[a.first:b.stop][keep]
+            j = int(_kept(a.first, a.stop, a.excluded).sum())
+            if j < 2 or len(t) - j < 2:
+                continue
+            x = np.round((t - a.fit.offset_ms) / a.fit.period_ms)
+            if np.any(np.diff(x) <= 0):
+                continue
+            if not _judge(x, t, j, self.config).justified:
+                self.join(pieces, k)
+                return True
+        return False
+
+    def run(self, ranges: list[tuple[int, int]], fits: list[GridFit]) -> list[_Piece]:
+        pieces = [_Piece(a, b, fit) for (a, b), fit in zip(ranges, fits)]
+        # each step changes the neighbours of the next, so go round until nothing moves
+        for _ in range(4 * len(pieces)):
+            if not (self.same_grid(pieces) or self.ratio_merge(pieces) or self.weak_edge(pieces) or self.short_merge(pieces)):
+                break
+        return pieces
+
+
+# the ratios where the tracker took a different pulse rather than the same one an octave off
+_FELT_RATIOS = tuple(r for r in RATIOS if r not in (Fraction(1, 2), Fraction(2, 1)))
+
+
+def felt_sections(segments: list[SegmentFit], tolerance: float) -> list[bool]:
+    """Which segments sit between two others at a dotted or triplet ratio of both.
+
+    The octave check leaves these as tracked. Halving or doubling one can push it off every
+    ratio the ratio check knows (3/4 halved is 3/8), and then it can't be folded back in.
+    """
+    felt = [False] * len(segments)
+    for k in range(1, len(segments) - 1):
+        bpm = segments[k].fit.bpm
+        felt[k] = all(
+            any(abs(bpm / segments[j].fit.bpm / float(r) - 1.0) <= tolerance for r in _FELT_RATIOS)
+            for j in (k - 1, k + 1)
+        )
+    return felt
+
+
 def build_tempo_map(
     times_ms: np.ndarray,
     is_downbeat: np.ndarray,
@@ -370,8 +685,15 @@ def build_tempo_map(
     end_ms: float,
     downbeats_known: bool = True,
     config: TempoMapConfig = TempoMapConfig(),
+    loudness: Callable[[float, float], float] | None = None,
+    consolidate: bool = True,
 ) -> TempoMapResult:
-    """Segments over [start_ms, end_ms], usually the trim points, with one fit per segment."""
+    """Segments over [start_ms, end_ms], usually the trim points, with one fit per segment.
+
+    loudness(start_ms, end_ms) gives a stretch's median level in db against the whole song,
+    for the weak edge rule. consolidate=False stops after segmentation, with felt tempos and
+    short edges still split, which is what the octave check wants to look at.
+    """
     times = np.asarray(times_ms, dtype=np.float64)
     downbeats = np.asarray(is_downbeat, dtype=bool)
     if len(times) < MIN_BEATS:
@@ -403,14 +725,20 @@ def build_tempo_map(
                 fits.pop()
                 k -= 1
 
+    if consolidate:
+        pieces = _Consolidator(times, downbeats, start_ms, end_ms, downbeats_known, config, loudness).run(ranges, fits)
+    else:
+        pieces = [_Piece(a, b, fit) for (a, b), fit in zip(ranges, fits)]
+
     segments: list[SegmentFit] = []
-    for k, ((a, b), fit) in enumerate(zip(ranges, fits)):
+    for k, p in enumerate(pieces):
+        fit = p.fit
         # a later segment starts on its own grid at its first beat, where a chart would put the bpm change
         seg_start = start_ms if k == 0 else fit.offset_ms + fit.period_ms * float(fit.indices[0])
-        segments.append(SegmentFit(first=a, stop=b, start_ms=seg_start, end_ms=end_ms, fit=fit))
+        segments.append(SegmentFit(p.first, p.stop, seg_start, end_ms, fit, tuple(p.merges)))
     for k in range(len(segments) - 1):
-        nxt = segments[k + 1]
-        segments[k] = SegmentFit(segments[k].first, segments[k].stop, segments[k].start_ms, nxt.start_ms, segments[k].fit)
+        cur = segments[k]
+        segments[k] = SegmentFit(cur.first, cur.stop, cur.start_ms, segments[k + 1].start_ms, cur.fit, cur.ratio_merges)
 
     residuals = np.concatenate([s.fit.residuals_ms for s in segments])
     indices = np.concatenate([s.fit.indices for s in segments])
