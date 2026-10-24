@@ -695,6 +695,19 @@ def test_bpm_inside_the_range_is_allowed(client: TestClient, settings: Settings,
     assert resp.json()["tempo_map"][0]["bpm"] == value
 
 
+def test_manual_bpm_goes_past_the_detection_range(client: TestClient, settings: Settings) -> None:
+    # 60-320 is for detection only. a song charted at 440 is set by hand, by x2 or by typing it
+    job_id = write_done_job(settings, make_report([make_segment(FIRST_BEAT_MS, TRIM_END_MS, bpm=220.0)]))
+
+    doubled = patch_bpm(client, job_id, 440.0)
+    assert doubled.status_code == 200, doubled.text
+    assert doubled.json()["tempo_map"][0]["bpm"] == 440.0
+    # and a ratio button on top of that, 440 x 4/3
+    resp = patch_bpm(client, job_id, 440.0 * 4.0 / 3.0)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["tempo_map"][0]["bpm"] == round(440.0 * 4.0 / 3.0, 6)
+
+
 @pytest.mark.parametrize("value", [0, 0.0, -0.5, -120.0, 1000.001, 1001, 1e9], ids=str)
 def test_bpm_outside_the_range_is_422(client: TestClient, settings: Settings, value: float) -> None:
     job_id = write_done_job(settings)

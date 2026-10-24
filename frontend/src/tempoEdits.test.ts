@@ -59,6 +59,9 @@ describe("roundMs and nudged", () => {
 describe("validBpm", () => {
   it("takes 0 < bpm <= the max", () => {
     expect(validBpm(271.02)).toBe(true);
+    // the 60-320 range is for detection, a hand-set bpm goes up to MAX_BPM
+    expect(validBpm(440)).toBe(true);
+    expect(validBpm(440 * 2)).toBe(true);
     expect(validBpm(MAX_BPM)).toBe(true);
     for (const bad of [0, -120, MAX_BPM + 1, Number.NaN, Number.POSITIVE_INFINITY]) expect(validBpm(bad)).toBe(false);
   });
