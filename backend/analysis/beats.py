@@ -110,9 +110,16 @@ def track_beats(
         use = tracker
 
     region, offset = _region(samples, sample_rate, start_ms, end_ms)
+    times = positions = None
     if use == "madmom":
-        times, positions = _track_madmom(region, sample_rate)
-    else:
+        try:
+            times, positions = _track_madmom(region, sample_rate)
+        except ImportError as exc:
+            # installed but broken, like the pypi 0.16.1 build that wants pkg_resources
+            if tracker == "madmom":
+                raise BeatTrackingError(f"madmom is installed but doesn't import ({exc})") from exc
+            use = "librosa"
+    if times is None or positions is None:
         times = _track_librosa(region, sample_rate)
         positions = np.zeros(len(times), dtype=np.int64)
 
@@ -126,3 +133,15 @@ def track_beats(
         positions = np.arange(len(times), dtype=np.int64) % FALLBACK_BEATS_PER_BAR + 1
 
     return TrackedBeats(times_ms=times, positions=positions, tracker=use, downbeats_known=use == "madmom")
+
+
+def bar_numbers(positions: np.ndarray) -> np.ndarray:
+    # each downbeat starts a bar. beats before the first one are a pickup, bar 0 like in a score,
+    # which pushes the first downbeat to bar 1. no pickup and the first downbeat is bar 0
+    positions = np.asarray(positions)
+    downbeat = positions == 1
+    if not downbeat.any():
+        return np.zeros(len(positions), dtype=np.int64)
+    bars = np.cumsum(downbeat) - 1
+    pickup = not downbeat[0]
+    return (bars + (1 if pickup else 0)).clip(min=0).astype(np.int64)
