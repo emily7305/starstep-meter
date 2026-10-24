@@ -114,6 +114,10 @@ body {
   color: var(--danger);
 }
 
+.health__off {
+  color: var(--ink-soft);
+}
+
 /* timeline */
 
 .timeline {

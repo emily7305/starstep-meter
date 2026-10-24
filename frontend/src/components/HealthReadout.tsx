@@ -20,19 +20,20 @@ export function HealthReadout({ health }: Props) {
     );
   }
 
-  const items: Array<[string, boolean]> = [
-    ["ffmpeg", health.status.ffmpeg],
-    ["ffprobe", health.status.ffprobe],
-    ["madmom", health.status.madmom],
+  // madmom isn't used until milestone 2, so it missing is a note, not an error
+  const items: Array<[string, boolean, boolean]> = [
+    ["ffmpeg", health.status.ffmpeg, true],
+    ["ffprobe", health.status.ffprobe, true],
+    ["madmom", health.status.madmom, false],
   ];
 
   return (
     <p className="health" aria-live="polite">
-      {items.map(([name, ok], i) => (
+      {items.map(([name, ok, required], i) => (
         <span key={name}>
           {i > 0 && <span className="health__sep"> · </span>}
-          <span className={ok ? undefined : "health__bad"}>
-            {name} {ok ? "ok" : "missing"}
+          <span className={ok ? undefined : required ? "health__bad" : "health__off"}>
+            {name} {ok ? "ok" : required ? "missing" : "not installed"}
           </span>
         </span>
       ))}
