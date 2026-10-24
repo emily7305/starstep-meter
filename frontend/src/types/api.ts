@@ -26,7 +26,10 @@ export interface HealthStatus {
   status: "ok";
   ffmpeg: boolean;
   ffprobe: boolean;
+  // true only when it's installed and imports
   madmom: boolean;
+  // why an installed madmom doesn't import, null when it works or isn't installed
+  madmom_error: string | null;
 }
 
 export interface JobSummary {

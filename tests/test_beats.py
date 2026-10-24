@@ -137,6 +137,8 @@ def test_auto_falls_back_to_librosa_when_madmom_is_installed_but_broken(monkeypa
         raise ImportError("No module named 'pkg_resources'")
 
     monkeypatch.setattr(beats, "madmom_available", lambda: True)
+    # the import check passes, it's the call into madmom that breaks
+    monkeypatch.setattr(beats, "madmom_import_error", lambda: None)
     monkeypatch.setattr(beats, "_track_madmom", broken)
     track, trim = _prepare(SPEC)
 

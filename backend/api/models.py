@@ -31,7 +31,10 @@ class Health(BaseModel):
     status: Literal["ok"]
     ffmpeg: bool
     ffprobe: bool
+    # true only when it's installed and imports
     madmom: bool
+    # why an installed madmom doesn't import, none when it works or isn't installed
+    madmom_error: str | None = None
 
 
 class JobSummary(BaseModel):

@@ -7,6 +7,7 @@ a 4/4 bar and the result is marked lower confidence.
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 from dataclasses import dataclass
 from typing import Literal
@@ -53,6 +54,21 @@ class TrackedBeats:
 def madmom_available() -> bool:
     # find_spec only looks, the import itself is slow
     return importlib.util.find_spec("madmom") is not None
+
+
+@functools.lru_cache(maxsize=1)
+def madmom_import_error() -> str | None:
+    # installed doesn't mean it imports, the pypi 0.16.1 build wants pkg_resources. the import takes
+    # about a second and can't change while the process runs, so it's tried once
+    if not madmom_available():
+        return None
+    try:
+        import madmom  # noqa: F401
+        from madmom.features.downbeats import DBNDownBeatTrackingProcessor, RNNDownBeatProcessor  # noqa: F401
+    except Exception as exc:
+        # not only ImportError, a build that doesn't match numpy can raise AttributeError
+        return f"{type(exc).__name__}: {exc}"
+    return None
 
 
 def _region(samples: np.ndarray, sample_rate: int, start_ms: float, end_ms: float) -> tuple[np.ndarray, int]:
@@ -109,9 +125,14 @@ def track_beats(
 
     use: Tracker
     if tracker == "auto":
-        use = "madmom" if madmom_available() else "librosa"
-    elif tracker == "madmom" and not madmom_available():
-        raise BeatTrackingError("madmom is not installed, install it with pip install -e .[madmom]")
+        use = "madmom" if madmom_available() and madmom_import_error() is None else "librosa"
+    elif tracker == "madmom":
+        if not madmom_available():
+            raise BeatTrackingError("madmom is not installed, install it with pip install -e .[madmom]")
+        error = madmom_import_error()
+        if error is not None:
+            raise BeatTrackingError(f"madmom is installed but doesn't import ({error})")
+        use = "madmom"
     else:
         use = tracker
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -15,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
+from backend.analysis.beats import madmom_available, madmom_import_error
 from backend.analysis.ffmpeg_tools import ToolNotFoundError, find_tool
 from backend.analysis.ingest import FileTooLargeError, UnsupportedFileError, check_extension, ingest_stream
 from backend.analysis.tempo_edit import TempoEditError
@@ -62,6 +62,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         runner.recover()
+        # warm the cache, the import takes about a second and the first health check shouldn't pay for it
+        madmom_import_error()
         yield
         runner.shutdown()
 
@@ -201,12 +203,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @router.get("/health", response_model=Health)
     def health() -> Health:
+        # cached since startup. none when madmom isn't installed, that isn't an import error
+        madmom_error = madmom_import_error()
         return Health(
             status="ok",
             ffmpeg=find_tool("ffmpeg") is not None,
             ffprobe=find_tool("ffprobe") is not None,
-            # find_spec only looks, importing madmom is slow and can fail on some setups
-            madmom=importlib.util.find_spec("madmom") is not None,
+            madmom=madmom_available() and madmom_error is None,
+            madmom_error=madmom_error,
         )
 
     app.include_router(router)
