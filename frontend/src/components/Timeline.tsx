@@ -2,22 +2,29 @@ import { type KeyboardEvent, memo, useEffect, useMemo, useRef, useState } from "
 import WaveSurfer from "wavesurfer.js";
 import { BeatGridPlugin } from "../beatGridPlugin";
 import { formatDeltaMs, formatFineMs, formatMs } from "../format";
-import { beatsPerBar, type GridParams, nearestBeatMs } from "../grid";
-import type { SaveState } from "../offset";
+import { beatsPerBar } from "../grid";
+import type { SaveState } from "../tempoEdits";
+import { type AnchorDraft, bands, nearestLineMs, segmentAt, type TempoGrid, tempoGrid } from "../tempoMap";
 import { readPalette } from "../theme";
+import type { TempoEditOp } from "../types/api";
 import type { BeatsFile } from "../types/beats";
 import type { TimingReport } from "../types/timingReport";
 import { Loupe } from "./Loupe";
-import { OffsetControl } from "./OffsetControl";
+import { SegmentControl } from "./SegmentControl";
 
 interface Props {
   audioUrl: string | null;
   report: TimingReport | null;
   beats: BeatsFile | null;
-  offsetMs: number | null;
-  autoOffsetMs: number | null;
+  // a nudged anchor the server doesn't have yet
+  draft: AnchorDraft | null;
+  selected: number;
   saveState: SaveState;
+  // false while a split or merge is out, the indices on screen are about to change
+  editable: boolean;
+  onSelect: (segment: number) => void;
   onNudge: (steps: number) => void;
+  onEdit: (op: TempoEditOp) => void;
   onRetry: () => void;
 }
 
@@ -39,7 +46,8 @@ function nearest(values: number[], target: number): number | null {
   return best;
 }
 
-export function Timeline({ audioUrl, report, beats, offsetMs, autoOffsetMs, saveState, onNudge, onRetry }: Props) {
+export function Timeline(props: Props) {
+  const { audioUrl, report, beats, draft, selected, saveState, editable, onSelect, onNudge, onEdit, onRetry } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
@@ -52,19 +60,21 @@ export function Timeline({ audioUrl, report, beats, offsetMs, autoOffsetMs, save
   const [centerMs, setCenterMs] = useState<number | null>(null);
   const palette = useMemo(readPalette, []);
 
-  const bpm = report?.tempo_map[0]?.bpm ?? null;
+  const tempoMap = report?.tempo_map ?? null;
+  const durationMs = report?.source.duration_ms ?? 0;
   const barLength = useMemo(() => (beats ? beatsPerBar(beats.beats) : 4), [beats]);
-  const grid = useMemo<GridParams | null>(
-    () => (offsetMs !== null && bpm !== null ? { offsetMs, bpm, beatsPerBar: barLength } : null),
-    [offsetMs, bpm, barLength],
+  const grid = useMemo<TempoGrid | null>(
+    () => (tempoMap !== null ? tempoGrid(tempoMap, durationMs, barLength, draft) : null),
+    [tempoMap, durationMs, barLength, draft],
   );
+  const segmentBands = useMemo(() => (tempoMap !== null ? bands(tempoMap) : []), [tempoMap]);
   const trackedMs = useMemo(() => beats?.beats.map((b) => b.time_ms) ?? [], [beats]);
-  // the loupe opens on the first tracked downbeat, that's the beat the offset is about
+  // the loupe opens on the first tracked downbeat, that's the first segment's anchor
   const firstDownbeatMs = beats?.beats.find((b) => b.is_downbeat)?.time_ms ?? null;
 
   // the latest values for wavesurfer callbacks, which only get bound once per file
-  const live = useRef({ grid, trackedMs });
-  live.current = { grid, trackedMs };
+  const live = useRef({ grid, trackedMs, tempoMap, onSelect });
+  live.current = { grid, trackedMs, tempoMap, onSelect };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -74,7 +84,17 @@ export function Timeline({ audioUrl, report, beats, offsetMs, autoOffsetMs, save
     }
     const plugin = BeatGridPlugin.create({
       grid: null,
-      colors: { beat: palette.inkFaint, bar: palette.mint, label: palette.inkSoft, labelBg: palette.bgSunk },
+      bands: [],
+      selected: null,
+      colors: {
+        beat: palette.inkFaint,
+        bar: palette.mint,
+        label: palette.inkSoft,
+        labelBg: palette.bgSunk,
+        band: palette.ink,
+        selected: palette.accent,
+        bandLabel: palette.inkSoft,
+      },
       labelFont: `500 10px ${palette.fontMono}`,
     });
     const ws = WaveSurfer.create({
@@ -108,10 +128,12 @@ export function Timeline({ audioUrl, report, beats, offsetMs, autoOffsetMs, save
       ws.on("pause", () => setPlaying(false)),
       ws.on("finish", () => setPlaying(false)),
       ws.on("interaction", (t) => {
-        // a click puts the nearest attack in the loupe, falling back to the grid if nothing was tracked there
+        // a click picks the segment under it and puts the nearest attack in the loupe,
+        // falling back to the grid if nothing was tracked there
         const ms = t * 1000;
-        const { grid: g, trackedMs: tracked } = live.current;
-        setCenterMs(nearest(tracked, ms) ?? (g ? nearestBeatMs(g, ms) : ms));
+        const { grid: g, trackedMs: tracked, tempoMap: map, onSelect: select } = live.current;
+        if (map !== null) select(segmentAt(map, ms));
+        setCenterMs(nearest(tracked, ms) ?? (g ? nearestLineMs(g, ms) : null) ?? ms);
       }),
     ];
     return () => {
@@ -123,28 +145,34 @@ export function Timeline({ audioUrl, report, beats, offsetMs, autoOffsetMs, save
   }, [audioUrl, palette]);
 
   useEffect(() => {
-    gridRef.current?.setGrid(grid);
-  }, [grid, audio.kind]);
+    gridRef.current?.setMap(grid, segmentBands, tempoMap !== null && tempoMap.length > 1 ? selected : null);
+  }, [grid, segmentBands, selected, tempoMap, audio.kind]);
 
   useEffect(() => {
     // wavesurfer throws on zoom before the audio is decoded
     if (audio.kind === "ready") wsRef.current?.zoom(ZOOM_LEVELS[zoom] ?? 0);
   }, [zoom, audio.kind]);
 
+  const firstAnchorMs = tempoMap?.[0]?.anchor_ms ?? null;
   useEffect(() => {
-    if (audio.kind === "ready") setCenterMs((c) => c ?? firstDownbeatMs ?? offsetMs);
+    if (audio.kind === "ready") setCenterMs((c) => c ?? firstDownbeatMs ?? firstAnchorMs);
     if (audio.kind === "none") setCenterMs(null);
-    // offsetMs left out on purpose, an offset edit must not move the loupe
+    // the anchor is left out on purpose, an anchor edit must not move the loupe
   }, [audio.kind, firstDownbeatMs]);
 
   const ready = audio.kind === "ready";
   const spanMs = LOUPE_SPANS_MS[span] ?? 120;
-  const gridAtCenter = grid !== null && centerMs !== null ? nearestBeatMs(grid, centerMs) : null;
+  const gridAtCenter = grid !== null && centerMs !== null ? nearestLineMs(grid, centerMs) : null;
+  const segment = tempoMap?.[selected] ?? null;
+  const anchorMs = segment === null ? null : draft !== null && draft.segment === selected ? draft.anchorMs : segment.anchor_ms;
+  // anchor here and split here act on a tracked beat, not on wherever the loupe was left
+  const beatMs = centerMs !== null && trackedMs.includes(centerMs) ? centerMs : null;
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (!ready) return;
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
+      if (!editable) return;
       onNudge(event.key === "ArrowLeft" ? -1 : 1);
     } else if (event.key === " " && event.target === sectionRef.current) {
       // only on the waveform itself, space on a focused button already clicks it
@@ -163,7 +191,7 @@ export function Timeline({ audioUrl, report, beats, offsetMs, autoOffsetMs, save
       <section
         ref={sectionRef}
         className="timeline"
-        aria-label="timeline, arrow keys move the beat offset by 1 ms, space plays"
+        aria-label="timeline, arrow keys move the selected segment's anchor by 1 ms, space plays"
         tabIndex={ready ? 0 : -1}
       >
         <div className="timeline__wave" ref={containerRef} />
@@ -252,14 +280,20 @@ export function Timeline({ audioUrl, report, beats, offsetMs, autoOffsetMs, save
             </div>
           </div>
 
-          <OffsetControl
-            offsetMs={offsetMs}
-            autoMs={autoOffsetMs}
-            saveState={saveState}
-            disabled={!ready || offsetMs === null}
-            onNudge={onNudge}
-            onRetry={onRetry}
-          />
+          {segment !== null && tempoMap !== null && anchorMs !== null && (
+            <SegmentControl
+              segment={segment}
+              index={selected}
+              count={tempoMap.length}
+              anchorMs={anchorMs}
+              beatMs={beatMs}
+              saveState={saveState}
+              disabled={!ready || !editable}
+              onNudge={onNudge}
+              onEdit={onEdit}
+              onRetry={onRetry}
+            />
+          )}
         </div>
       )}
     </div>

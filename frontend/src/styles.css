@@ -180,7 +180,7 @@ body {
 
 .detail {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(220px, 260px);
+  grid-template-columns: auto minmax(0, 1fr) minmax(260px, 320px);
   gap: 24px 32px;
   align-items: start;
   padding: 16px var(--gutter);
@@ -257,49 +257,6 @@ body {
   display: flex;
   gap: 4px;
   margin-top: 8px;
-}
-
-.offset {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-}
-
-.offset__label {
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  color: var(--ink-soft);
-}
-
-.offset__value {
-  font-size: 26px;
-  font-weight: 500;
-  line-height: 1.2;
-  color: var(--ink);
-}
-
-.offset__buttons {
-  display: flex;
-  gap: 6px;
-  margin: 4px 0;
-}
-
-.offset__meta,
-.offset__state,
-.offset__hint {
-  margin: 0;
-  min-height: 1.4em;
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-
-.offset__state[data-failed="true"] {
-  color: var(--danger);
-}
-
-.offset__hint {
-  color: var(--ink-faint);
 }
 
 /* content */
@@ -698,6 +655,125 @@ body {
   color: var(--ink);
   font-size: 12px;
   line-height: 1.6;
+}
+
+/* segment control in the detail strip */
+
+.segment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.segment__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+}
+
+.segment__label,
+.segment__sub {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.segment__sub {
+  margin-top: 8px;
+}
+
+.segment__source {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.segment__source[data-manual="true"] {
+  color: var(--accent);
+}
+
+.segment__range {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.segment__value {
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.segment__buttons,
+.segment__set {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.segment__input {
+  width: 11ch;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.segment__input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.segment__state,
+.segment__hint {
+  margin: 0;
+  min-height: 1.4em;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.segment__state[data-failed="true"] {
+  color: var(--danger);
+}
+
+.segment__hint {
+  color: var(--ink-faint);
+}
+
+/* tempo map list in the report column */
+
+.segments {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.segments__item {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr) auto auto;
+  gap: 4px 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.segments__index,
+.segments__meta {
+  color: var(--ink-faint);
+}
+
+.segments__start {
+  color: var(--ink-soft);
+}
+
+.segments__bpm {
+  color: var(--ink);
+  text-align: right;
 }
 
 @media (prefers-reduced-motion: reduce) {

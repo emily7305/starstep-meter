@@ -15,8 +15,16 @@ function paddingText(samples: number, sampleRate: number): string {
   return `${samples} samples · ${formatFineMs((samples / sampleRate) * 1000)}`;
 }
 
-function editValue(value: unknown): string {
-  return typeof value === "number" ? formatFineMs(value) : JSON.stringify(value);
+function editValue(field: string, value: unknown): string {
+  if (value === null) return "–";
+  // split and merge log the whole map
+  if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? "segment" : "segments"}`;
+  if (typeof value === "number") {
+    if (field.endsWith("/bpm")) return `${value} bpm`;
+    if (field.endsWith("/confidence")) return value.toFixed(3);
+    return formatFineMs(value);
+  }
+  return typeof value === "string" ? value : JSON.stringify(value);
 }
 
 function editTime(edit: Edit): string {
@@ -28,12 +36,12 @@ export function ReportView({ report, beats }: Props) {
   if (report === null) return <p className="empty">no file yet</p>;
 
   const { source, trim, tempo_map, edits } = report;
-  // tempo_map can be empty in theory, en dash then
-  const segment = tempo_map[0];
-  const confidence = segment?.confidence;
+  const first = tempo_map[0];
+  const single = tempo_map.length === 1;
   let note = "";
   if (beats !== null) note = `${beats.beats.length} beats · ${beats.tracker === "librosa" ? "librosa fallback" : "madmom"}`;
-  if (confidence !== null && confidence !== undefined) note += `${note ? " · " : ""}confidence ${confidence.toFixed(2)}`;
+  if (beats !== null && beats.octave !== "kept") note += ` · octave ${beats.octave}`;
+  if (single && first.confidence !== null) note += `${note ? " · " : ""}confidence ${first.confidence.toFixed(2)}`;
   const shown = edits.slice(-EDITS_SHOWN);
 
   return (
@@ -47,14 +55,14 @@ export function ReportView({ report, beats }: Props) {
         <Row label="trim start" value={formatMs(trim.start_ms)} />
         <Row label="trim end" value={formatMs(trim.end_ms)} />
         <Row
-          label="beat offset"
-          value={report.beat_offset_ms === null ? "–" : formatFineMs(report.beat_offset_ms)}
-          note={edits.length > 0 ? "edited" : undefined}
+          label="first downbeat"
+          value={formatFineMs(first.anchor_ms)}
+          note={first.source === "manual" ? "edited" : undefined}
         />
         <div className="row row--bpm">
-          <dt>bpm</dt>
+          <dt>{single ? "bpm" : "tempo"}</dt>
           <dd>
-            <span className="row__bpm mono">{segment === undefined ? "–" : formatBpm(segment.bpm)}</span>
+            <span className="row__bpm mono">{single ? formatBpm(first.bpm) : `${tempo_map.length} segments`}</span>
             {note && <span className="row__note mono">{note}</span>}
           </dd>
         </div>
@@ -62,8 +70,24 @@ export function ReportView({ report, beats }: Props) {
       </dl>
 
       {beats?.tracker === "librosa" && (
-        <p className="report__warn">madmom isn't installed, so beats come from librosa and the downbeat is a guess</p>
+        <p className="report__warn">
+          madmom isn't installed, so beats come from librosa, the downbeat is a guess and tempo changes aren't followed
+        </p>
       )}
+
+      <h3 className="subsection-label">tempo map</h3>
+      <ol className="segments">
+        {tempo_map.map((seg, i) => (
+          <li key={`${seg.start_ms}-${i}`} className="segments__item mono">
+            <span className="segments__index">{i + 1}</span>
+            <span className="segments__start">{formatMs(seg.start_ms)}</span>
+            <span className="segments__bpm">{formatBpm(seg.bpm)}</span>
+            <span className="segments__meta">
+              {seg.source === "manual" ? "manual" : seg.confidence === null ? "auto" : `auto ${seg.confidence.toFixed(2)}`}
+            </span>
+          </li>
+        ))}
+      </ol>
 
       <h3 className="subsection-label">edits</h3>
       {edits.length === 0 ? (
@@ -74,7 +98,7 @@ export function ReportView({ report, beats }: Props) {
             <li key={`${edit.timestamp}-${i}`} className="edits__item mono">
               <span className="edits__field">{edit.field}</span>
               <span className="edits__change">
-                {editValue(edit.old)} → {editValue(edit.new)}
+                {editValue(edit.field, edit.old)} → {editValue(edit.field, edit.new)}
               </span>
               <span className="edits__time">{editTime(edit)}</span>
             </li>
