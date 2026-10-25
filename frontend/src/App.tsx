@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   audioUrl,
@@ -13,6 +13,7 @@ import {
   reanalyzeJob,
   uploadAudio,
 } from "./api";
+import { chartStartFor, storedFirstMeasure, storeFirstMeasure } from "./chartSetup";
 import { ExportPanel } from "./components/ExportPanel";
 import { HealthReadout, type Health } from "./components/HealthReadout";
 import { QuickAnswer } from "./components/QuickAnswer";
@@ -99,6 +100,11 @@ export function App() {
   // what the server has, edits only ever come back from it
   const [report, setReport] = useState<TimingReport | null>(null);
   const [beats, setBeats] = useState<BeatsFile | null>(null);
+  const [firstMeasure, setFirstMeasure] = useState(storedFirstMeasure);
+  const chartStart = useMemo(
+    () => (report !== null ? chartStartFor(report, beats, firstMeasure) : null),
+    [report, beats, firstMeasure],
+  );
   const [jobId, setJobId] = useState<string | null>(null);
   // the anchor on screen while it's being nudged, null once the server has it
   const [draft, setDraft] = useState<AnchorDraft | null>(null);
@@ -412,7 +418,7 @@ export function App() {
         <HealthReadout health={health} />
       </header>
 
-      {report !== null && <QuickAnswer report={report} />}
+      {report !== null && chartStart !== null && <QuickAnswer report={report} start={chartStart} />}
 
       <Timeline
         audioUrl={jobId === null ? null : audioUrl(jobId)}
@@ -426,6 +432,11 @@ export function App() {
         onNudge={nudge}
         onEdit={edit}
         onRetry={retrySave}
+        firstMeasure={firstMeasure}
+        onFirstMeasure={(measure) => {
+          setFirstMeasure(measure);
+          storeFirstMeasure(measure);
+        }}
       />
 
       <main className="content">

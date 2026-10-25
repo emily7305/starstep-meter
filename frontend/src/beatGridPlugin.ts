@@ -312,13 +312,15 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
       if (line.isBar && line.bar % step.barStep !== 0) continue;
       const widthDevice = line.isBar ? 2 : 1;
       const x = crispX(line.x, dpr, widthDevice);
+      // bars before measure 0 are silence the offset skips, so they're faint and get no number
+      const beforeChart = line.bar < 0;
       ctx.fillStyle = line.isBar ? colors.bar : colors.beat;
       // beat lines share the waveform's colour, faded so the clicks under them still read
-      ctx.globalAlpha = line.isBar ? 1 : 0.55;
+      ctx.globalAlpha = (line.isBar ? 1 : 0.55) * (beforeChart ? 0.3 : 1);
       ctx.fillRect(x - widthDevice / 2 / dpr, 0, widthDevice / dpr, heightPx - BAND_LABEL_H_PX);
       ctx.globalAlpha = 1;
 
-      if (line.isBar && line.bar % step.labelStep === 0) {
+      if (line.isBar && !beforeChart && line.bar % step.labelStep === 0) {
         const text = String(line.bar);
         ctx.font = this.options.labelFont;
         const w = ctx.measureText(text).width;

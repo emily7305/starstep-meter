@@ -1,7 +1,7 @@
 import { type KeyboardEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { BeatGridPlugin } from "../beatGridPlugin";
-import { changeLabels, chartSetup } from "../chartSetup";
+import { changeLabels, chartSetup, chartStartFor } from "../chartSetup";
 import { ClickScheduler, clickSamples } from "../clickTrack";
 import { ClockPlayer } from "../clockPlayer";
 import { formatDeltaMs, formatFineMs, formatMs } from "../format";
@@ -40,6 +40,9 @@ interface Props {
   onNudge: (steps: number) => void;
   onEdit: (op: TempoEditOp) => void;
   onRetry: () => void;
+  // the measure the music starts in, 1 leaves measure 0 as a bar of lead-in
+  firstMeasure: number;
+  onFirstMeasure: (measure: number) => void;
 }
 
 type AudioState =
@@ -70,6 +73,7 @@ function nearest(values: number[], target: number): number | null {
 
 export function Timeline(props: Props) {
   const { audioUrl, report, beats, draft, selected, saveState, editable, onSelect, onNudge, onEdit, onRetry } = props;
+  const { firstMeasure, onFirstMeasure } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
@@ -96,8 +100,11 @@ export function Timeline(props: Props) {
     [report],
   );
   const grid = useMemo<TempoGrid | null>(
-    () => (tempoMap !== null ? tempoGrid(tempoMap, meterMap, durationMs, draft) : null),
-    [tempoMap, meterMap, durationMs, draft],
+    () =>
+      tempoMap !== null && report !== null
+        ? tempoGrid(tempoMap, meterMap, durationMs, draft, chartStartFor(report, beats, firstMeasure))
+        : null,
+    [tempoMap, meterMap, durationMs, draft, report, beats, firstMeasure],
   );
   const suggestions = report?.notation_suggestions;
   // only the open ones go on the timeline, the decided ones are history
@@ -488,6 +495,7 @@ export function Timeline(props: Props) {
               onBpmDecimals={setBpmDecimals}
               selected={setupRow}
               onSelect={goToChange}
+              onFirstMeasure={onFirstMeasure}
             />
           )}
         </div>

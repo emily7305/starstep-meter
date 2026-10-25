@@ -11,11 +11,13 @@ import {
   setupFor,
   WAV_LABEL,
 } from "../quickAnswer";
+import type { ChartStart } from "../tempoMap";
 import type { TimingReport } from "../types/timingReport";
 import { copyToClipboard } from "./ChartSetup";
 
 interface Props {
   report: TimingReport;
+  start: ChartStart;
 }
 
 type HelpKey = keyof typeof HELP;
@@ -39,8 +41,8 @@ function HelpButton({ topic, open, onToggle }: { topic: HelpKey; open: boolean; 
 
 // the basics first, in plain words: what a chart editor needs typed in. everything technical
 // stays in the panels under it
-export function QuickAnswer({ report }: Props) {
-  const answer = useMemo(() => quickAnswer(report, setupFor(report)), [report]);
+export function QuickAnswer({ report, start }: Props) {
+  const answer = useMemo(() => quickAnswer(report, setupFor(report, start)), [report, start]);
   const [decimals, setDecimals] = useState(2);
   const [help, setHelp] = useState<HelpKey | null>(null);
   const [copyState, setCopyState] = useState<string | null>(null);

@@ -1582,3 +1582,15 @@ body {
 .quick__warn {
   color: var(--danger);
 }
+
+.setup__first {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+
+.setup__first .setup__note {
+  margin: 0 4px 0 0;
+}
