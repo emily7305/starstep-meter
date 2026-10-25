@@ -61,11 +61,17 @@ Milestone 6b checked the cross-check and the timing on real songs, fixed one bug
 - The `for your chart` card above the timeline gives the plain answer right after an analysis: the bpm, the offsets and the time signature, each with a `?` explanation, a line when they change, and a warning when a stretch came out with low confidence. Its numbers come from the chart setup list.
 - The README was rewritten around what the tool does, its status, the install, a workflow from upload to an editor, and the exports. The history and the manual checks moved to this file.
 
+### Milestone 6c
+
+Milestone 6c moved where the chart starts. Measure 0 had been the first bar line in the audio, which on a song with a long silent start (SHIKI - Lapis, about 8 s at 145.99 bpm) left four or five empty measures before the music and an offset that didn't skip the silence. Now the music starts at the trim start, or at the first tracked beat when that is earlier. The bar it starts in is measure 1, and measure 0 is one empty bar before it, so the offset is minus where measure 0 starts and is positive when the silence is shorter than a bar. The setting `music starts at measure` in the chart setup panel can put the music at measure 0 instead, and is remembered per browser. The timeline, the chart setup list and the `for your chart` card use the same numbering, and bars before measure 0 are drawn faintly with no number. The Sonolus export keeps its own beat 0. MisoilePunch♪ moved by one bar, from offsets of `-62.362` and `-85.382` ms to `826.515` and `803.494` ms. The reasons are in `docs/decisions.md` (where the chart starts).
+
 ## Manual checks
 
 These are the checks that were written down for each version, in order. The expected values are for madmom unless it says otherwise. Start the backend and the frontend as described in "Running" in the [README](../README.md#running).
 
 Two things changed in the UI after most of these were written. Bar numbers on the timeline start at 0 on the first bar line in the audio, not on the first downbeat. That is the same line for the click tracks below whose lead-in is shorter than one bar. The milestone 1 track has a 2 s lead-in, which is a full bar at 120 bpm, so there bar 0 can be earlier than the first downbeat. And the `for your chart` card now sits above the timeline with the bpm and the offsets, so a check that reads a number from the report column can also read it there.
+
+A third change came with milestone 6c. The bar the music starts in is now measure 1 and measure 0 is one empty bar before it. For the tracks below, whose music starts in the first bar, every measure or bar number read from the timeline or the chart setup list is one higher than the checks say, and the offsets are minus where measure 0 starts, which is positive when the silence before the music is shorter than a bar.
 
 ### Milestone 1 manual check
 
@@ -97,7 +103,7 @@ Don't commit the generated audio. `*.wav` and `*.mp3` are git-ignored anyway.
 
 ### Milestone 2 listening check
 
-Since milestone 3 the offset below is the first segment's anchor (`tempo_map[0].anchor_ms`, which replaced `beat_offset_ms`), so its steps are the `−1 ms` and `+1 ms` buttons under the segment controls, and the edits list names the field `tempo_map/0/anchor_ms`. The anchor is also the `first downbeat` row of the report column. The first downbeat of this track is bar 0 on the timeline, because the lead-in is shorter than a bar.
+Since milestone 3 the offset below is the first segment's anchor (`tempo_map[0].anchor_ms`, which replaced `beat_offset_ms`), so its steps are the `−1 ms` and `+1 ms` buttons under the segment controls, and the edits list names the field `tempo_map/0/anchor_ms`. The anchor is also the `first downbeat` row of the report column. The first downbeat of this track is bar 0 on the timeline, because the lead-in is shorter than a bar. Since milestone 6c it is measure 1.
 
 The expected values below are for madmom. With the librosa fallback the confidence is halved and the downbeat is a guess.
 
@@ -236,7 +242,7 @@ The CLI prints one tempo segment at 140.0000 bpm with its anchor at 519.274 ms, 
 Then the UI check. Start the backend and the frontend as described in Running, upload `meter-check.wav`, and wait for the job to finish.
 
 1. The meter panel under the zoomed view reads "meter 1 of 2" and 4/4. Click the waveform past 28 s and it reads "meter 2 of 2" and 7/4.
-2. The bar lines on the timeline are every 4 clicks, and every 7 after the change. The `chart setup` panel lists the change as a `7/4` row at `m.16`, where the 7 beat bars start.
+2. The bar lines on the timeline are every 4 clicks, and every 7 after the change. The `chart setup` panel lists the change as a `7/4` row at `m.16`, where the 7 beat bars start. Since milestone 6c that row is at `m.17`, one higher.
 3. With "meter 2 of 2" in the panel, set 3/4 with "set meter". The edits list shows `meter_map/1/numerator` (7 → 3), plus `meter_map/1/confidence` and `meter_map/1/source` (auto → manual). "split meter here" on a beat in the zoomed view logs the whole `meter_map` before and after instead. Since milestone 5 the first of these is one entry, `meter_map/1`, with a line for each of the three values.
 4. Press "re-analyze". The manual meter stays.
 
@@ -295,13 +301,15 @@ The chart setup list and the `for your chart` card, on the mp3 of the accented c
 
 Expected with madmom: the first downbeat is at 136.780 ms and the decoder padding is 1105 samples at 44.1 kHz, 25.057 ms. Measure 0 is the first downbeat, because the lead-in is shorter than a bar. So the offset is about `-136.780` ms with the wav from ffmpeg and about `-161.837` ms with the original mp3, and the two differ by the padding. These come from the analysis of the same file on the command line and the formulas in `frontend/src/chartSetup.ts`, they were not read off the page.
 
+Since milestone 6c the first downbeat is measure 1 and measure 0 is one bar of 2000 ms before it, so the offsets are about `1863.220` ms with the wav and about `1838.163` ms with the original mp3, worked out from the same numbers. The `m.` rows below are still at `m.0`.
+
 1. The `for your chart` card above the timeline reads 120.00 for the bpm, both offsets and 4/4, with no line about changes and no warning.
 2. In the `chart setup` panel, the `music offset` item shows the same two offsets. `audio file` shows `ffmpeg -i "click-137.mp3" "click-137.wav"`, and `copy command` copies it. The list has two rows, `m.0 · 4/4` and `m.0 · 120.00 bpm`.
 3. Run the command, load `click-137.wav` in MikuMikuWorld, type the first offset into the music offset field, and listen whether the editor's first measure and beats land on the clicks of the song. With the original mp3 and the second offset it should sound the same.
 4. Under the play time, a line like `playhead −42.0 ms output latency` shows the latency the browser reports. Press `click track` and play. Check the playhead against a click on wired output.
 5. Zoom the zoomed view to 40 ms. The attack is drawn from the wav at its own sample rate, 44.1 kHz here.
 6. Press `delete` on this job in the `recent` list. It asks `delete this job and its files?`. Press `cancel`, and nothing changes. Press `delete` and then `delete` again, and the job is gone from the list and its folder from `data/jobs/`.
-7. On a track with a change, like the milestone 3 one, the chart setup list has a row for the change (`m.16 · 200.00 bpm`, click 64 being the start of bar 16) with a matching label on the timeline, and the cross-check text in the segment panel reads about `librosa 0.01 ms apart` for each segment.
+7. On a track with a change, like the milestone 3 one, the chart setup list has a row for the change (`m.16 · 200.00 bpm`, click 64 being the start of bar 16; since milestone 6c it is `m.17`, one higher) with a matching label on the timeline, and the cross-check text in the segment panel reads about `librosa 0.01 ms apart` for each segment.
 
 ### Milestone 6b check
 
@@ -312,10 +320,27 @@ python scripts/make_click_track.py late-check.wav --bpm 120 --beats 192 --lead 0
 python -m backend.analysis.cli late-check.wav -v
 ```
 
-The script prints the tempo change at 48500.000 ms and the meter change at 67700.000 ms. Expected with madmom: two tempo segments, 120.0000 bpm and 150.0000 bpm, and `meter   2 segment(s)` with `[0] ... 4/4` ending at 67699.264 ms and `[1] 67699.264 -> ... 7/4`, which is click 144 within the 0.7 ms of the onset snap. Before the fix the 7/4 started at click 151. In the UI the chart setup list shows the 7/4 at `m.36`, 24 bars at 120 bpm and then 12 at 150.
+The script prints the tempo change at 48500.000 ms and the meter change at 67700.000 ms. Expected with madmom: two tempo segments, 120.0000 bpm and 150.0000 bpm, and `meter   2 segment(s)` with `[0] ... 4/4` ending at 67699.264 ms and `[1] 67699.264 -> ... 7/4`, which is click 144 within the 0.7 ms of the onset snap. Before the fix the 7/4 started at click 151. In the UI the chart setup list shows the 7/4 at `m.36`, 24 bars at 120 bpm and then 12 at 150. Since milestone 6c it shows `m.37`, one higher.
 
 Then the plain answer. On `late-check.wav` the `for your chart` card reads `bpm at the start` with 120.00, and a line `this song changes speed once and changes time signature once.` with a `see every change` link that jumps to the chart setup list. Press `more decimals` and the bpm shows 4 decimals. Press `copy` and paste somewhere: the text has the same lines as the card.
 
 Finally the offsets. For a real mp3 with decoder padding, the two offsets differ by the padding to the last digit worked out before rounding. MisoilePunch♪ is the example: `-62.362` ms with the wav and `-85.382` ms with the mp3, with 23.021 ms of padding. A 0.001 ms difference from subtracting the rounded numbers is expected.
+
+Don't commit the generated audio.
+
+### Milestone 6c check
+
+Where the chart starts. A click track with 8 s of silence before the first click, at 145.99 bpm:
+
+```bash
+python scripts/make_click_track.py silent8.wav --bpm 145.99 --beats 96 --lead 8 --accent
+```
+
+The script prints the ground truth. The first click is a downbeat at about 8000 ms, and one bar is 1643.948 ms. Upload `silent8.wav` and wait for the job to finish. The values below depend on the analysis, so they are about values, worked out from `docs/decisions.md` (where the chart starts), where the first downbeat came out at 7999.268 ms.
+
+1. On the timeline the bars over the silence are drawn faintly and have no number, and the bar lines before 0 ms of the file are not drawn. A bar line at about 6355 ms is numbered 0, the bar line on the first click is numbered 1.
+2. The `for your chart` card and the `music offset` item in the `chart setup` panel read about `-6355` ms (`-6355.320` ms in the example above) for the wav. A wav has no decoder padding, so both offsets are the same. `music starts at measure` has `1` pressed, and the note under the offsets says the music starts in measure 1, at about 7999 ms, and that measure 0 starts about 6355 ms into the audio file.
+3. Press `0` next to `music starts at measure`. The offset becomes about `-8000` ms (`-7999.268` ms in the example), the first click is numbered 0 on the timeline, the bars before it are faint with no number, and the note no longer mentions a lead-in bar.
+4. Reload the page and open the job again from the `recent` list. `0` is still pressed, and the offset is still about `-8000` ms. Press `1` to go back to the default, which is then also remembered.
 
 Don't commit the generated audio.
