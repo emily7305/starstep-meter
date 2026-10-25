@@ -1,26 +1,31 @@
 """Bring a stored report or beats file from an older schema up to the current one.
 
 Works on the parsed json before validation, one version step at a time. 1.1,
-2.0, 2.1, 2.2, 2.3 and 2.4 can be upgraded, 1.0 reports have no codec or decoder padding
+2.0, 2.1, 2.2, 2.3, 2.4 and 2.5 can be upgraded, 1.0 reports have no codec or decoder padding
 and those can only come from the original file, so they still need a fresh upload.
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any
+
+# x2 and /2 up to three times either way, the same as models.NOTATION_SCALES
+_SCALES = (0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 
 
 def upgrade_report(data: Any) -> Any:
-    """A 1.1, 2.0, 2.1, 2.2, 2.3 or 2.4 report as 2.5. Anything else comes back untouched and fails validation as usual."""
+    """A 1.1 to 2.5 report as 2.6. Anything else comes back untouched and fails validation as usual."""
     data = _version_step(_report_2_0_to_2_1(_report_1_1_to_2_0(data)), "2.1", "2.2")
     # 2.3 -> 2.4: no confidence spans and no cross-check, the segment confidences stay as they were
     data = _version_step(_report_2_2_to_2_3(data), "2.3", "2.4")
     # 2.4 -> 2.5: no subdivision sections, a re-analysis finds them
-    return _version_step(data, "2.4", "2.5")
+    data = _version_step(data, "2.4", "2.5")
+    return _report_2_5_to_2_6(data)
 
 
 def upgrade_beats(data: Any) -> Any:
-    """A 1.1, 2.0, 2.1, 2.2, 2.3 or 2.4 beats file as 2.5."""
+    """A 1.1 to 2.5 beats file as 2.6."""
     data = _version_step(_beats_2_0_to_2_1(_beats_1_1_to_2_0(data)), "2.1", "2.2")
     # 2.2 -> 2.3: grid_features defaults to empty, the suggestions just can't be checked without the audio
     data = _version_step(data, "2.2", "2.3")
@@ -28,7 +33,9 @@ def upgrade_beats(data: Any) -> Any:
     data = _version_step(data, "2.3", "2.4")
     # 2.4 -> 2.5: nothing new. a doubled or halved song's positions stay counted per beat, the
     # file doesn't say which stretches were, see docs/decisions.md (real_d)
-    return _version_step(data, "2.4", "2.5")
+    data = _version_step(data, "2.4", "2.5")
+    # 2.5 -> 2.6: nothing new, the version moves with the report's
+    return _version_step(data, "2.5", "2.6")
 
 
 def _version_step(data: Any, old: str, new: str) -> Any:
@@ -36,6 +43,69 @@ def _version_step(data: Any, old: str, new: str) -> Any:
     if not isinstance(data, dict) or data.get("schema_version") != old:
         return data
     return {**data, "schema_version": new}
+
+
+def _scale_of(ratio: float) -> float | None:
+    for scale in _SCALES:
+        if math.isclose(ratio, scale, rel_tol=1e-6):
+            return scale
+    return None
+
+
+def _report_2_5_to_2_6(data: Any) -> Any:
+    """2.5 -> 2.6: a manual segment whose only edits were x2 or /2 is an auto segment with that notation scale.
+
+    Those were the only way to write a pulse at another octave, so they made the segment manual and a
+    re-analysis then left it alone. Only when the log has no split, merge or other change to the whole
+    tempo map, since those renumber the segments and an index in an older entry can't be trusted. The
+    confidence comes back from the first edit's old value. No auto_result, a re-analysis writes it.
+    """
+    if not isinstance(data, dict) or data.get("schema_version") != "2.5":
+        return data
+    out = {**data, "schema_version": "2.6"}
+    edits = [e for e in out.get("edits") or [] if isinstance(e, dict)]
+    reshaped = any(e.get("field") == "tempo_map" or (e.get("field") == "" and "tempo_map" in (e.get("old") or {})) for e in edits)
+    tempo_map = out.get("tempo_map")
+    if reshaped or not isinstance(tempo_map, list):
+        return out
+    upgraded = []
+    for i, seg in enumerate(tempo_map):
+        upgraded.append(_as_notation(seg, i, edits) if isinstance(seg, dict) and seg.get("source") == "manual" else seg)
+    out["tempo_map"] = upgraded
+    return out
+
+
+def _as_notation(seg: dict[str, Any], index: int, edits: list[dict[str, Any]]) -> dict[str, Any]:
+    # both log forms count, one entry per field from before milestone 5 and one per change since
+    path = f"tempo_map/{index}"
+    scale, confidence, touched = 1.0, None, False
+    for edit in edits:
+        field, old, new = edit.get("field"), edit.get("old"), edit.get("new")
+        if field != path and not str(field).startswith(f"{path}/"):
+            continue
+        touched = True
+        if field == f"{path}/source":
+            continue
+        if field == f"{path}/confidence":
+            confidence = old if confidence is None else confidence
+            continue
+        if field == path:
+            if not (isinstance(old, dict) and isinstance(new, dict) and "bpm" in old and set(old) <= {"bpm", "source", "confidence"}):
+                return seg
+            confidence = old.get("confidence") if confidence is None else confidence
+            old, new = old.get("bpm"), new.get("bpm")
+        elif field != f"{path}/bpm":
+            return seg
+        if not isinstance(old, (int, float)) or not isinstance(new, (int, float)) or old <= 0:
+            return seg
+        step = _scale_of(new / old)
+        if step is None or step == 1.0:
+            return seg
+        scale *= step
+    final = _scale_of(scale)
+    if not touched or final is None or final == 1.0:
+        return seg
+    return {**seg, "source": "auto", "notation_scale": final, "confidence": confidence}
 
 
 def _report_2_2_to_2_3(data: Any) -> Any:

@@ -5,7 +5,7 @@ import { chartStartOf } from "./tempoMap";
 import type { AudioSource, ConfidenceSpan, MeterSegment, TempoSegment, TimingReport } from "./types/timingReport";
 
 function seg(start: number, end: number, bpm: number, anchor: number, source: "auto" | "manual" = "auto"): TempoSegment {
-  return { start_ms: start, end_ms: end, bpm, anchor_ms: anchor, confidence: 1, source, ratio_merged: [] };
+  return { start_ms: start, end_ms: end, bpm, anchor_ms: anchor, confidence: 1, source, notation_scale: 1, ratio_merged: [] };
 }
 
 function meter(start: number, end: number, numerator: number): MeterSegment {
@@ -23,7 +23,7 @@ const MP3: AudioSource = {
 
 function report(tempo: TempoSegment[], meters: MeterSegment[], source = MP3, spans: ConfidenceSpan[] = []): TimingReport {
   return {
-    schema_version: "2.5",
+    schema_version: "2.6",
     source,
     trim: { start_ms: tempo[0]?.start_ms ?? 0, end_ms: tempo.at(-1)?.end_ms ?? 0 },
     tempo_map: tempo as TimingReport["tempo_map"],
@@ -34,6 +34,7 @@ function report(tempo: TempoSegment[], meters: MeterSegment[], source = MP3, spa
     subdivision_sections: [],
     confidence_spans: spans,
     cross_check: null,
+    auto_result: null,
     edits: [],
   };
 }

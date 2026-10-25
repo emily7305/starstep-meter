@@ -11,6 +11,8 @@ interface Props {
   feels: SubdivisionSection[];
   // the bpm each one's segment has now
   feelBpm: number[];
+  // for a downbeat shift, how far into the bar on screen the tracker's bars restart, by suggestion index
+  shiftBeats: (number | null)[];
   selectedFeel: number | null;
   disabled: boolean;
   onSelect: (index: number) => void;
@@ -26,7 +28,15 @@ export function suggestionKindText(kind: NotationSuggestion["kind"]): string {
       return "double time";
     case "fold":
       return "fold into neighbour";
+    case "shift":
+      return "downbeat may shift here";
   }
+}
+
+// what the bpm column says for a downbeat shift, the bpm doesn't change
+export function shiftText(beats: number | null): string {
+  if (beats === null || beats === 0) return "bars restart here";
+  return `bars restart ${beats} ${beats === 1 ? "beat" : "beats"} into the bar`;
 }
 
 // the decided ones stay in the report as history, one line is all they get on screen
@@ -40,7 +50,7 @@ export function decidedText(suggestions: NotationSuggestion[]): string {
 }
 
 export function SuggestionList(props: Props) {
-  const { suggestions, selected, feels, feelBpm, selectedFeel, disabled, onSelect, onSelectFeel, onEdit } = props;
+  const { suggestions, selected, feels, feelBpm, shiftBeats, selectedFeel, disabled, onSelect, onSelectFeel, onEdit } = props;
   // the indices stay those of the full array, that's what the edits and the timeline use
   const open = suggestions.flatMap((suggestion, i) => (suggestion.status === "open" ? [{ suggestion, i }] : []));
   const decided = decidedText(suggestions);
@@ -68,10 +78,19 @@ export function SuggestionList(props: Props) {
                 <span className="suggestions__range mono">
                   {formatMs(suggestion.start_ms)} → {formatMs(suggestion.end_ms)}
                 </span>
-                <span className="suggestions__bpm mono">
-                  {formatBpm(suggestion.suggested_bpm)}
-                  <span className="suggestions__from"> from {formatBpm(suggestion.grid_bpm)}</span>
-                </span>
+                {suggestion.kind === "shift" ? (
+                  <span
+                    className="suggestions__bpm"
+                    title="the tracker heard one short bar here and its bars carry on from it, apply restarts the bars on this beat"
+                  >
+                    {shiftText(shiftBeats[i] ?? null)}
+                  </span>
+                ) : (
+                  <span className="suggestions__bpm mono">
+                    {formatBpm(suggestion.suggested_bpm)}
+                    <span className="suggestions__from"> from {formatBpm(suggestion.grid_bpm)}</span>
+                  </span>
+                )}
                 <span className="suggestions__score mono" title="how clear it is, 1 is as clear as it gets">
                   {suggestion.score.toFixed(2)}
                 </span>

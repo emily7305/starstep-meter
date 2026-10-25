@@ -49,6 +49,33 @@
       "title": "AudioSource",
       "type": "object"
     },
+    "AutoResult": {
+      "additionalProperties": false,
+      "properties": {
+        "meter_map": {
+          "items": {
+            "$ref": "#/$defs/MeterSegment"
+          },
+          "title": "Meter Map",
+          "type": "array"
+        },
+        "tempo_map": {
+          "description": "every segment auto, notation_scale 1",
+          "items": {
+            "$ref": "#/$defs/TempoSegment"
+          },
+          "minItems": 1,
+          "title": "Tempo Map",
+          "type": "array"
+        }
+      },
+      "required": [
+        "tempo_map",
+        "meter_map"
+      ],
+      "title": "AutoResult",
+      "type": "object"
+    },
     "ConfidenceSpan": {
       "additionalProperties": false,
       "properties": {
@@ -298,11 +325,12 @@
           "type": "number"
         },
         "kind": {
-          "description": "half: the span feels like half the grid's tempo, double: twice it, fold: a first or last stretch that may be its neighbour's tempo the analysis didn't fold in",
+          "description": "half: the span feels like half the grid's tempo, double: twice it, fold: a first or last stretch that may be its neighbour's tempo the analysis didn't fold in, shift: the downbeat may move at start_ms, the tracker's bars restarted there after one short bar the meter left out. applying it restarts the bars at start_ms, suggested_bpm is the grid's own then",
           "enum": [
             "half",
             "double",
-            "fold"
+            "fold",
+            "shift"
           ],
           "title": "Kind",
           "type": "string"
@@ -552,6 +580,12 @@
           "title": "End Ms",
           "type": "number"
         },
+        "notation_scale": {
+          "default": 1.0,
+          "description": "the bpm over the analysis' own bpm for this stretch when only x2 or /2 was applied, a power of two from 1/8 to 8. 1 for a segment as analyzed and for a manual one, whose bpm was set by hand",
+          "title": "Notation Scale",
+          "type": "number"
+        },
         "ratio_merged": {
           "description": "felt tempo sections (dotted, triplet feel) inside this segment that the analysis kept on its grid, splitting at a section's start_ms and end_ms gives it back its own tempo",
           "items": {
@@ -582,6 +616,7 @@
         "anchor_ms",
         "confidence",
         "source",
+        "notation_scale",
         "ratio_merged"
       ],
       "title": "TempoSegment",
@@ -615,6 +650,18 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "auto_result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AutoResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "the tempo and meter map the latest analysis gave without any manual segment, for comparing a manual segment with and for reset to auto. analysis output, null in a report upgraded from before 2.6"
+    },
     "confidence_spans": {
       "description": "confidence over stretches of the auto tempo segments, sorted by time. analysis output, edits don't change it and a re-analysis replaces it",
       "items": {
@@ -666,8 +713,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "2.5",
-      "default": "2.5",
+      "const": "2.6",
+      "default": "2.6",
       "title": "Schema Version",
       "type": "string"
     },
@@ -713,6 +760,7 @@
     "subdivision_sections",
     "confidence_spans",
     "cross_check",
+    "auto_result",
     "edits"
   ],
   "title": "TimingReport",

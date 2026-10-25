@@ -258,6 +258,15 @@ export function visibleMapLines(grid: TempoGrid, view: View): PlacedMapLine[] {
 }
 
 // the segment a time falls in by its start and end, clamped to the first and last
+// how many beats past the last bar line a time is, for "the bars would restart 1 beat in". null
+// before the first bar line
+export function beatsIntoBar(grid: TempoGrid, map: { start_ms: number; bpm: number }[], timeMs: number): number | null {
+  const line = grid.bars.filter((b) => b.timeMs <= timeMs + 0.5).at(-1);
+  const seg = map[segmentAt(map, timeMs)];
+  if (line === undefined || seg === undefined) return null;
+  return Math.round((timeMs - line.timeMs) / (60000 / seg.bpm));
+}
+
 export function segmentAt(map: { start_ms: number }[], timeMs: number): number {
   if (map.length === 0) return -1;
   for (let i = map.length - 1; i >= 0; i -= 1) {

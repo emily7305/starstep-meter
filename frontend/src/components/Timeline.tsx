@@ -9,6 +9,7 @@ import type { SaveState } from "../tempoEdits";
 import {
   type AnchorDraft,
   bands,
+  beatsIntoBar,
   meterOrDefault,
   nearestLineMs,
   segmentAt,
@@ -124,6 +125,10 @@ export function Timeline(props: Props) {
     [tempoMap, meterMap, durationMs, draft, report, beats, firstMeasure],
   );
   const suggestions = report?.notation_suggestions;
+  const shiftBeats = useMemo(
+    () => (suggestions ?? []).map((sg) => (sg.kind === "shift" && grid !== null && tempoMap !== null ? beatsIntoBar(grid, tempoMap, sg.start_ms) : null)),
+    [suggestions, grid, tempoMap],
+  );
   // only the open ones go on the timeline, the decided ones are history
   const marks = useMemo(
     () =>
@@ -636,6 +641,7 @@ export function Timeline(props: Props) {
                 selected={suggestion}
                 feels={subdivisions}
                 feelBpm={feelBpm}
+                shiftBeats={shiftBeats}
                 selectedFeel={feel}
                 disabled={!ready || !editable}
                 onSelect={goToSuggestion}

@@ -1,4 +1,4 @@
-"""Timing report schema v2.5.
+"""Timing report schema v2.6.
 
 All times are milliseconds from the first sample of the decoded audio
 (ffmpeg's output, before any trimming). Bars are 0-based, beats inside
@@ -11,10 +11,13 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "2.5"
+SCHEMA_VERSION = "2.6"
 
 # every segment says where it came from, re-analysis only ever replaces "auto"
 SegmentSource = Literal["auto", "manual"]
+
+# x2 and /2 applied up to three times either way, exact in binary so they compare with ==
+NOTATION_SCALES = (0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
 
 
 class _Strict(BaseModel):
@@ -85,6 +88,13 @@ class TempoSegment(_Strict):
         "the bpm or anchor was set by hand",
     )
     source: SegmentSource
+    # x2 and /2 are how a chart writes the pulse, not a correction of the analysis, so they don't make
+    # a segment manual. re-analysis puts the same factor on the new auto segment
+    notation_scale: float = Field(
+        default=1.0,
+        description="the bpm over the analysis' own bpm for this stretch when only x2 or /2 was applied, a power of "
+        "two from 1/8 to 8. 1 for a segment as analyzed and for a manual one, whose bpm was set by hand",
+    )
     ratio_merged: list[RatioMergedSection] = Field(
         default_factory=list,
         description="felt tempo sections (dotted, triplet feel) inside this segment that the analysis kept "
@@ -95,6 +105,8 @@ class TempoSegment(_Strict):
     def _ordered(self) -> TempoSegment:
         if self.end_ms <= self.start_ms:
             raise ValueError("tempo segment end_ms has to be after start_ms")
+        if self.notation_scale not in NOTATION_SCALES:
+            raise ValueError("notation_scale has to be a power of two from 1/8 to 8")
         for note in self.ratio_merged:
             if note.start_ms < self.start_ms or note.end_ms > self.end_ms:
                 raise ValueError("a ratio merged section has to be inside its tempo segment")
@@ -195,7 +207,7 @@ class CrossCheck(_Strict):
     )
 
 
-NotationKind = Literal["half", "double", "fold"]
+NotationKind = Literal["half", "double", "fold", "shift"]
 SuggestionStatus = Literal["open", "applied", "dismissed"]
 
 
@@ -205,7 +217,9 @@ class NotationSuggestion(_Strict):
     end_ms: float = Field(ge=0)
     kind: NotationKind = Field(
         description="half: the span feels like half the grid's tempo, double: twice it, "
-        "fold: a first or last stretch that may be its neighbour's tempo the analysis didn't fold in"
+        "fold: a first or last stretch that may be its neighbour's tempo the analysis didn't fold in, "
+        "shift: the downbeat may move at start_ms, the tracker's bars restarted there after one short bar the "
+        "meter left out. applying it restarts the bars at start_ms, suggested_bpm is the grid's own then"
     )
     suggested_bpm: float = Field(gt=0)
     grid_bpm: float = Field(gt=0, description="bpm of the tempo segment the suggestion was made on")
@@ -261,8 +275,14 @@ class Edit(_Strict):
     timestamp: AwareDatetime
 
 
+class AutoResult(_Strict):
+    # what the latest analysis found on its own, before the manual segments were put back
+    tempo_map: list[TempoSegment] = Field(min_length=1, description="every segment auto, notation_scale 1")
+    meter_map: list[MeterSegment] = Field(default_factory=list)
+
+
 class TimingReport(_Strict):
-    schema_version: Literal["2.5"] = SCHEMA_VERSION
+    schema_version: Literal["2.6"] = SCHEMA_VERSION
     source: AudioSource
     trim: Trim
     # contiguous, the first downbeat is tempo_map[0].anchor_ms. no player compensation, see docs/decisions.md
@@ -293,6 +313,11 @@ class TimingReport(_Strict):
     )
     cross_check: CrossCheck | None = Field(
         default=None, description="the second tracker's verdict per tempo segment, null when it didn't run"
+    )
+    auto_result: AutoResult | None = Field(
+        default=None,
+        description="the tempo and meter map the latest analysis gave without any manual segment, for comparing a "
+        "manual segment with and for reset to auto. analysis output, null in a report upgraded from before 2.6",
     )
     # append-only, one entry per manual change
     edits: list[Edit] = Field(default_factory=list)
@@ -336,7 +361,7 @@ class GridFeature(_Strict):
 
 class BeatsFile(_Strict):
     # beats live in their own file next to report.json, a long song has thousands
-    schema_version: Literal["2.5"] = SCHEMA_VERSION
+    schema_version: Literal["2.6"] = SCHEMA_VERSION
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="same file as the report it belongs to")
     # librosa is the fallback when madmom isn't installed, it has no downbeats so bars are guessed
     tracker: Literal["madmom", "librosa"]

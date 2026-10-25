@@ -44,7 +44,7 @@ export type GridFeatures = GridFeature[];
  * what the octave check did to the tracker's tempo, mixed when it differs between tempo segments, see docs/decisions.md
  */
 export type Octave = "kept" | "doubled" | "halved" | "mixed";
-export type SchemaVersion = "2.5";
+export type SchemaVersion = "2.6";
 /**
  * same file as the report it belongs to
  */

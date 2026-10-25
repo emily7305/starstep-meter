@@ -12,7 +12,7 @@ import { tempoGrid } from "./tempoMap";
 import type { MeterSegment, TempoSegment } from "./types/timingReport";
 
 function seg(start: number, end: number, bpm: number, anchor: number): TempoSegment {
-  return { start_ms: start, end_ms: end, bpm, anchor_ms: anchor, confidence: 1, source: "auto", ratio_merged: [] };
+  return { start_ms: start, end_ms: end, bpm, anchor_ms: anchor, confidence: 1, source: "auto", notation_scale: 1, ratio_merged: [] };
 }
 
 function meter(start: number, end: number, numerator: number, denominator = 4): MeterSegment {

@@ -15,7 +15,7 @@ import {
 import type { MeterSegment, TempoSegment } from "./types/timingReport";
 
 function seg(start: number, end: number, bpm: number, anchor: number, source: "auto" | "manual" = "auto"): TempoSegment {
-  return { start_ms: start, end_ms: end, bpm, anchor_ms: anchor, confidence: source === "auto" ? 1 : null, source, ratio_merged: [] };
+  return { start_ms: start, end_ms: end, bpm, anchor_ms: anchor, confidence: source === "auto" ? 1 : null, source, notation_scale: 1, ratio_merged: [] };
 }
 
 const DURATION_MS = 40000;

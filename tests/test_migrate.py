@@ -87,7 +87,7 @@ def test_1_1_report_becomes_2_4_field_by_field() -> None:
 
     out = upgrade_report(old)
 
-    assert out["schema_version"] == "2.5"
+    assert out["schema_version"] == "2.6"
     assert "beat_offset_ms" not in out
     assert out["tempo_map"] == [
         {
@@ -170,7 +170,7 @@ def test_upgraded_report_validates_as_a_timing_report() -> None:
 
     report = TimingReport.model_validate(out)
 
-    assert report.schema_version == "2.5"
+    assert report.schema_version == "2.6"
     segment = report.tempo_map[0]
     assert (segment.start_ms, segment.end_ms, segment.anchor_ms) == (2000.0, 21500.0, 2120.5)
     assert (segment.bpm, segment.confidence, segment.source) == (174.0123, 0.93, "auto")
@@ -185,7 +185,7 @@ def test_2_0_report_only_changes_its_version() -> None:
 
     out = upgrade_report(data)
 
-    assert out == {**report_2_0(), "schema_version": "2.5"}
+    assert out == {**report_2_0(), "schema_version": "2.6"}
     assert data == report_2_0()
     # nothing was ratio merged before 2.1, there were no off-beat runs before 2.2 and no suggestions before 2.3
     report = TimingReport.model_validate(out)
@@ -197,7 +197,7 @@ def test_2_0_report_only_changes_its_version() -> None:
 def test_2_1_report_only_changes_its_version() -> None:
     data = {**report_2_0(), "schema_version": "2.1"}
 
-    assert upgrade_report(data) == {**report_2_0(), "schema_version": "2.5"}
+    assert upgrade_report(data) == {**report_2_0(), "schema_version": "2.6"}
     assert TimingReport.model_validate(upgrade_report(data)).offbeat_runs == []
 
 
@@ -206,7 +206,7 @@ def test_2_2_report_only_changes_its_version() -> None:
 
     out = upgrade_report(data)
 
-    assert out == {**report_2_0(), "schema_version": "2.5"}
+    assert out == {**report_2_0(), "schema_version": "2.6"}
     assert data == {**report_2_0(), "schema_version": "2.2"}
     report = TimingReport.model_validate(out)
     assert (report.meter_map, report.notation_suggestions) == ([], [])
@@ -219,7 +219,7 @@ def test_a_meter_segment_by_bar_is_left_as_it_was_and_still_fails_validation() -
 
     out = upgrade_report(data)
 
-    assert out == {**report_2_0(), "schema_version": "2.5", "meter_map": meter}
+    assert out == {**report_2_0(), "schema_version": "2.6", "meter_map": meter}
     with pytest.raises(ValidationError, match="start_bar"):
         TimingReport.model_validate(out)
 
@@ -229,7 +229,7 @@ def test_2_3_report_only_changes_its_version() -> None:
 
     out = upgrade_report(data)
 
-    assert out == {**report_2_0(), "schema_version": "2.5"}
+    assert out == {**report_2_0(), "schema_version": "2.6"}
     assert data == {**report_2_0(), "schema_version": "2.3"}
     # no confidence spans or cross check were written before 2.4
     report = TimingReport.model_validate(out)
@@ -241,16 +241,16 @@ def test_2_4_report_only_changes_its_version() -> None:
 
     out = upgrade_report(data)
 
-    assert out == {**report_2_0(), "schema_version": "2.5"}
+    assert out == {**report_2_0(), "schema_version": "2.6"}
     assert data == {**report_2_0(), "schema_version": "2.4"}
     # no swing or gallop sections were written before 2.5, a re-analysis finds them
     assert TimingReport.model_validate(out).subdivision_sections == []
 
 
-def test_2_5_report_passes_through_unchanged() -> None:
-    data = {**report_2_0(), "schema_version": "2.5"}
+def test_2_6_report_passes_through_unchanged() -> None:
+    data = {**report_2_0(), "schema_version": "2.6"}
 
-    assert upgrade_report(data) == {**report_2_0(), "schema_version": "2.5"}
+    assert upgrade_report(data) == {**report_2_0(), "schema_version": "2.6"}
 
 
 def test_1_0_report_passes_through_unchanged_and_still_fails_validation() -> None:
@@ -282,7 +282,7 @@ def test_1_1_beats_become_2_4_with_the_octave_kept() -> None:
 
     out = upgrade_beats(old)
 
-    assert out == {**beats_1_1(), "schema_version": "2.5", "octave": "kept"}
+    assert out == {**beats_1_1(), "schema_version": "2.6", "octave": "kept"}
     assert out["beats"] == old["beats"]
 
 
@@ -297,7 +297,7 @@ def test_beats_upgrade_does_not_modify_its_input() -> None:
 def test_upgraded_beats_validate_as_a_beats_file() -> None:
     beats = BeatsFile.model_validate(upgrade_beats(beats_1_1()))
 
-    assert beats.schema_version == "2.5"
+    assert beats.schema_version == "2.6"
     assert (beats.sha256, beats.tracker, beats.octave) == (SHA, "madmom", "kept")
     assert [b.time_ms for b in beats.beats] == [2000.0, 2500.0]
     assert [b.is_downbeat for b in beats.beats] == [True, False]
@@ -307,14 +307,14 @@ def test_2_0_beats_only_change_their_version() -> None:
     out = upgrade_beats(beats_2_0())
 
     # the octave check's answer is not overwritten
-    assert out == {**beats_2_0(), "schema_version": "2.5"}
+    assert out == {**beats_2_0(), "schema_version": "2.6"}
     assert BeatsFile.model_validate(out).octave == "doubled"
 
 
 def test_2_1_beats_only_change_their_version() -> None:
     data = {**beats_2_0(), "schema_version": "2.1"}
 
-    assert upgrade_beats(data) == {**beats_2_0(), "schema_version": "2.5"}
+    assert upgrade_beats(data) == {**beats_2_0(), "schema_version": "2.6"}
 
 
 def test_2_2_beats_only_change_their_version() -> None:
@@ -322,7 +322,7 @@ def test_2_2_beats_only_change_their_version() -> None:
 
     out = upgrade_beats(data)
 
-    assert out == {**beats_2_0(), "schema_version": "2.5"}
+    assert out == {**beats_2_0(), "schema_version": "2.6"}
     # there was no grid_features before 2.3, it starts empty
     assert BeatsFile.model_validate(out).grid_features == []
 
@@ -332,7 +332,7 @@ def test_2_3_beats_only_change_their_version() -> None:
 
     out = upgrade_beats(data)
 
-    assert out == {**beats_2_0(), "schema_version": "2.5"}
+    assert out == {**beats_2_0(), "schema_version": "2.6"}
     assert data == {**beats_2_0(), "schema_version": "2.3"}
     # there were no cross check beats before 2.4, it starts empty
     assert BeatsFile.model_validate(out).cross_check_beats == []
@@ -341,13 +341,13 @@ def test_2_3_beats_only_change_their_version() -> None:
 def test_2_4_beats_only_change_their_version() -> None:
     data = {**beats_2_0(), "schema_version": "2.4"}
 
-    assert upgrade_beats(data) == {**beats_2_0(), "schema_version": "2.5"}
+    assert upgrade_beats(data) == {**beats_2_0(), "schema_version": "2.6"}
 
 
-def test_2_5_beats_pass_through_unchanged() -> None:
-    data = {**beats_2_0(), "schema_version": "2.5"}
+def test_2_6_beats_pass_through_unchanged() -> None:
+    data = {**beats_2_0(), "schema_version": "2.6"}
 
-    assert upgrade_beats(data) == {**beats_2_0(), "schema_version": "2.5"}
+    assert upgrade_beats(data) == {**beats_2_0(), "schema_version": "2.6"}
 
 
 def test_1_0_beats_pass_through_unchanged_and_still_fail_validation() -> None:
@@ -369,3 +369,70 @@ def test_anything_else_passes_through_unchanged_for_beats(data: object) -> None:
     before = copy.deepcopy(data)
 
     assert upgrade_beats(data) == before
+
+
+# --- 2.5 -> 2.6: x2 and /2 as a notation choice ---
+
+
+def report_2_5(tempo_map: list[dict], edits: list[dict]) -> dict:
+    return {**report_2_0(), "schema_version": "2.5", "tempo_map": tempo_map, "edits": edits}
+
+
+def _seg(bpm: float, source: str = "manual", confidence: float | None = None, **extra: object) -> dict:
+    return {"start_ms": 2000.0, "end_ms": 21500.0, "bpm": bpm, "anchor_ms": 2120.5, "confidence": confidence, "source": source, **extra}
+
+
+def _edit(field: str, old: object, new: object) -> dict:
+    return {"field": field, "old": old, "new": new, "timestamp": "2026-10-20T10:00:00Z"}
+
+
+def test_a_segment_only_halved_by_hand_becomes_auto_with_its_notation_scale() -> None:
+    edits = [_edit("tempo_map/0", {"bpm": 291.9899, "confidence": 0.89, "source": "auto"}, {"bpm": 145.99495, "confidence": None, "source": "manual"})]
+    out = upgrade_report(report_2_5([_seg(145.99495)], edits))
+
+    (seg,) = TimingReport.model_validate(out).tempo_map
+    assert (seg.source, seg.notation_scale, seg.bpm, seg.confidence) == ("auto", 0.5, 145.99495, 0.89)
+    # the log stays as it was, it's append-only
+    assert out["edits"] == edits
+    assert TimingReport.model_validate(out).auto_result is None
+
+
+def test_x2_twice_and_the_old_one_entry_per_field_log_count_too() -> None:
+    edits = [
+        _edit("tempo_map/0/bpm", 100.0, 200.0),
+        _edit("tempo_map/0/source", "auto", "manual"),
+        _edit("tempo_map/0/confidence", 0.97, None),
+        _edit("tempo_map/0/bpm", 200.0, 400.0),
+    ]
+    (seg,) = TimingReport.model_validate(upgrade_report(report_2_5([_seg(400.0)], edits))).tempo_map
+    assert (seg.source, seg.notation_scale, seg.confidence) == ("auto", 4.0, 0.97)
+
+
+@pytest.mark.parametrize(
+    "edits",
+    [
+        # a nudge is a real change
+        [_edit("tempo_map/0", {"bpm": 291.9899, "confidence": 0.89, "source": "auto"}, {"bpm": 145.99495, "confidence": None, "source": "manual"}),
+         _edit("tempo_map/0/anchor_ms", 2120.5, 2121.5)],
+        # a bpm that isn't a power of two off
+        [_edit("tempo_map/0", {"bpm": 194.66, "confidence": 0.89, "source": "auto"}, {"bpm": 145.99495, "confidence": None, "source": "manual"})],
+        # a split renumbers the segments, an index in an older entry can't be trusted
+        [_edit("tempo_map/0", {"bpm": 291.9899, "confidence": 0.89, "source": "auto"}, {"bpm": 145.99495, "confidence": None, "source": "manual"}),
+         _edit("tempo_map", [], [])],
+        # x2 then /2 is back where it was, but it was set by hand all the same
+        [_edit("tempo_map/0/bpm", 145.99495, 291.9899), _edit("tempo_map/0/bpm", 291.9899, 145.99495)],
+    ],
+    ids=["nudged", "not-a-power-of-two", "split", "back-to-one"],
+)
+def test_other_manual_segments_stay_manual(edits: list[dict]) -> None:
+    (seg,) = TimingReport.model_validate(upgrade_report(report_2_5([_seg(145.99495)], edits))).tempo_map
+    assert (seg.source, seg.notation_scale) == ("manual", 1.0)
+
+
+def test_only_the_segment_the_edits_name_moves() -> None:
+    first = {**_seg(120.0, "auto", 0.9), "end_ms": 10000.0}
+    second = {**_seg(300.0), "start_ms": 10000.0, "anchor_ms": 10000.0}
+    edits = [_edit("tempo_map/1", {"bpm": 150.0, "confidence": 0.8, "source": "auto"}, {"bpm": 300.0, "confidence": None, "source": "manual"})]
+    a, b = TimingReport.model_validate(upgrade_report(report_2_5([first, second], edits))).tempo_map
+    assert (a.source, a.notation_scale) == ("auto", 1.0)
+    assert (b.source, b.notation_scale, b.confidence) == ("auto", 2.0, 0.8)

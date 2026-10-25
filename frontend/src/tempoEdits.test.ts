@@ -23,13 +23,14 @@ function seg(start: number, end: number, bpm: number, anchor: number, confidence
     anchor_ms: anchor,
     confidence,
     source: confidence === null ? "manual" : "auto",
+    notation_scale: 1,
     ratio_merged: [],
   };
 }
 
 function makeReport(edits: Edit[] = []): TimingReport {
   return {
-    schema_version: "2.5",
+    schema_version: "2.6",
     source: {
       filename: "song.wav",
       sha256: "0".repeat(64),
@@ -47,6 +48,7 @@ function makeReport(edits: Edit[] = []): TimingReport {
     subdivision_sections: [],
     confidence_spans: [],
     cross_check: null,
+    auto_result: null,
     edits,
   };
 }

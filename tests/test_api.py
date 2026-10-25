@@ -116,7 +116,7 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert resp.status_code == 200, resp.text
     report = TimingReport.model_validate(resp.json())
 
-    assert report.schema_version == "2.5"
+    assert report.schema_version == "2.6"
     assert report.source.filename == "click 120.wav"
     assert report.source.codec == "pcm_f32le"
     assert report.source.decoder_padding_samples == 0
@@ -375,7 +375,7 @@ def test_unexpected_exception_is_recorded_at_the_last_stage(settings: Settings, 
     (job_dir / "original.wav").write_bytes(b"x")
     store.write_job(job_id, "song.wav", "0" * 64, 1)
 
-    def broken_analysis(original_path, work_dir, filename, sha256, on_stage=None, config=None, previous=None):
+    def broken_analysis(original_path, work_dir, filename, sha256, on_stage=None, config=None, previous=None, keep_edits=True):
         on_stage("decode")
         on_stage("trim")
         raise ValueError("boom")
