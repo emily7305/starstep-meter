@@ -8,7 +8,9 @@ Milestone 3 runs on your own machine, and adds tempo maps to the beat tracking o
 
 Milestone 4 adds meter and notation suggestions. The analysis infers the meter (beats per bar) of each tempo segment from madmom's downbeats, and the accents get a say where they are clearly stronger than the other beats of a bar. Bar lines are drawn from the meter map, and a meter can be set by hand per region. It also suggests where a chart may write the pulse at half or twice the tempo (a half or double time feel, read from the kick and snare bands), and where a first or last stretch of the song may be its neighbour's tempo (a fold). Suggestions are never applied automatically. Each one can be applied, as one edit (a half or double time feel leaves every grid line where it is), or dismissed, and both stay through re-analysis.
 
-It does not find sections, make a click track, or export with per-player offset compensation yet; those are later milestones. The tempo map and the meter are tuned on synthetic tracks and a handful of real songs. The half and double time suggestions found nothing on the three real songs checked so far, whose drums show no plain backbeat to read (see `docs/decisions.md`), so on a real song check the bands, the bar lines and the suggestions, and fix them by hand where they are wrong. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports (when they exist) contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
+Milestone 5 adds export and a way to check the grid by ear. The timing JSON downloads from the browser, with the beats file if asked for, and is checked against the JSON Schema in `shared/schema/` before it goes out. A Sonolus preset gives the values a Sonolus level needs (the bgm offset in seconds, the bpm changes and the time signatures), with a decoder compensation setting for a player that decodes the audio differently from ffmpeg. A click track plays a click on every beat and an accented one on every bar line, on the same audio clock as the song. Every manual change is one entry in the edit log. Old jobs are deleted after 14 days without a change, one job can be deleted by hand, and a job still waiting in the queue when the server stops runs when it starts again.
+
+It does not find sections yet. The tempo map and the meter are tuned on synthetic tracks and a handful of real songs. The half and double time suggestions found nothing on the three real songs checked so far, whose drums show no plain backbeat to read (see `docs/decisions.md`), so on a real song check the bands, the bar lines and the suggestions, and fix them by hand where they are wrong. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
 
 ## Dependencies and licenses
 
@@ -216,6 +218,18 @@ Under the detail strip is the "notation suggestions" list. Each open suggestion 
 
 Applying a half or double time suggestion splits the segment at both ends of the span, on bar lines, and sets the span to half or twice its bpm, so the bars there are twice or half as long, and every grid line stays where it is. A fold puts the stretch on its neighbour's grid, the way "match previous" and "match next" do. Applying is one edit, and dismissing only logs the status.
 
+"click track" next to play turns the click track on and off. It clicks on every beat line of the grid and plays a higher, louder click on every bar line, so it follows the tempo map, the meter and an anchor while it's being nudged. The clicks are scheduled on the same audio clock as the song, so they stay with it however long it plays. On Bluetooth headphones the sound comes out later than the playhead moves, the clicks and the song together, so watch the playhead on wired output (see "click track" in `docs/decisions.md`).
+
+Each edit in the report's edits list is one manual change. When one change touched several values, like the first ×2 on an auto segment (the bpm, plus the switch to manual and the dropped confidence), the entry has a line for each.
+
+The export block in the source column downloads the JSON. "timing json" is the report as it is, and "include beats.json" adds the beats file. "sonolus" gives the values for a Sonolus level instead, see "Sonolus export" below. The file is named after the song, like `song.timing.json` or `song.sonolus.json`. The last choice is remembered in the browser.
+
+To delete a job and its files, upload and decoded wav included, use the job id from the url:
+
+```bash
+curl -X DELETE http://127.0.0.1:8000/api/jobs/<job id>
+```
+
 ### Settings
 
 Settings come from environment variables. Set them in the terminal before you start the backend. In PowerShell:
@@ -241,6 +255,7 @@ python -m backend.api
 | `STARSTEP_MIN_BPM` | 60 | The slowest tempo, in bpm, that any tempo path considers |
 | `STARSTEP_MAX_BPM` | 320 | The fastest tempo, in bpm, that any tempo path considers |
 | `STARSTEP_WORKERS` | 1 | Number of analysis workers |
+| `STARSTEP_RETENTION_DAYS` | 14 | Job folders that haven't changed for this many days are deleted at startup, 0 keeps them |
 
 ### CLI without the server
 
@@ -254,7 +269,9 @@ With `-v`, stage progress and debug numbers go to stderr, including the `beats` 
 
 ### Storage
 
-Each job keeps a copy of the upload, the decoded WAV, and `beats.json` (every tracked beat, with its raw and snapped time) under `data/jobs/<job id>/`. `beats.json` also holds the band strengths (low, mid and high) at every grid line and half line. They are timing numbers only, and they let the suggestions be checked again without the audio. The decoded WAV is mono float32, about 10 MB per minute at 44.1 kHz. Old job folders are not removed automatically yet, so delete them by hand. `data/` is git-ignored.
+Each job keeps a copy of the upload, the decoded WAV, and `beats.json` (every tracked beat, with its raw and snapped time) under `data/jobs/<job id>/`. `beats.json` also holds the band strengths (low, mid and high) at every grid line and half line. They are timing numbers only, and they let the suggestions be checked again without the audio. The decoded WAV is mono float32, about 10 MB per minute at 44.1 kHz. When the server starts, it deletes job folders that haven't changed for 14 days (`STARSTEP_RETENTION_DAYS`). A change is the upload, an analysis or re-analysis, or an edit, so a job you're still editing stays, and one you only open or export doesn't count as changed. `data/` is git-ignored.
+
+A job that was still waiting in the queue when the server stopped runs when it starts again. One that was in the middle of its analysis is marked failed instead ("server restarted before the job finished"), and "re-analyze" runs it again.
 
 ## Real songs: eval_local.py
 
@@ -314,12 +331,12 @@ npm run check:types
 npm run build
 ```
 
-The frontend tests cover the beat-to-pixel mapping, the tempo map grid with the bar lines from the meter map, the edit queue, the suggestion helpers and the job url helpers.
+The frontend tests cover the beat-to-pixel mapping, the tempo map grid with the bar lines from the meter map, the edit queue, the suggestion helpers, the job url helpers, the edit log rows, the export options, and the click track and player on a fake audio context.
 
-When you change `backend/schema/models.py`:
+When you change `backend/schema/models.py` or `backend/schema/export_models.py`:
 
-1. Run `python -m backend.schema.export_schema`. It writes both schemas, `shared/schema/timing_report.schema.json` and `shared/schema/beats.schema.json`.
-2. In `frontend`, run `npm run gen:types`. It regenerates both TypeScript files, `frontend/src/types/timingReport.ts` and `frontend/src/types/beats.ts`.
+1. Run `python -m backend.schema.export_schema`. It writes every schema in `shared/schema/`: the report, the beats file and the two exports.
+2. In `frontend`, run `npm run gen:types`. It regenerates one TypeScript file per schema in `frontend/src/types/`.
 3. Add a line to `docs/schema-changelog.md`. Bump `schema_version` for breaking changes.
 
 ## Milestone 1 manual check
@@ -517,6 +534,69 @@ In the UI, upload `drums-check.wav` and wait for the job to finish.
 The suggestions are tuned on these synthetic drums only, so run `scripts/eval_local.py` on your songs again and compare the `notation_suggestions` column with the charts. To let `tests/test_real_song.py` check MisoilePunch♪ (4/4 and no suggestions), YOUNITHM (half at the measures charted at 130, an expected failure for now) and ENDYMION (a fold for its outro), analyze each one again and copy its `beats.json` and `report.json` into `tests/real/<song>/` as before.
 
 Don't commit the generated audio.
+
+## Sonolus export
+
+"sonolus" in the export block, or `GET /api/jobs/<job id>/export?preset=sonolus`, gives:
+
+- `level_data`: `bgmOffset` and one `#BPM_CHANGE` entity per tempo (with `#BEAT` and `#BPM`), in Sonolus' own level data shape. A level's own entities (initialization, stage, notes) go next to these.
+- `bpm_changes`: the same changes, each with its time in ms on the report's timeline, for checking against the tempo map.
+- `time_signatures`: the meter as beat positions. Sonolus level data has no time signature, so these are for the chart editor. A bar that a tempo change or a meter split cuts short gets its own entry.
+- `first_downbeat_beat`: the beat the song's first downbeat lands on.
+
+Level time 0 is beat 0, and the bgm plays at level time + `bgmOffset` seconds, which is how the official Sonolus converters use it. Beat 0 is a bar line at or before the start of the audio, so the intro isn't cut and `bgmOffset` is 0 or negative before decoder compensation. Where these conventions come from is in `docs/decisions.md` (Sonolus export).
+
+Decoder compensation is how many ms later than ffmpeg the player's decoder plays the audio. It's 0 by default, which is right for a decoder that honours the gapless info in an mp3 or m4a. The other preset is the file's decoder padding, like 25.057 ms for an mp3 from lame, for a decoder that plays the padding. Only `bgmOffset` changes, every beat stays where it is. A wav or flac has no padding, so only 0 is offered.
+
+The same from the command line:
+
+```bash
+python -m backend.analysis.export data/jobs/<job id>/report.json --sonolus --decoder-padding
+python -m backend.analysis.export data/jobs/<job id>/report.json --beats data/jobs/<job id>/beats.json
+```
+
+## Milestone 5 listening check
+
+The expected values below are for madmom.
+
+Generate the accented 120 bpm click track from milestone 2 and an mp3 of it:
+
+```bash
+python scripts/make_click_track.py click-137.wav --bpm 120 --lead 0.1375 --accent
+ffmpeg -i click-137.wav -b:a 192k click-137.mp3
+```
+
+Start the backend and the frontend as described in Running, upload `click-137.mp3`, and wait for the job to finish. The first downbeat reads about 136.78 ms and the decoder padding 1105 samples.
+
+1. Press "click track", then play. Each generated click should have a click track click on it, and every 4th, the louder and higher generated one, an accented click. Listen for a flam (two attacks a few ms apart). There shouldn't be one. The clicks are a different pitch from the track's, so both stay audible.
+2. With the click track on, press → five times quickly with the timeline focused. The clicks move 5 ms later and the flam is clear. Press ← five times to come back. That's two edits, and the edits list shows each as one row.
+3. Click "split here" on a beat in the zoomed view, then ×2 on the second segment. The clicks double from that beat on, and the accents follow the bar lines. The edits list has one row per change. The ×2 row has a line for the bpm and one for the confidence, the split already made both halves manual.
+4. In the export block, pick "timing json" and press "export json". A file named `click-137.timing.json` downloads, and the report in it has the same tempo map and edits as the report column. Tick "include beats.json" and export again. The file now has a `beats` section.
+5. Pick "sonolus" and the 25.057 ms preset and export. `bgmOffset` is −1.838163 and `first_downbeat_beat` 4, the same as before the split, and `bpm_changes` has 120 bpm at beat 0 and 240 bpm at the beat of the split.
+6. Re-analyze. The manual segments stay, the click track follows them, and the edits list is unchanged.
+
+Then a real song. Play it with the click track on from a few bars in. If the accents drift off the downbeats, the tempo map is off there, and the timeline shows where.
+
+Don't commit the generated audio.
+
+### Checking the offset in Sonolus
+
+This checks the Sonolus preset in the real app, including how its player decodes the audio, which can't be checked from here.
+
+1. Export `click-137.mp3` with the sonolus preset twice, once at 0 ms and once with the 25.057 ms preset, as `click-0.sonolus.json` and `click-25.sonolus.json`.
+2. Make level data with a tap note on every beat for each of them:
+
+   ```bash
+   python scripts/make_sonolus_test_level.py click-0.sonolus.json click-0.data.gz --beats 32
+   python scripts/make_sonolus_test_level.py click-25.sonolus.json click-25.data.gz --beats 32
+   ```
+
+   The notes default to the pjsekai engine's `NormalTapNote` with `lane` 0 and `size` 1.5. For another engine, give its tap note with `--archetype` and its data with `--data name=value`.
+3. Make two levels with `click-137.mp3` as the bgm and each data file as the level data, served the way you serve your levels (the engine's dev server or your own server).
+4. Play each in auto play with note sound effects on. In the one that's right, every note's sound lands on a click of the bgm. In the other, they're about 25 ms apart, a clear flam. If the 0 ms level is right, Sonolus' decoder honours the gapless info on this device. If the 25 ms one is, it doesn't, and that preset is the one to use for mp3s on it. Do the same with an m4a if you use them, its padding is different.
+5. To be sure which way is which, add 0.05 to `bgmOffset` in the right level by hand. The notes should then come 50 ms after the clicks, since the bgm is further in at every level time.
+
+Do this once per device and player you chart for, and keep the compensation that worked. The export block remembers the last value.
 
 ## Docs
 
