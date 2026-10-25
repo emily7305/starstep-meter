@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -48,6 +49,7 @@ from backend.schema.models import (
     BeatsFile,
     ConfidenceSpan,
     CrossCheckSegment,
+    Edit,
     GridFeature,
     MeterSegment,
     NotationSuggestion,
@@ -241,6 +243,8 @@ def build_report(
     confidence: Confidence | None = None,
     cross: CrossCheck | None = None,
     subdivisions: list[SwingSection] | None = None,
+    keep_edits: bool = True,
+    now: datetime | None = None,
 ) -> TimingReport:
     tempo_map = tempo_segments(tempo, confidence.segments if confidence is not None else None)
     meter_map = meter_segments(meter) if meter is not None else []
@@ -248,7 +252,7 @@ def build_report(
     # before any manual segment goes back in, what a manual one gets compared with and reset to
     auto = AutoResult(tempo_map=tempo_map, meter_map=meter_map)
     edits = []
-    if previous is not None:
+    if previous is not None and keep_edits:
         # re-analysis: manual segments stay exactly as they were, and so does the edit log. x2 and
         # /2 go on top of the new auto segments. applied and dismissed suggestions are decisions
         # too, they stay and aren't suggested again
@@ -256,6 +260,27 @@ def build_report(
         meter_map = keep_manual_meter(previous.meter_map, meter_map)
         notes = keep_decided(previous.notation_suggestions, notes, tempo_map)
         edits = list(previous.edits)
+    elif previous is not None:
+        # start fresh: every manual change goes, and dropping them is one manual change itself.
+        # the log keeps what was there, so nothing is lost for good
+        edits = list(previous.edits)
+        if had_manual_changes(previous):
+            edits.append(
+                Edit(
+                    field="",
+                    old={
+                        "tempo_map": [t.model_dump(mode="json") for t in previous.tempo_map],
+                        "meter_map": [m.model_dump(mode="json") for m in previous.meter_map],
+                        "notation_suggestions": [n.model_dump(mode="json") for n in previous.notation_suggestions],
+                    },
+                    new={
+                        "tempo_map": [t.model_dump(mode="json") for t in tempo_map],
+                        "meter_map": [m.model_dump(mode="json") for m in meter_map],
+                        "notation_suggestions": [n.model_dump(mode="json") for n in notes],
+                    },
+                    timestamp=now or datetime.now(timezone.utc),
+                )
+            )
     return TimingReport(
         source=AudioSource(
             filename=filename,
@@ -282,6 +307,15 @@ def build_report(
         cross_check=cross_check_report(cross),
         auto_result=auto,
         edits=edits,
+    )
+
+
+def had_manual_changes(report: TimingReport) -> bool:
+    """Anything a re-analysis keeps: a manual segment or meter, x2 or /2, a decided suggestion."""
+    return (
+        any(t.source == "manual" or t.notation_scale != 1.0 for t in report.tempo_map)
+        or any(m.source == "manual" for m in report.meter_map)
+        or any(n.status != "open" for n in report.notation_suggestions)
     )
 
 
@@ -347,8 +381,12 @@ def run_analysis(
     on_stage: Callable[[RunStage], None] | None = None,
     config: AnalysisConfig = AnalysisConfig(),
     previous: TimingReport | None = None,
+    keep_edits: bool = True,
 ) -> AnalysisOutput:
-    """Run every stage on one file. With previous (re-analysis), its manual segments and edits carry over."""
+    """Run every stage on one file. With previous (re-analysis), its manual segments and edits carry over.
+
+    keep_edits False starts fresh: only the edit log carries over, with one entry for what was dropped.
+    """
     stage: RunStage = "decode"
 
     def enter(next_stage: RunStage) -> None:
@@ -448,7 +486,9 @@ def run_analysis(
         # keep whatever the stage said, the ui shows it as is
         raise StageError(stage, str(exc) or type(exc).__name__) from exc
 
-    report = build_report(filename, sha256, decoded, trim, tempo, previous, meter, suggestions, confidence, cross, subdivisions)
+    report = build_report(
+        filename, sha256, decoded, trim, tempo, previous, meter, suggestions, confidence, cross, subdivisions, keep_edits=keep_edits
+    )
     beats = build_beats_file(sha256, tracked, octave, snap, tempo, features, second)
     return AnalysisOutput(
         report=report,

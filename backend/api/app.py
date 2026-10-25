@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePath
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
@@ -192,8 +192,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise stale_report(exc) from exc
 
     @router.post("/jobs/{job_id}/reanalyze", status_code=202, response_model=JobCreated)
-    def reanalyze(job_id: str) -> JobCreated:
-        # runs the analysis again on the stored upload, manual segments and the edit log carry over
+    def reanalyze(job_id: str, mode: Literal["keep", "fresh"] = "keep") -> JobCreated:
+        # runs the analysis again on the stored upload. keep: manual segments, x2 and /2, decided
+        # suggestions and the edit log carry over. fresh: only the edit log, with one entry for the rest
         status = store.read_status(job_id)
         if status is None:
             raise HTTPException(404, "job not found")
@@ -202,7 +203,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if store.find_original(job_id) is None:
             raise HTTPException(409, "the original upload is missing, upload the file again")
         store.write_status(job_id, JobStatus(status="queued", stage="queued"))
-        runner.submit(job_id)
+        # a cancel goes back to this, the report on disk stays untouched until the run succeeds
+        runner.submit(job_id, keep_edits=mode == "keep", before=status if store.has_report(job_id) else None)
+        return JobCreated(job_id=job_id)
+
+    @router.post("/jobs/{job_id}/cancel", status_code=202, response_model=JobCreated)
+    def cancel_job(job_id: str) -> JobCreated:
+        # a first analysis is deleted, a re-analysis goes back to the report it had
+        status = store.read_status(job_id)
+        if status is None:
+            raise HTTPException(404, "job not found")
+        if status.status not in ("queued", "running") or not runner.cancel(job_id):
+            raise HTTPException(409, f"job isn't running, it's {status.status}")
         return JobCreated(job_id=job_id)
 
     @router.delete("/jobs/{job_id}", status_code=204)

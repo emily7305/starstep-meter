@@ -138,8 +138,8 @@ def fake_analysis(monkeypatch: pytest.MonkeyPatch, behave: Callable[[Path, Calla
     # what run_analysis was called with, one entry per run. entries is what was in the work folder at the start
     calls: list[SimpleNamespace] = []
 
-    def run(original_path, work_dir, filename, sha256, on_stage=None, config=None, previous=None):
-        calls.append(SimpleNamespace(work_dir=work_dir, previous=previous, entries=names(work_dir)))
+    def run(original_path, work_dir, filename, sha256, on_stage=None, config=None, previous=None, keep_edits=True):
+        calls.append(SimpleNamespace(work_dir=work_dir, previous=previous, keep_edits=keep_edits, entries=names(work_dir)))
         return behave(work_dir, on_stage)
 
     monkeypatch.setattr("backend.api.jobs.run_analysis", run)
@@ -460,7 +460,7 @@ def test_recover_removes_a_leftover_staging_folder(
     before = good_files(job_dir)
     # a queued job is only handed to the runner here, a real run would make the staging folder again
     submitted: list[str] = []
-    monkeypatch.setattr(JobRunner, "submit", lambda self, queued_id: submitted.append(queued_id))
+    monkeypatch.setattr(JobRunner, "submit", lambda self, queued_id, **_: submitted.append(queued_id))
     expected = [job_id] if requeued else []
 
     store = JobStore(settings.jobs_dir)

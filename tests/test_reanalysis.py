@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -184,3 +186,111 @@ def test_reset_on_a_report_without_an_analysis_result_says_why(client: TestClien
     resp = client.patch(f"/api/jobs/{job_id}/report", json={"op": "reset_segment", "segment": 0})
     assert resp.status_code == 422
     assert "analyze it again" in resp.json()["detail"]
+
+
+# --- keep my edits or start fresh ---
+
+
+def test_the_reanalyze_mode_reaches_the_pipeline(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    job_id = write_job(settings, "done", "done")
+    calls = fake_analysis(monkeypatch, succeeds)
+
+    assert reanalyze(client, job_id)["status"] == "done"
+    resp = client.post(f"/api/jobs/{job_id}/reanalyze?mode=fresh")
+    assert resp.status_code == 202, resp.text
+    assert wait_for_job(client, job_id)["status"] == "done"
+    assert [c.keep_edits for c in calls] == [True, False]
+    assert client.post(f"/api/jobs/{job_id}/reanalyze?mode=everything").status_code == 422
+
+
+@pytest.mark.ffmpeg
+def test_halving_stays_a_notation_choice_through_reanalysis_and_start_fresh_drops_it(client: TestClient) -> None:
+    job_id, first = _click_job(client)
+    (auto,) = first["tempo_map"]
+    halved = _patch(client, job_id, {"op": "set_bpm", "segment": 0, "bpm": auto["bpm"] / 2})
+    (seg,) = halved["tempo_map"]
+    assert (seg["source"], seg["notation_scale"], seg["confidence"]) == ("auto", 0.5, auto["confidence"])
+    (edit,) = halved["edits"]
+    assert edit["field"] == "tempo_map/0"
+    assert edit["new"] == {"bpm": auto["bpm"] / 2, "notation_scale": 0.5}
+
+    # keep my edits: the new auto segment, with the /2 on top
+    assert reanalyze(client, job_id)["status"] == "done"
+    kept = client.get(f"/api/jobs/{job_id}/report").json()
+    (seg,) = kept["tempo_map"]
+    assert (seg["source"], seg["notation_scale"], seg["bpm"]) == ("auto", 0.5, auto["bpm"] / 2)
+    assert kept["auto_result"]["tempo_map"] == first["tempo_map"]
+    assert kept["edits"] == halved["edits"]
+
+    # start fresh: the analysis as it comes, and one entry that says what went
+    resp = client.post(f"/api/jobs/{job_id}/reanalyze?mode=fresh")
+    assert resp.status_code == 202, resp.text
+    assert wait_for_job(client, job_id)["status"] == "done"
+    fresh = client.get(f"/api/jobs/{job_id}/report").json()
+    assert fresh["tempo_map"] == first["tempo_map"]
+    assert fresh["edits"][:-1] == halved["edits"]
+    dropped = fresh["edits"][-1]
+    assert dropped["field"] == ""
+    assert dropped["old"]["tempo_map"] == kept["tempo_map"]
+    assert dropped["new"]["tempo_map"] == first["tempo_map"]
+
+    # nothing manual left, so starting fresh again logs nothing
+    client.post(f"/api/jobs/{job_id}/reanalyze?mode=fresh")
+    assert wait_for_job(client, job_id)["status"] == "done"
+    assert client.get(f"/api/jobs/{job_id}/report").json()["edits"] == fresh["edits"]
+
+
+# --- cancel ---
+
+
+def _held_at_trim(gate: threading.Event, started: threading.Event):
+    def behave(work_dir: Path, on_stage):
+        on_stage("decode")
+        started.set()
+        gate.wait(10)
+        # the runner says stop here
+        on_stage("trim")
+        return succeeds(work_dir, on_stage)
+
+    return behave
+
+
+@pytest.mark.ffmpeg
+def test_cancelling_a_first_analysis_deletes_the_job(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    gate, started = threading.Event(), threading.Event()
+    fake_analysis(monkeypatch, _held_at_trim(gate, started))
+    # ingest runs ffprobe on the upload, so it has to be real audio
+    path, _ = cached_click_wav(ClickTrackSpec(bpm=120, beats=16, lead_silence_s=0.5))
+    job_id = client.post("/api/jobs", files={"file": ("a.wav", path.read_bytes(), "application/octet-stream")}).json()["job_id"]
+    assert started.wait(10)
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 202
+    gate.set()
+    deadline = time.monotonic() + 10
+    while client.get(f"/api/jobs/{job_id}").status_code != 404:
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    assert not (settings.jobs_dir / job_id).exists()
+
+
+def test_cancelling_a_reanalysis_goes_back_to_the_report_it_had(client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
+    job_id = write_job(settings, "done", "done")
+    job_dir = settings.jobs_dir / job_id
+    before = {name: (job_dir / name).read_bytes() for name in ("report.json", "beats.json", "decoded.wav")}
+    gate, started = threading.Event(), threading.Event()
+    fake_analysis(monkeypatch, _held_at_trim(gate, started))
+
+    assert client.post(f"/api/jobs/{job_id}/reanalyze").status_code == 202
+    assert started.wait(10)
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 202
+    gate.set()
+    assert wait_for_job(client, job_id)["status"] == "done"
+    assert {name: (job_dir / name).read_bytes() for name in before} == before
+    assert not (job_dir / ".rerun").exists()
+    # nothing is running any more
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 409
+
+
+def test_cancel_needs_a_job_that_runs(client: TestClient, settings: Settings) -> None:
+    assert client.post(f"/api/jobs/{'0' * 32}/cancel").status_code == 404
+    job_id = write_job(settings, "done", "done")
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 409
