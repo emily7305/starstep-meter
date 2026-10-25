@@ -269,3 +269,30 @@ describe("formatBeat", () => {
     expect(formatBeat(0.123)).toBe("beat 1.123");
   });
 });
+
+// SHIKI - Lapis as the analysis gives it now: 291.99 bpm (twice the chart's 146) with the anchor on
+// the first beat at 8078.498 ms, the trim at 8068.5 ms and the mp3's 1105 samples at 48 khz. the
+// owner's chart, by ear at 146: -6475 ms with the mp3, measure 1 on the first downbeat. the grid sits
+// about 17 ms earlier than that, see docs/decisions.md (Lapis)
+describe("chartSetup on Lapis", () => {
+  const LAPIS: AudioSource = { ...MP3, filename: "SHIKI - Lapis.mp3", duration_ms: 135407.167 };
+  const map = (bpm: number) => [seg(8068.5, 133707.917, bpm, 8078.498)];
+  const start = chartStartOf(8068.5, 8081.493);
+
+  it("puts measure 1 on the first beat at 291.99", () => {
+    const { setup } = setupOf(map(291.9899), [meter(8068.5, 133707.917, 4)], LAPIS, start);
+    expect(setup.firstMeasureMs).toBeCloseTo(8078.498, 3);
+    expect(setup.originalOffsetMs).toBeCloseTo(-7279.573, 2);
+  });
+
+  it("keeps measure 1 there with the bpm halved, within the bias of the chart's offset", () => {
+    const { setup } = setupOf(map(145.99495), [meter(8068.5, 133707.917, 4)], LAPIS, start);
+    expect(setup.firstMeasureMs).toBeCloseTo(8078.498, 3);
+    expect(setup.originalOffsetMs).toBeCloseTo(-6457.627, 2);
+    expect(Math.abs(setup.originalOffsetMs - -6475)).toBeLessThan(20);
+    expect(brief(setup.rows)).toEqual([
+      [0, 0, "4/4"],
+      [0, 0, 145.99495],
+    ]);
+  });
+});
