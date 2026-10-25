@@ -3,7 +3,7 @@
 // so no anchors, segments or grids in the words here
 
 import { type ChartSetup, chartSetup, formatOffset } from "./chartSetup";
-import { meterOrDefault, segmentAt, tempoGrid } from "./tempoMap";
+import { type ChartStart, chartStartOf, meterOrDefault, segmentAt, tempoGrid } from "./tempoMap";
 import type { TimingReport } from "./types/timingReport";
 
 export interface QuickAnswer {
@@ -29,9 +29,10 @@ export const HELP = {
   signature: "how many beats are in one measure, 4/4 is four",
 } as const;
 
-export function setupFor(report: TimingReport): ChartSetup | null {
+// the same grid and chart start the timeline numbers its bars with
+export function setupFor(report: TimingReport, start: ChartStart = chartStartOf(report.trim.start_ms, null)): ChartSetup | null {
   const meter = meterOrDefault(report.meter_map, report.tempo_map);
-  const grid = tempoGrid(report.tempo_map, meter, report.source.duration_ms);
+  const grid = tempoGrid(report.tempo_map, meter, report.source.duration_ms, null, start);
   return chartSetup(grid, report.tempo_map, meter, report.source);
 }
 

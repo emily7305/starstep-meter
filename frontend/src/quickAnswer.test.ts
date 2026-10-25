@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatOffset, setupText } from "./chartSetup";
 import { changesLine, quickAnswer, quickText, setupFor } from "./quickAnswer";
+import { chartStartOf } from "./tempoMap";
 import type { AudioSource, ConfidenceSpan, MeterSegment, TempoSegment, TimingReport } from "./types/timingReport";
 
 function seg(start: number, end: number, bpm: number, anchor: number, source: "auto" | "manual" = "auto"): TempoSegment {
@@ -61,8 +62,9 @@ describe("quickAnswer", () => {
     expect([q.numerator, q.denominator]).toEqual([4, 4]);
     expect(q.wavOffsetMs).toBe(setup.wavOffsetMs);
     expect(q.originalOffsetMs).toBe(setup.originalOffsetMs);
-    expect(formatOffset(q.wavOffsetMs)).toBe("-62.362 ms");
-    expect(formatOffset(q.originalOffsetMs as number)).toBe("-85.382 ms");
+    // measure 1 on the bar line at 62.362 ms, measure 0 a bar before the file starts
+    expect(formatOffset(q.wavOffsetMs)).toBe("826.515 ms");
+    expect(formatOffset(q.originalOffsetMs as number)).toBe("803.494 ms");
     expect(changesLine(q)).toBeNull();
     // the copied card carries the same offsets as the copied list
     const list = setupText(setup, 2);
@@ -98,7 +100,7 @@ describe("quickAnswer", () => {
 
     expect(q.originalOffsetMs).toBeNull();
     expect(quickText(q, 2)).not.toContain("original");
-    expect(quickText(q, 2)).toContain("offset if you load the wav made with ffmpeg: -62.362 ms");
+    expect(quickText(q, 2)).toContain("offset if you load the wav made with ffmpeg: 826.515 ms");
   });
 
   it("warns once when parts were hard to read, only under segments the analysis made", () => {
@@ -112,6 +114,13 @@ describe("quickAnswer", () => {
       span(5000, 9000, true),
     ]);
     expect(quickAnswer(edited)?.hardToRead).toBe(false);
+  });
+
+  it("follows the music start setting the same way the list does", () => {
+    const at0 = setupFor(STEADY, chartStartOf(STEADY.trim.start_ms, null, 0));
+    const q = quickAnswer(STEADY, at0);
+    expect(q?.wavOffsetMs).toBe(at0?.wavOffsetMs);
+    expect(formatOffset(q?.wavOffsetMs as number)).toBe("-62.362 ms");
   });
 
   it("shows more decimals when asked", () => {

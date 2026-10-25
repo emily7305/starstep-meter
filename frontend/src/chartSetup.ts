@@ -6,9 +6,10 @@
 // change sits at a beat inside a measure. so the beat position of every bar line and change is
 // counted along the tempo map from bar 0, the same way the sonolus export counts beats
 
-import { EDGE_FRACTION, barBeats, type TempoGrid } from "./tempoMap";
+import { type ChartStart, chartStartOf, DEFAULT_FIRST_MEASURE, EDGE_FRACTION, barBeats, type TempoGrid } from "./tempoMap";
+import type { BeatsFile } from "./types/beats";
 import { periodMs } from "./grid";
-import type { AudioSource, MeterSegment, TempoSegment } from "./types/timingReport";
+import type { AudioSource, MeterSegment, TempoSegment, TimingReport } from "./types/timingReport";
 
 // two segments are fitted on their own, so where one hands over to the next is rarely a whole
 // number of beats of the first (0.77 ms off on a 120 -> 150 click track). a bar length or a
@@ -23,8 +24,12 @@ export type ChartRow =
   | { kind: "signature"; timeMs: number; measure: number; beat: number; numerator: number; denominator: number };
 
 export interface ChartSetup {
-  // where bar 0 starts in the audio file, on ffmpeg's timeline
+  // where measure 0 starts in the audio file, on ffmpeg's timeline. before 0 ms when the silence
+  // before the music is shorter than the lead-in, the offset is positive then
   measureZeroMs: number;
+  // the measure the music starts in, and where that is
+  firstMeasure: number;
+  firstMeasureMs: number;
   // the editor's offset, positive starts the song later, so it's minus where measure 0 is
   wavOffsetMs: number;
   // with the original file in an editor that plays its decoder padding (mikumikuworld does for mp3)
@@ -95,12 +100,29 @@ function snapBeats(beats: number, bpm: number): number {
   return Math.abs(beats - whole) * periodMs(bpm) < SAME_POSITION_MS ? whole : beats;
 }
 
+interface Measure {
+  timeMs: number;
+  region: number;
+}
+
+// measure 0 on, the ones before 0 ms worked out from the first region's bars like the timeline does
+function measuresOf(grid: TempoGrid): Measure[] {
+  const listed = grid.bars.filter((b) => b.bar >= 0);
+  const first = listed[0];
+  if (first === undefined) return [];
+  const barMs0 = grid.regions[0]?.barMs ?? 1;
+  const before: Measure[] = [];
+  for (let m = 0; m < first.bar; m += 1) before.push({ timeMs: first.timeMs - (first.bar - m) * barMs0, region: 0 });
+  return [...before, ...listed.map((b) => ({ timeMs: b.timeMs, region: b.region }))];
+}
+
 export function chartSetup(grid: TempoGrid, map: TempoSegment[], meter: MeterSegment[], source: AudioSource): ChartSetup | null {
-  const zero = grid.bars[0];
+  const measures = measuresOf(grid);
+  const zero = measures[0];
   if (zero === undefined || map.length === 0) return null;
   const changes = changesFrom(map, zero.timeMs);
   const bpmAt = (timeMs: number) => changes.filter((c) => c.timeMs <= timeMs + 1e-6).at(-1)?.bpm ?? (changes[0] as Change).bpm;
-  const barBeat = grid.bars.map((b) => beatAt(changes, b.timeMs));
+  const barBeat = measures.map((b) => beatAt(changes, b.timeMs));
 
   const rows: ChartRow[] = [];
   // the measure a change falls in, and how far into it. on the bar line when it's within
@@ -115,7 +137,7 @@ export function chartSetup(grid: TempoGrid, map: TempoSegment[], meter: MeterSeg
   for (const c of changes) rows.push({ kind: "bpm", timeMs: c.timeMs, bpm: c.bpm, ...place(c) });
 
   let last: [number, number] | null = null;
-  grid.bars.forEach((bar, k) => {
+  measures.forEach((bar, k) => {
     const region = grid.regions[bar.region];
     const m = region !== undefined && region.meter >= 0 ? meter[region.meter] : undefined;
     const nominal: [number, number] = m !== undefined ? [m.numerator, m.denominator] : [4, 4];
@@ -136,6 +158,8 @@ export function chartSetup(grid: TempoGrid, map: TempoSegment[], meter: MeterSeg
   const paddingMs = decoderPaddingMs(source);
   return {
     measureZeroMs: zero.timeMs,
+    firstMeasure: grid.firstMeasure,
+    firstMeasureMs: (measures[grid.firstMeasure] ?? zero).timeMs,
     wavOffsetMs: -zero.timeMs,
     originalOffsetMs: -(zero.timeMs + paddingMs),
     paddingMs,
@@ -223,4 +247,33 @@ export function changeLabels(setup: ChartSetup, bpmDecimals: number): ChangeLabe
     else out.push({ timeMs: row.timeMs, text: `${at} · ${value}`, row: i });
   });
   return out;
+}
+
+// the music starts at the trim start, or at the first tracked beat when that's earlier. the
+// timeline, the list and the plain answer all take it from here
+export function chartStartFor(report: TimingReport, beats: BeatsFile | null, firstMeasure: number): ChartStart {
+  return chartStartOf(report.trim.start_ms, beats?.beats[0]?.time_ms ?? null, firstMeasure);
+}
+
+export const FIRST_MEASURES = [0, 1] as const;
+const FIRST_MEASURE_KEY = "starstep.firstMeasure";
+
+// per browser, an editor's habit doesn't change between songs. storage can be off, then it's the default
+export function storedFirstMeasure(): number {
+  try {
+    const value = Number(localStorage.getItem(FIRST_MEASURE_KEY));
+    return localStorage.getItem(FIRST_MEASURE_KEY) !== null && (FIRST_MEASURES as readonly number[]).includes(value)
+      ? value
+      : DEFAULT_FIRST_MEASURE;
+  } catch {
+    return DEFAULT_FIRST_MEASURE;
+  }
+}
+
+export function storeFirstMeasure(value: number): void {
+  try {
+    localStorage.setItem(FIRST_MEASURE_KEY, String(value));
+  } catch {
+    // it just won't be remembered
+  }
 }

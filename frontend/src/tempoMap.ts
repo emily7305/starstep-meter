@@ -36,6 +36,8 @@ export interface BarRegion {
 
 export interface BarLine {
   timeMs: number;
+  // the measure number, the same one the chart setup list uses. negative before measure 0, those
+  // aren't numbered on the timeline
   bar: number;
   segment: number;
   // index into TempoGrid.regions, the meter this bar was counted in
@@ -45,9 +47,27 @@ export interface BarLine {
 export interface TempoGrid {
   segments: SegmentGrid[];
   regions: BarRegion[];
-  // every bar line from 0 to the end of the audio, the first one is bar 0. that's measure 0 in a
-  // chart editor too, see chartSetup.ts
+  // every bar line from 0 to the end of the audio, numbered from the chart start
   bars: BarLine[];
+  // where measure 0 starts, before 0 ms when the silence before the music is shorter than the lead-in
+  measureZeroMs: number;
+  // the measure the music starts in
+  firstMeasure: number;
+}
+
+// where a chart starts: the bar the music starts in is firstMeasure, so with 1 measure 0 is one
+// empty bar of lead-in and the offset skips whatever silence comes before it
+export interface ChartStart {
+  // the earlier of the trim start and the first tracked beat
+  musicStartMs: number;
+  firstMeasure: number;
+}
+
+export const DEFAULT_FIRST_MEASURE = 1;
+
+export function chartStartOf(trimStartMs: number, firstBeatMs: number | null, firstMeasure = DEFAULT_FIRST_MEASURE): ChartStart {
+  const musicStartMs = firstBeatMs === null ? trimStartMs : Math.min(trimStartMs, firstBeatMs);
+  return { musicStartMs, firstMeasure };
 }
 
 // an anchor being nudged that the server doesn't have yet
@@ -112,7 +132,7 @@ export function barRegions(map: TempoSegment[], meter: MeterSegment[], durationM
   return out;
 }
 
-function barLinesOf(regions: BarRegion[]): BarLine[] {
+function barLinesOf(regions: BarRegion[]): Omit<BarLine, "bar">[] {
   const times: { timeMs: number; segment: number; region: number }[] = [];
   regions.forEach((r, region) => {
     if (!(r.barMs > 0) || r.toMs <= r.fromMs) return;
@@ -124,9 +144,36 @@ function barLinesOf(regions: BarRegion[]): BarLine[] {
     }
   });
   times.sort((a, b) => a.timeMs - b.timeMs);
-  // bar 0 is the first bar line in the audio, not the first downbeat. an intro before the first
-  // downbeat gets bars of its own, and a chart editor's measure 0 can start where bar 0 does
-  return times.map((l, i) => ({ ...l, bar: i }));
+  return times;
+}
+
+// the bar the music starts in: the last bar line at or before it. a quarter beat of slack, the trim
+// and the snap can land a few ms before an attack that's right on a bar line. a pickup has its own
+// sound, so the music starts there and its bar is the one before the downbeat
+function numberBars(
+  lines: Omit<BarLine, "bar">[],
+  regions: BarRegion[],
+  periodAt: (timeMs: number) => number,
+  start: ChartStart | null,
+): { bars: BarLine[]; measureZeroMs: number; firstMeasure: number } {
+  const first = lines[0];
+  // no chart start (some tests) numbers from the first line in the audio
+  if (first === undefined || start === null) {
+    return { bars: lines.map((l, i) => ({ ...l, bar: i })), measureZeroMs: first?.timeMs ?? 0, firstMeasure: 0 };
+  }
+  const reach = start.musicStartMs + EDGE_FRACTION * periodAt(start.musicStartMs);
+  let at = -1;
+  lines.forEach((l, i) => {
+    if (l.timeMs <= reach) at = i;
+  });
+  // before the first line in the audio the first region's bars carry on back past 0 ms
+  const barMs0 = regions[0]?.barMs ?? 1;
+  const before = at >= 0 ? 0 : Math.ceil((first.timeMs - reach) / barMs0 - 1e-9);
+  const startIndex = at >= 0 ? at : -before;
+  const bars = lines.map((l, i) => ({ ...l, bar: i - startIndex + start.firstMeasure }));
+  const zero = bars.find((b) => b.bar === 0);
+  const measureZeroMs = zero !== undefined ? zero.timeMs : first.timeMs - (start.firstMeasure - startIndex) * barMs0;
+  return { bars, measureZeroMs, firstMeasure: start.firstMeasure };
 }
 
 export function tempoGrid(
@@ -134,6 +181,7 @@ export function tempoGrid(
   meter: MeterSegment[],
   durationMs: number,
   draft: AnchorDraft | null = null,
+  start: ChartStart | null = null,
 ): TempoGrid {
   const segs = map.map((s, i) => (draft !== null && draft.segment === i ? { ...s, anchor_ms: draft.anchorMs } : s));
   const regions = barRegions(segs, meter, durationMs);
@@ -149,7 +197,8 @@ export function tempoGrid(
       barBeats: Number.isFinite(shortest) && shortest > 0 ? shortest : 4,
     };
   });
-  return { segments, regions, bars: barLinesOf(regions) };
+  const periodAt = (timeMs: number) => periodMs((segs[segmentAt(segs, timeMs)] ?? segs[0])?.bpm ?? 120);
+  return { segments, regions, ...numberBars(barLinesOf(regions), regions, periodAt, start) };
 }
 
 function barIndexAt(bars: BarLine[], timeMs: number): number {
@@ -185,7 +234,8 @@ export function mapLines(grid: TempoGrid, startMs: number, endMs: number): MapLi
       const at = barIndexAt(grid.bars, timeMs);
       const bar = grid.bars[at];
       const isBar = bar !== undefined && Math.abs(bar.timeMs - timeMs) <= SAME_LINE_MS;
-      out.push({ timeMs, index, bar: bar?.bar ?? -1, isBar, segment: seg.index });
+      // before the first bar line in the audio it's the bar before that one, measure 0 can start before 0 ms
+      out.push({ timeMs, index, bar: bar?.bar ?? (grid.bars[0]?.bar ?? 0) - 1, isBar, segment: seg.index });
     }
   }
   // bar lines between beats, a 7/8 bar ends half a beat in
