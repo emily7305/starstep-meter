@@ -30,11 +30,12 @@ import numpy as np
 
 from backend.analysis.bars import EDGE_FRACTION, regions
 from backend.analysis.features import GridFeatures, half_lines
-from backend.analysis.meter import MeterRun
+from backend.analysis.meter import DownbeatShift, MeterRun
 from backend.analysis.tempo_map import SegmentFit, TempoMapConfig
 from backend.schema.models import BeatsFile, MeterSegment, TempoSegment
 
-Kind = Literal["half", "double", "fold"]
+# shift: the downbeat may move at a bar line, see backend/analysis/meter.py
+Kind = Literal["half", "double", "fold", "shift"]
 _Class = Literal["half", "plain", "double", "unknown", "excluded"]
 
 # column of each band in GridFeatures.values
@@ -361,6 +362,11 @@ def fold_suggestions(
         if score >= config.fold_min_score:
             out.append(Suggestion(start, end, "fold", other.bpm, segments[run[0]].bpm, round(score, 3)))
     return out
+
+
+def shift_suggestions(shifts: Sequence[DownbeatShift]) -> list[Suggestion]:
+    # the bpm stays, applying one restarts the bars at start_ms
+    return [Suggestion(s.start_ms, s.end_ms, "shift", s.bpm, s.bpm, s.score) for s in shifts]
 
 
 def stored_features(beats: BeatsFile) -> GridFeatures:

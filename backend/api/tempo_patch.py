@@ -11,8 +11,8 @@ by each value's path under field, "" being the report itself.
   at the segment's path with those keys.
 - split, split out, merge and match change the shape of a list, so they log the
   whole tempo_map or meter_map before and after.
-- applying a suggestion changes the tempo_map and the suggestion's status, so it's
-  logged at "" with both. dismissing one only changes its status.
+- applying a suggestion changes the tempo_map (the meter_map for a downbeat shift) and the
+  suggestion's status, so it's logged at "" with both. dismissing one only changes its status.
 """
 
 from __future__ import annotations
@@ -123,8 +123,22 @@ def _suggestion_edit(report: TimingReport, body: ApplySuggestion | DismissSugges
         raise TempoEditError(f"suggestion {index} was already {suggestions[index].status}")
     status = "applied" if isinstance(body, ApplySuggestion) else "dismissed"
     status_path = f"notation_suggestions/{index}/status"
-    tempo_map = report.tempo_map
-    if isinstance(body, ApplySuggestion):
+    tempo_map, meter_map = report.tempo_map, report.meter_map
+    if isinstance(body, ApplySuggestion) and suggestions[index].kind == "shift":
+        # the bars restart where the tracker heard them restart, the tempo map stays
+        try:
+            meter_map = meter_edit.split_meter(
+                meter_edit.meter_or_default(report.meter_map, report.tempo_map), report.tempo_map, suggestions[index].start_ms
+            )
+        except MeterEditError as exc:
+            raise TempoEditError(str(exc)) from exc
+        edit = Edit(
+            field="",
+            old={"meter_map": _dumped(report.meter_map), status_path: "open"},
+            new={"meter_map": _dumped(meter_map), status_path: status},
+            timestamp=now,
+        )
+    elif isinstance(body, ApplySuggestion):
         try:
             tempo_map = notation_edit.apply_suggestion(report.tempo_map, suggestions, index)
         except SuggestionError as exc:
@@ -140,7 +154,9 @@ def _suggestion_edit(report: TimingReport, body: ApplySuggestion | DismissSugges
         edit = Edit(field=status_path, old="open", new=status, timestamp=now)
     marked = list(suggestions)
     marked[index] = suggestions[index].model_copy(update={"status": status})
-    changed = report.model_copy(update={"tempo_map": tempo_map, "notation_suggestions": marked, "edits": [*report.edits, edit]})
+    changed = report.model_copy(
+        update={"tempo_map": tempo_map, "meter_map": meter_map, "notation_suggestions": marked, "edits": [*report.edits, edit]}
+    )
     return _validated(changed)
 
 

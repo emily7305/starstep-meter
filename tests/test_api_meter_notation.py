@@ -396,3 +396,26 @@ def test_dismissed_suggestion_and_manual_meter_survive_a_reanalysis(client: Test
     beats = client.get(f"/api/jobs/{job_id}/beats")
     assert beats.status_code == 200, beats.text
     assert beats.json()["grid_features"]
+
+
+def test_applying_a_downbeat_shift_restarts_the_bars_there(client: TestClient, settings: Settings) -> None:
+    # the tracker's bars restarted a beat into bar 12, the meter ran on through
+    at = bar(12) + BEAT_MS
+    shift = NotationSuggestion(start_ms=at, end_ms=END_MS, kind="shift", suggested_bpm=BPM, grid_bpm=BPM, score=1.0)
+    original = make_report().model_copy(update={"notation_suggestions": [shift]})
+    job_id = write_done_job(settings, original)
+
+    resp = patch_edit(client, job_id, {"op": "apply_suggestion", "suggestion": 0})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # the tempo map stays, the meter splits there and the bars start over on that beat
+    assert body["tempo_map"] == dump(original.tempo_map)
+    assert [(m["start_ms"], m["end_ms"], m["numerator"]) for m in body["meter_map"]] == [(START_MS, at, 4), (at, END_MS, 4)]
+    assert logged(body["edits"]) == [
+        (
+            "",
+            {"meter_map": dump(original.meter_map), "notation_suggestions/0/status": "open"},
+            {"meter_map": body["meter_map"], "notation_suggestions/0/status": "applied"},
+        )
+    ]
+    assert stored_report(settings, job_id) == TimingReport.model_validate(body)

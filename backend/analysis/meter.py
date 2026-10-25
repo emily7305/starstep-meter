@@ -11,6 +11,12 @@ for at least accent_min_bars bars in a row, those bars win over madmom's. That's
 the length differs and isn't a multiple of madmom's (a crash every two bars isn't 8/4).
 Where the length is the same madmom's phase stays, it's the better judge of beat 1 on music.
 
+Where madmom's downbeats move by part of a bar and its bars carry on at the new phase, that's
+one short bar (a 1/4, 2/4 or 3/4 in 4/4) whose only job is to re-align beat 1. On its own that
+isn't a meter change, so the bars before run on through and the place goes out as a
+"downbeat may shift here" suggestion. Only when the accents hold bars on both phases, for
+accent_min_bars on each side, is the short bar kept.
+
 Beats in a ratio merged section or an off-beat run follow another pulse, or sit half a beat
 off, so their downbeats are left out and the bars before them run on through on the grid.
 Bars are counted in beats of the grid, so the denominator is always 4: whether 7 beats of
@@ -20,7 +26,7 @@ the grid are 7/4 or 7/8 at twice the bpm is a notation choice, like half or doub
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -66,10 +72,24 @@ class MeterRun:
 
 
 @dataclass(frozen=True)
+class DownbeatShift:
+    # a grid line where the tracker's bars restart part of a bar off the meter's, left as a suggestion
+    start_ms: float
+    # where the tracker's new phase stops holding, the next run or the segment's end
+    end_ms: float
+    # how far into a bar of the meter before it that is, in beats of the grid
+    beats: int
+    bpm: float
+    # the share of bars from there on that the tracker's downbeats landed on
+    score: float
+
+
+@dataclass(frozen=True)
 class MeterResult:
     runs: list[MeterRun]
     # the tempo map with each segment's anchor on beat 1 of its first bar
     tempo: TempoMapResult
+    shifts: list[DownbeatShift] = field(default_factory=list)
 
 
 @dataclass
@@ -239,6 +259,51 @@ def _merge_short(runs: list[_Run], seg: _Segment, min_bars: int, default: int) -
     return out
 
 
+def _accents_hold(prev: _Run, r: _Run, accented: list[_Run]) -> bool:
+    # accent bars on the old phase up to the short bar and on the new one from right after it
+    length = r.length
+    assert length is not None
+    before = any(
+        a.length == length and (a.start - prev.start) % length == 0 and a.start < r.start and a.last + 2 * length >= r.start
+        for a in accented
+    )
+    after = any(
+        a.length == length and (a.start - r.start) % length == 0 and r.start <= a.start + length and a.start <= r.start + length
+        for a in accented
+    )
+    return before and after
+
+
+def _join_slips(runs: list[_Run], accented: list[_Run], k_hi: int) -> tuple[list[_Run], list[tuple[int, int, float]]]:
+    """Runs with the slips joined into the run before them, and each slip as (grid index, end index, score).
+
+    A slip is two runs of one bar length on lattices part of a bar apart, so the bar between them
+    is short. The run before carries on unless the accents hold up both phases.
+    """
+    out: list[_Run] = []
+    slips: list[tuple[int, int, float]] = []
+    for i, r in enumerate(runs):
+        prev = out[-1] if out else None
+        if (
+            prev is None
+            or r.length is None
+            or prev.length != r.length
+            or (r.start - prev.start) % r.length == 0
+            or prev.accent
+            or r.accent
+            or _accents_hold(prev, r, accented)
+        ):
+            out.append(r)
+            continue
+        end = runs[i + 1].start if i + 1 < len(runs) else k_hi
+        bars = max(1.0, (end - r.start) / r.length)
+        slips.append((r.start, end, min(1.0, r.seen / bars)))
+        # the bar length still holds, so its downbeats count for the confidence
+        prev.seen += r.seen
+        prev.last = max(prev.last, r.last)
+    return out, slips
+
+
 def _music_start_shift(first: _Run, k_music: int, stop: int, acc: np.ndarray, k_lo: int, config: MeterConfig) -> int:
     """Beats the first run's bars move so the beat the music starts on is beat 1, 0 to leave them.
 
@@ -284,6 +349,7 @@ def infer_meter(
     segments = list(tempo.segments)
     indices = tempo.indices.copy()
     pieces: list[tuple[float, int, float]] = []
+    shifts: list[DownbeatShift] = []
     for si, s in enumerate(segments):
         period, anchor = s.fit.period_ms, s.fit.offset_ms
         k_lo = int(np.ceil((s.start_ms - anchor) / period - EDGE_FRACTION))
@@ -297,11 +363,13 @@ def infer_meter(
         runs = _downbeat_runs(downbeats, seg, config.max_bar_beats)
 
         acc = None
+        accented: list[_Run] = []
         if accents is not None and len(grid) >= config.accent_min_bars * config.accent_min_beats:
             acc = np.asarray(accents(grid), dtype=np.float64).copy()
             acc[seg.excluded] = np.nan
+            accented = _accent_runs(acc, k_lo, config)
             winners: list[_Run] = []
-            for ar in _accent_runs(acc, k_lo, config):
+            for ar in accented:
                 assert ar.length is not None
                 tracked = _length_over(runs, ar.start, ar.last + ar.length, k_hi)
                 if tracked is None or (ar.length != tracked and ar.length % tracked != 0):
@@ -320,6 +388,7 @@ def infer_meter(
 
         default = 4
         runs = _merge_short(runs, seg, config.min_bars, default) if runs else [_Run(k_lo, default, k_lo, seen=0)]
+        runs, slips = _join_slips(runs, accented, k_hi)
         # the song's own start, when the tracker heard a beat right there. the seen count stays, it's
         # about how well the bar length holds and that didn't change
         if si == 0 and acc is not None and len(k) and int(k[0]) <= k_lo:
@@ -345,6 +414,14 @@ def infer_meter(
             )
             segments[si] = type(s)(s.first, s.stop, s.start_ms, s.end_ms, moved, s.ratio_merges, s.offbeat_runs, s.half_shifted)
             indices[s.first:s.stop] = moved.indices
+
+        # a slip that the music start rule put on the bars' own lattice isn't one any more
+        for k_slip, k_end, score in slips:
+            run = max((r for r in runs if r.start <= k_slip), key=lambda r: r.start, default=runs[0])
+            assert run.length is not None
+            beats_in = (k_slip - run.start) % run.length
+            if beats_in:
+                shifts.append(DownbeatShift(anchor + period * k_slip, min(s.end_ms, anchor + period * k_end), beats_in, s.fit.bpm, score))
 
         for i, r in enumerate(runs):
             assert r.length is not None
@@ -375,4 +452,4 @@ def infer_meter(
         inliers=tempo.inliers,
         downbeats_known=tempo.downbeats_known,
     )
-    return MeterResult(runs=runs_out, tempo=moved_tempo)
+    return MeterResult(runs=runs_out, tempo=moved_tempo, shifts=shifts)

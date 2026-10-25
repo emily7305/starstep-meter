@@ -77,17 +77,72 @@ def test_a_stray_downbeat_doesnt_make_a_meter_of_its_own():
     assert run.numerator == 4
 
 
-def test_a_bar_that_moves_the_downbeat_restarts_the_bars_where_it_moved():
-    # one 3 beat bar, after which the downbeats stay a beat earlier, like a 3/4 bar in a 4/4 song
-    times = _beats(128.0, 95)
-    result = _meter(times, _positions([4] * 10 + [3] + [4] * 13))
+# one odd bar, after which madmom's downbeats stay off by part of a bar. 3 and 2 are the downbeat
+# coming a beat or two early, 5 and 6 a beat or two late
+SLIPS = [
+    pytest.param(3, 3, id="one-beat-early"),
+    pytest.param(5, 1, id="one-beat-late"),
+    pytest.param(2, 2, id="two-beats-early"),
+    pytest.param(6, 2, id="two-beats-late"),
+]
 
-    assert [r.numerator for r in result.runs] == [4, 4]
-    assert result.runs[1].start_ms == pytest.approx(times[43], abs=0.01)
+
+@pytest.mark.parametrize("odd, beats_in", SLIPS)
+def test_a_downbeat_slip_is_a_suggestion_not_a_meter_change(odd, beats_in):
+    times = _beats(128.0, 40 + odd + 52)
+    result = _meter(times, _positions([4] * 10 + [odd] + [4] * 13))
+
+    # the bars run on through at the old phase
+    (run,) = result.runs
+    assert run.numerator == 4
     lines = _lines(result)
     assert min(abs(t - times[40]) for t in lines) < 0.01
-    assert min(abs(t - times[43]) for t in lines) < 0.01
-    assert min(abs(t - times[44]) for t in lines) > 100.0
+    assert min(abs(t - times[44]) for t in lines) < 0.01
+    # and where madmom's bars restarted is offered instead
+    (shift,) = result.shifts
+    assert shift.start_ms == pytest.approx(times[40 + odd], abs=0.01)
+    assert shift.beats == beats_in
+    assert shift.end_ms == pytest.approx(result.tempo.segments[0].end_ms)
+    assert shift.score == pytest.approx(1.0)
+
+
+def _two_phases(times, slip_at):
+    # a loud first beat every 4 up to the odd bar and every 4 from the restart on
+    period = float(np.median(np.diff(times)))
+
+    def accents(at_ms):
+        idx = np.round((np.asarray(at_ms) - times[0]) / period).astype(int)
+        loud = np.where(idx < slip_at, idx % 4 == 0, (idx - slip_at) % 4 == 0)
+        return np.where(loud, 1.6, 1.0)
+
+    return accents
+
+
+@pytest.mark.parametrize("odd, beats_in", SLIPS)
+def test_the_odd_bar_stays_when_the_accents_hold_both_phases(odd, beats_in):
+    times = _beats(128.0, 40 + odd + 52)
+    result = _meter(times, _positions([4] * 10 + [odd] + [4] * 13), _two_phases(times, 40 + odd))
+
+    assert [r.numerator for r in result.runs] == [4, 4]
+    assert result.runs[1].start_ms == pytest.approx(times[40 + odd], abs=0.01)
+    assert result.shifts == []
+    lines = _lines(result)
+    assert min(abs(t - times[40]) for t in lines) < 0.01
+    assert min(abs(t - times[40 + odd]) for t in lines) < 0.01
+
+
+def test_accents_on_one_side_only_dont_keep_the_odd_bar():
+    # the old phase is accented, after the restart every beat sounds the same
+    times = _beats(128.0, 95)
+    period = float(np.median(np.diff(times)))
+
+    def accents(at_ms):
+        idx = np.round((np.asarray(at_ms) - times[0]) / period).astype(int)
+        return np.where((idx < 43) & (idx % 4 == 0), 1.6, 1.0)
+
+    result = _meter(times, _positions([4] * 10 + [3] + [4] * 13), accents)
+    assert [r.numerator for r in result.runs] == [4]
+    assert [s.beats for s in result.shifts] == [3]
 
 
 def test_bars_where_one_beat_is_clearly_louder_win_over_madmoms():

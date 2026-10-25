@@ -30,6 +30,7 @@ from backend.analysis.notation import (
     feel_suggestions,
     fold_suggestions,
     from_fits,
+    shift_suggestions,
 )
 from backend.analysis.notation_edit import keep_decided
 from backend.analysis.octave import OctaveCheck, check_octave_per_segment, positions_on_grid, summary
@@ -419,8 +420,10 @@ def run_analysis(
         )
         tempo = meter.tempo
         segments = from_fits(tempo.segments)
-        suggestions = feel_suggestions(segments, meter.runs, features, config.notation) + fold_suggestions(
-            segments, features, trim.start_ms, trim.end_ms, config.tempo_map, config.notation
+        suggestions = (
+            feel_suggestions(segments, meter.runs, features, config.notation)
+            + fold_suggestions(segments, features, trim.start_ms, trim.end_ms, config.tempo_map, config.notation)
+            + shift_suggestions(meter.shifts)
         )
         # where the notes between the beats sit, on the grid as it is. needs the audio, the band
         # strengths only have the lines and half lines
