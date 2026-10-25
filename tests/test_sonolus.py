@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import gzip
+import importlib.util
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -187,3 +191,49 @@ def test_sonolus_export_from_a_known_report(compensation: float, offset: float) 
         ],
     }
 
+
+# --- the test level script ---
+
+
+def _load_script():
+    path = Path(__file__).resolve().parents[1] / "scripts" / "make_sonolus_test_level.py"
+    spec = importlib.util.spec_from_file_location("make_sonolus_test_level", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_test_level_puts_a_note_on_every_grid_beat_across_a_tempo_change() -> None:
+    script = _load_script()
+    # the 150 bpm grid starts on beat 23.2, its notes count from there
+    doc = sonolus_export(report([seg(500, 10600, 120, 1000), seg(10600, 20500, 150, 10600)]), NOW)
+
+    level = script.test_level_data(doc, 22, "NormalTapNote", {"lane": 0.0, "size": 1.5})
+
+    assert level["bgmOffset"] == -1.0
+    assert [e["archetype"] for e in level["entities"][:4]] == ["Initialization", "Stage", "#BPM_CHANGE", "#BPM_CHANGE"]
+    notes = level["entities"][4:]
+    beats = [n["data"][0]["value"] for n in notes]
+    assert beats == [4.0 + k for k in range(20)] + [23.2, 24.2]
+    assert notes[0]["data"] == [{"name": "#BEAT", "value": 4.0}, {"name": "lane", "value": 0.0}, {"name": "size", "value": 1.5}]
+
+
+def test_test_level_script_writes_gzipped_level_data(tmp_path: Path) -> None:
+    script = _load_script()
+    export_path = tmp_path / "song.sonolus.json"
+    export_path.write_text(json.dumps(sonolus_export(report([seg(500, 20500, 120, 2000)]), NOW, MP3_PADDING_MS)), encoding="utf-8")
+
+    assert script.main([str(export_path), str(tmp_path / "level.json.gz"), "--beats", "8"]) == 0
+
+    level = json.loads(gzip.decompress((tmp_path / "level.json.gz").read_bytes()))
+    assert level["bgmOffset"] == 0.025057
+    assert len(level["entities"]) == 2 + 1 + 8
+
+
+def test_test_level_script_wants_a_sonolus_export(tmp_path: Path, capsys) -> None:
+    script = _load_script()
+    export_path = tmp_path / "song.timing.json"
+    export_path.write_text(json.dumps({"kind": "timing"}), encoding="utf-8")
+
+    assert script.main([str(export_path), str(tmp_path / "level.json.gz")]) == 1
+    assert "export with the sonolus preset" in capsys.readouterr().err
