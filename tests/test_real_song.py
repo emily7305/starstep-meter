@@ -20,12 +20,14 @@ import pytest
 from backend.analysis.confidence import assess
 from backend.analysis.meter import infer_meter
 from backend.analysis.notation import feel_suggestions, fold_suggestions, from_fits, stored_features
+from backend.analysis.octave import count_on_grid
 from backend.analysis.pipeline import check_against
 from backend.analysis.tempo_map import build_tempo_map
 from backend.schema.migrate import upgrade_beats, upgrade_report
 from backend.schema.models import BeatsFile, TimingReport
 
 REAL = Path(__file__).parent / "real"
+OLDER_THAN_2_5 = ("1.1", "2.0", "2.1", "2.2", "2.3", "2.4")
 
 
 def _song(name):
@@ -50,14 +52,20 @@ def _analysis(name):
     beats_path, report_path = folder / "beats.json", folder / "report.json"
     if not (beats_path.exists() and report_path.exists()):
         pytest.skip(f"tests/real/{name}/beats.json and report.json not present")
-    beats = BeatsFile.model_validate(upgrade_beats(json.loads(beats_path.read_text(encoding="utf-8"))))
+    raw_beats = json.loads(beats_path.read_text(encoding="utf-8"))
+    beats = BeatsFile.model_validate(upgrade_beats(raw_beats))
     report = TimingReport.model_validate(upgrade_report(json.loads(report_path.read_text(encoding="utf-8"))))
     if not beats.grid_features:
         pytest.skip(f"tests/real/{name}/beats.json has no grid_features, analyze the song again with milestone 4")
     times = np.array([b.time_ms for b in beats.beats])
-    downbeats = np.array([b.is_downbeat for b in beats.beats])
+    positions = np.array([b.beat_in_bar for b in beats.beats])
     start, end = report.trim.start_ms, report.trim.end_ms
-    tempo = build_tempo_map(times, downbeats, start, end, downbeats_known=beats.tracker == "madmom")
+    tempo = build_tempo_map(times, positions == 1, start, end, downbeats_known=beats.tracker == "madmom")
+    # before 2.5 a doubled or halved song's positions were counted per beat, the pipeline counts them
+    # on the grid now. which rough segments changed isn't in the file, so a whole-song choice only
+    if raw_beats["schema_version"] in OLDER_THAN_2_5 and beats.octave in ("doubled", "halved"):
+        positions = count_on_grid(positions, np.zeros(len(positions), dtype=np.int64), tempo)
+    downbeats = positions == 1
     features = stored_features(beats)
     meter = infer_meter(tempo, times, downbeats, accents=lambda at: features.lookup(at).sum(axis=1))
     segments = from_fits(meter.tempo.segments)
@@ -236,6 +244,62 @@ def test_younithm_suggestions_follow_the_measure_map():
         assert abs(s.start_ms - start) <= measure_ms, f"half from {s.start_ms:.0f}, chart {start:.0f}"
         assert abs(s.end_ms - end) <= measure_ms, f"half to {s.end_ms:.0f}, chart {end:.0f}"
         assert s.suggested_bpm == pytest.approx(segment.fit.bpm / 2)
+
+
+# --- SHIKI - Lapis, a steady 146 in 4/4 that opens on the downbeat after 8 s of silence ---
+
+# from the owner's chart, made by ear in MikuMikuWorld with the mp3 at 146 bpm: offset -6475 ms with
+# measure 1 on the first downbeat
+LAPIS_CHART_OFFSET_MS = -6475.0
+
+
+def _mp3_offset(segment, bpm, music_start_ms, padding_ms):
+    # what frontend/src/chartSetup.ts gives with the default setting: measure 1 is the bar the music
+    # starts in (the last bar line at or before it, a quarter beat of slack), measure 0 a bar before
+    period = 60000.0 / bpm
+    bar = 4 * period
+    n = np.floor((music_start_ms + period / 4 - segment.anchor_ms) / bar)
+    measure_1 = segment.anchor_ms + n * bar
+    return -(measure_1 - bar) - padding_ms
+
+
+def test_lapis_is_one_segment_at_twice_146():
+    result, trim, _ = _song("lapis")
+
+    (segment,) = result.segments
+    # the octave check doubles it, its hats on the off-beats are as strong as the beats
+    assert segment.fit.bpm == pytest.approx(2 * 146.0, abs=0.05)
+    assert (segment.start_ms, segment.end_ms) == (trim["start_ms"], trim["end_ms"])
+
+
+def test_lapis_stays_4_4_all_through():
+    # madmom added a beat at 62.3 s, in the quiet bars, and the per-beat count of the doubled beats
+    # moved every downbeat after it. that came out as a meter restart at 63149 ms, a bar of 2 beats
+    meter, found = _analysis("lapis")
+    assert [(m.numerator, m.denominator) for m in meter.runs] == [(4, 4)]
+    assert found == []
+
+
+def test_lapis_measure_1_is_where_the_intro_starts():
+    meter, _ = _analysis("lapis")
+    (segment,) = meter.tempo.segments
+    report = json.loads((REAL / "lapis" / "report.json").read_text(encoding="utf-8"))
+    beats = json.loads((REAL / "lapis" / "beats.json").read_text(encoding="utf-8"))
+    source = report["source"]
+    padding_ms = 1000.0 * source["decoder_padding_samples"] / source["sample_rate"]
+    music_start = min(report["trim"]["start_ms"], beats["beats"][0]["time_ms"])
+
+    # the bars start on the first beat, not one 146 beat later where madmom put beat 1
+    assert segment.anchor_ms == pytest.approx(8078.5, abs=1.0)
+    # 146 in the chart, the same anchor halved the way the bpm buttons do. the chart was set by ear
+    # about 17 ms later than the grid, the open bias question in docs/decisions.md. a beat off would
+    # be 411 ms at 146 and 205 at 292
+    at_146 = _mp3_offset(segment, segment.fit.bpm / 2, music_start, padding_ms)
+    assert at_146 == pytest.approx(LAPIS_CHART_OFFSET_MS, abs=20.0)
+    assert at_146 == pytest.approx(-6457.6, abs=1.0)
+    # at 292 it's the same measure 1, a bar there is half as long
+    at_292 = _mp3_offset(segment, segment.fit.bpm, music_start, padding_ms)
+    assert at_292 == pytest.approx(at_146 - 4 * 60000.0 / segment.fit.bpm, abs=0.01)
 
 
 # --- confidence on the real songs (milestone 6) ---
