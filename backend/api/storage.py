@@ -44,6 +44,8 @@ class JobRecord(BaseModel):
     created_at: str
     # when a re-analysis last finished, the job moves up the recent list then
     reanalyzed_at: str | None = None
+    # the generated demo track, the recent list leaves it out
+    demo: bool = False
 
 
 class _StatusFile(JobStatus):
@@ -181,8 +183,10 @@ class JobStore:
                 return candidate
         return None
 
-    def write_job(self, job_id: str, filename: str, sha256: str, size_bytes: int) -> JobRecord:
-        record = JobRecord(job_id=job_id, filename=filename, sha256=sha256, size_bytes=size_bytes, created_at=_utc_now())
+    def write_job(self, job_id: str, filename: str, sha256: str, size_bytes: int, demo: bool = False) -> JobRecord:
+        record = JobRecord(
+            job_id=job_id, filename=filename, sha256=sha256, size_bytes=size_bytes, created_at=_utc_now(), demo=demo
+        )
         _write_atomic(self.job_dir(job_id) / JOB_FILE, record.model_dump_json(indent=2) + "\n")
         return record
 
@@ -259,6 +263,7 @@ class JobStore:
             reanalyzed_at=record.reanalyzed_at,
             status=status.status,
             edits=edits,
+            demo=record.demo,
         )
 
     def summaries(self, sha256: str | None = None) -> list[JobSummary]:

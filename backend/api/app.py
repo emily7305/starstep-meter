@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -20,8 +21,9 @@ from pydantic import ValidationError
 from backend.analysis.beats import madmom_available, madmom_import_error
 from backend.analysis.export import ExportError, timing_export
 from backend.analysis.ffmpeg_tools import ToolNotFoundError, find_tool
-from backend.analysis.ingest import FileTooLargeError, UnsupportedFileError, check_extension, ingest_stream
+from backend.analysis.ingest import FileTooLargeError, UnsupportedFileError, check_extension, ingest_file, ingest_stream
 from backend.analysis.tempo_edit import TempoEditError
+from backend.api.demo import DEMO_NAME, write_demo
 from backend.api.jobs import JobRunner
 from backend.api.models import Health, JobCreated, JobStatus, JobSummary, TempoEdit
 from backend.api.settings import Settings
@@ -126,6 +128,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not stored:
                 store.remove(job_id)
 
+        runner.submit(job_id)
+        return JobCreated(job_id=job_id)
+
+    @router.post("/demo", status_code=202, response_model=JobCreated)
+    def create_demo() -> JobCreated:
+        # a click track with drums made on the spot, analyzed like an upload and marked as the demo
+        if find_tool("ffprobe") is None:
+            raise HTTPException(503, "ffprobe not found on PATH")
+        # one demo is plenty, a finished one from before goes
+        for old in store.summaries():
+            if old.demo and old.status not in ("queued", "running"):
+                store.remove(old.job_id)
+        job_id, job_dir = store.create()
+        stored = False
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                ingested = ingest_file(write_demo(Path(tmp) / DEMO_NAME), job_dir, settings.max_upload_bytes)
+            store.write_job(job_id, DEMO_NAME, ingested.sha256, ingested.size_bytes, demo=True)
+            store.write_status(job_id, JobStatus(status="queued", stage="queued"))
+            stored = True
+        except ToolNotFoundError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        finally:
+            if not stored:
+                store.remove(job_id)
         runner.submit(job_id)
         return JobCreated(job_id=job_id)
 

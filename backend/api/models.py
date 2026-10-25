@@ -51,6 +51,8 @@ class JobSummary(BaseModel):
     status: Literal["queued", "running", "done", "failed"]
     # how many manual edits the report holds, None when there's no report to count
     edits: int | None
+    # the generated demo track, not a song
+    demo: bool = False
 
 
 class _Op(BaseModel):
