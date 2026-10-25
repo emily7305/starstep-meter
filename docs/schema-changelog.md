@@ -81,3 +81,15 @@ Nothing in the timing report or the beats file changed shape, so `schema_version
 - The edit log has one entry per manual change. `field` is the deepest path that holds everything the change touched. With one changed value, `old` and `new` are that value, as before. With several, they're objects keyed by each value's path under `field`, and an empty `field` is the report itself. So the first edit of an auto segment is one `tempo_map/<i>` entry holding the value, `confidence` and `source`, and applying a suggestion is one entry at `""` holding `tempo_map` and `notation_suggestions/<i>/status`. Entries written before keep the old one-per-field form, the log is append-only. Why there's no bump is in `docs/decisions.md` (edit log, one entry per change).
 - A new tempo edit, `split_out`, splits at both ends of a ratio merged section as one edit and is logged like a split.
 - Two new schemas for the exports, generated from `backend/schema/export_models.py` like the others: `shared/schema/timing_export.schema.json` (`kind: "timing"`, `exported_at`, the `report`, and the `beats` file only when it's asked for) and `shared/schema/sonolus_export.schema.json` (`kind: "sonolus"`, the level data with `bgmOffset` and the `#BPM_CHANGE` entities, the bpm changes with their times, the time signatures and the decoder compensation that went into `bgmOffset`). The frontend gets `src/types/timingExport.ts` and `src/types/sonolusExport.ts` from them.
+
+## 2.4
+
+Milestone 6, confidence and the cross-check. Additive, but 2.3 readers reject the new fields, so the version moves.
+
+- The report gains `confidence_spans`, a list of `{start_ms, end_ms, confidence, residual_share, agreement, low}` over the auto tempo segments, 16 grid beats each from the segment's anchor (four bars of 4/4). `confidence` is the residual share times the cross-check agreement as in `docs/decisions.md` (confidence, milestone 6), `low` says it's under the threshold the timeline shades at. Analysis output, edits don't change it and a re-analysis replaces it. A span under a manual segment isn't written.
+- The report gains `cross_check`, `{tracker: "librosa", max_disagreement_ms, segments}` with one `{start_ms, end_ms, disagreement_ms, compared, flagged}` per tempo segment the analysis found, or null when it didn't run (the main tracker was librosa itself). Analysis output like the spans.
+- A tempo segment's `confidence` is worked out with the same formula over the whole segment, halved for the librosa fallback as before. A refit after a split or merge still has the refit's residual share only, and a hand-set bpm or anchor still gives null.
+- `BeatsFile` gains `cross_check_beats`, librosa's beat times after onset snap, so the cross-check and the spans can be worked out again without the audio.
+- The job stages gain `check` after `meter`, where librosa runs and the confidence is worked out. That's the job status, not the report.
+
+2.3 reports and beats files are upgraded when they're read by changing the version only: no spans, no cross-check and no second tracker's beats, and the segment confidences stay what they were. Older files go through the earlier steps first.

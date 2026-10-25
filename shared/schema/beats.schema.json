@@ -95,6 +95,14 @@
       "title": "Beats",
       "type": "array"
     },
+    "cross_check_beats": {
+      "description": "the second tracker's beats after onset snap, in ms, empty when it didn't run. timing only, the cross-check and the confidence can be worked out again from them without the audio",
+      "items": {
+        "type": "number"
+      },
+      "title": "Cross Check Beats",
+      "type": "array"
+    },
     "grid_features": {
       "description": "band onset strengths at every grid line and half line of the analysis' tempo map, plus the lines the fold check carried into an edge stretch, sorted by time. what the notation suggestions are worked out from, so they can be checked again without the audio",
       "items": {
@@ -115,8 +123,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "2.3",
-      "default": "2.3",
+      "const": "2.4",
+      "default": "2.4",
       "title": "Schema Version",
       "type": "string"
     },
@@ -141,7 +149,8 @@
     "tracker",
     "octave",
     "beats",
-    "grid_features"
+    "grid_features",
+    "cross_check_beats"
   ],
   "title": "BeatsFile",
   "type": "object"

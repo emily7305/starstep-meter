@@ -1,4 +1,4 @@
-"""Timing report schema v2.3.
+"""Timing report schema v2.4.
 
 All times are milliseconds from the first sample of the decoded audio
 (ffmpeg's output, before any trimming). Bars are 0-based, beats inside
@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "2.3"
+SCHEMA_VERSION = "2.4"
 
 # every segment says where it came from, re-analysis only ever replaces "auto"
 SegmentSource = Literal["auto", "manual"]
@@ -76,7 +76,14 @@ class TempoSegment(_Strict):
         description="a downbeat on this segment's grid, which is anchor_ms + k * 60000 / bpm. "
         "the first segment's anchor is the song's first downbeat"
     )
-    confidence: float | None = Field(default=None, ge=0, le=1)
+    confidence: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="residual share times cross-check agreement over the segment, like confidence_spans, halved "
+        "for the librosa fallback. a refit after a split or merge has the refit's residual share only, null when "
+        "the bpm or anchor was set by hand",
+    )
     source: SegmentSource
     ratio_merged: list[RatioMergedSection] = Field(
         default_factory=list,
@@ -144,6 +151,50 @@ class OffbeatRun(_Strict):
         return self
 
 
+class ConfidenceSpan(_Strict):
+    # a stretch of a tempo segment, window_beats long on its grid, see backend/analysis/confidence.py
+    start_ms: float = Field(ge=0)
+    end_ms: float = Field(ge=0)
+    confidence: float = Field(
+        ge=0, le=1, description="residual_share * (1 - w + w * agreement), w = 0.5, or residual_share without a cross-check"
+    )
+    residual_share: float | None = Field(
+        ge=0,
+        le=1,
+        description="share of its tracked beats within 10 ms of the grid, a felt section's beats count as min(1, fit). "
+        "off-beat runs and their ramps are left out, null when that leaves nothing",
+    )
+    agreement: float | None = Field(
+        ge=0, le=1, description="share of compared beats where the second tracker had one close by, null without one"
+    )
+    low: bool = Field(description="under the threshold the timeline shades at")
+
+    @model_validator(mode="after")
+    def _ordered(self) -> ConfidenceSpan:
+        if self.end_ms <= self.start_ms:
+            raise ValueError("confidence span end_ms has to be after start_ms")
+        return self
+
+
+class CrossCheckSegment(_Strict):
+    start_ms: float = Field(ge=0)
+    end_ms: float = Field(ge=0)
+    disagreement_ms: float | None = Field(
+        ge=0, description="median distance between the two trackers' beats, null with too few beats to compare"
+    )
+    compared: int = Field(ge=0, description="beats compared, felt sections and off-beat runs left out")
+    flagged: bool = Field(description="disagreement_ms is over max_disagreement_ms")
+
+
+class CrossCheck(_Strict):
+    # a second beat tracker on the same audio, compared per tempo segment of the analysis
+    tracker: Literal["librosa"]
+    max_disagreement_ms: float = Field(gt=0)
+    segments: list[CrossCheckSegment] = Field(
+        default_factory=list, description="one per tempo segment the analysis found, not following later edits"
+    )
+
+
 NotationKind = Literal["half", "double", "fold"]
 SuggestionStatus = Literal["open", "applied", "dismissed"]
 
@@ -182,7 +233,7 @@ class Edit(_Strict):
 
 
 class TimingReport(_Strict):
-    schema_version: Literal["2.3"] = SCHEMA_VERSION
+    schema_version: Literal["2.4"] = SCHEMA_VERSION
     source: AudioSource
     trim: Trim
     # contiguous, the first downbeat is tempo_map[0].anchor_ms. no player compensation, see docs/decisions.md
@@ -199,6 +250,14 @@ class TimingReport(_Strict):
         default_factory=list,
         description="places where a chart may write the pulse at another tempo (half or double time feel) or "
         "fold an edge into its neighbour. never applied by the analysis, an edit applies or dismisses each one",
+    )
+    confidence_spans: list[ConfidenceSpan] = Field(
+        default_factory=list,
+        description="confidence over stretches of the auto tempo segments, sorted by time. analysis output, "
+        "edits don't change it and a re-analysis replaces it",
+    )
+    cross_check: CrossCheck | None = Field(
+        default=None, description="the second tracker's verdict per tempo segment, null when it didn't run"
     )
     # append-only, one entry per manual change
     edits: list[Edit] = Field(default_factory=list)
@@ -242,7 +301,7 @@ class GridFeature(_Strict):
 
 class BeatsFile(_Strict):
     # beats live in their own file next to report.json, a long song has thousands
-    schema_version: Literal["2.3"] = SCHEMA_VERSION
+    schema_version: Literal["2.4"] = SCHEMA_VERSION
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="same file as the report it belongs to")
     # librosa is the fallback when madmom isn't installed, it has no downbeats so bars are guessed
     tracker: Literal["madmom", "librosa"]
@@ -256,4 +315,9 @@ class BeatsFile(_Strict):
         description="band onset strengths at every grid line and half line of the analysis' tempo map, plus the "
         "lines the fold check carried into an edge stretch, sorted by time. what the notation suggestions are "
         "worked out from, so they can be checked again without the audio",
+    )
+    cross_check_beats: list[float] = Field(
+        default_factory=list,
+        description="the second tracker's beats after onset snap, in ms, empty when it didn't run. timing only, "
+        "the cross-check and the confidence can be worked out again from them without the audio",
     )

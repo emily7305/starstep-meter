@@ -17,6 +17,10 @@ export type ResidualMs = number;
 export type TimeMs = number;
 export type Beats = Beat[];
 /**
+ * the second tracker's beats after onset snap, in ms, empty when it didn't run. timing only, the cross-check and the confidence can be worked out again from them without the audio
+ */
+export type CrossCheckBeats = number[];
+/**
  * 5-16 khz, hats, cymbals and the snare's noise
  */
 export type High = number;
@@ -40,7 +44,7 @@ export type GridFeatures = GridFeature[];
  * what the octave check did to the tracker's tempo, mixed when it differs between tempo segments, see docs/decisions.md
  */
 export type Octave = "kept" | "doubled" | "halved" | "mixed";
-export type SchemaVersion = "2.3";
+export type SchemaVersion = "2.4";
 /**
  * same file as the report it belongs to
  */
@@ -49,6 +53,7 @@ export type Tracker = "madmom" | "librosa";
 
 export interface BeatsFile {
   beats: Beats;
+  cross_check_beats: CrossCheckBeats;
   grid_features: GridFeatures;
   octave: Octave;
   schema_version: SchemaVersion;

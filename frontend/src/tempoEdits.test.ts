@@ -29,7 +29,7 @@ function seg(start: number, end: number, bpm: number, anchor: number, confidence
 
 function makeReport(edits: Edit[] = []): TimingReport {
   return {
-    schema_version: "2.3",
+    schema_version: "2.4",
     source: {
       filename: "song.wav",
       sha256: "0".repeat(64),

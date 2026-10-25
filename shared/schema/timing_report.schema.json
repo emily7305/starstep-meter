@@ -49,6 +49,149 @@
       "title": "AudioSource",
       "type": "object"
     },
+    "ConfidenceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "agreement": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "share of compared beats where the second tracker had one close by, null without one",
+          "title": "Agreement"
+        },
+        "confidence": {
+          "description": "residual_share * (1 - w + w * agreement), w = 0.5, or residual_share without a cross-check",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "low": {
+          "description": "under the threshold the timeline shades at",
+          "title": "Low",
+          "type": "boolean"
+        },
+        "residual_share": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "share of its tracked beats within 10 ms of the grid, a felt section's beats count as min(1, fit). off-beat runs and their ramps are left out, null when that leaves nothing",
+          "title": "Residual Share"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "confidence",
+        "residual_share",
+        "agreement",
+        "low"
+      ],
+      "title": "ConfidenceSpan",
+      "type": "object"
+    },
+    "CrossCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "max_disagreement_ms": {
+          "exclusiveMinimum": 0,
+          "title": "Max Disagreement Ms",
+          "type": "number"
+        },
+        "segments": {
+          "description": "one per tempo segment the analysis found, not following later edits",
+          "items": {
+            "$ref": "#/$defs/CrossCheckSegment"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "tracker": {
+          "const": "librosa",
+          "title": "Tracker",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tracker",
+        "max_disagreement_ms",
+        "segments"
+      ],
+      "title": "CrossCheck",
+      "type": "object"
+    },
+    "CrossCheckSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "compared": {
+          "description": "beats compared, felt sections and off-beat runs left out",
+          "minimum": 0,
+          "title": "Compared",
+          "type": "integer"
+        },
+        "disagreement_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "median distance between the two trackers' beats, null with too few beats to compare",
+          "title": "Disagreement Ms"
+        },
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "flagged": {
+          "description": "disagreement_ms is over max_disagreement_ms",
+          "title": "Flagged",
+          "type": "boolean"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "disagreement_ms",
+        "compared",
+        "flagged"
+      ],
+      "title": "CrossCheckSegment",
+      "type": "object"
+    },
     "Edit": {
       "additionalProperties": false,
       "properties": {
@@ -337,6 +480,7 @@
             }
           ],
           "default": null,
+          "description": "residual share times cross-check agreement over the segment, like confidence_spans, halved for the librosa fallback. a refit after a split or merge has the refit's residual share only, null when the bpm or anchor was set by hand",
           "title": "Confidence"
         },
         "end_ms": {
@@ -408,6 +552,26 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "confidence_spans": {
+      "description": "confidence over stretches of the auto tempo segments, sorted by time. analysis output, edits don't change it and a re-analysis replaces it",
+      "items": {
+        "$ref": "#/$defs/ConfidenceSpan"
+      },
+      "title": "Confidence Spans",
+      "type": "array"
+    },
+    "cross_check": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CrossCheck"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "the second tracker's verdict per tempo segment, null when it didn't run"
+    },
     "edits": {
       "items": {
         "$ref": "#/$defs/Edit"
@@ -439,8 +603,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "2.3",
-      "default": "2.3",
+      "const": "2.4",
+      "default": "2.4",
       "title": "Schema Version",
       "type": "string"
     },
@@ -475,6 +639,8 @@
     "sections",
     "offbeat_runs",
     "notation_suggestions",
+    "confidence_spans",
+    "cross_check",
     "edits"
   ],
   "title": "TimingReport",
