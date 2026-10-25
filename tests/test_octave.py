@@ -13,8 +13,10 @@ from backend.analysis.octave import (
     OctaveCheck,
     check_octave,
     check_octave_per_segment,
+    count_on_grid,
     summary,
 )
+from backend.analysis.tempo_map import build_tempo_map
 from backend.analysis.tempo_range import TempoRange
 from tests.synth import ClickTrackSpec, click_track
 
@@ -173,6 +175,26 @@ def test_a_felt_range_is_left_as_tracked_when_its_octave_change_lands_off_every_
     out, checks = check_octave_per_segment(np.zeros(1), 44100, tracked, ranges)
     assert checks[1].choice == "halved"
     assert len(out.times_ms) == 25
+    # the halved stretch's positions were counted again, the others are the tracker's own
+    assert out.recounted.tolist() == [-1] * 10 + [1] * 5 + [-1] * 10
+
+
+def test_counted_positions_stay_on_the_grid_past_an_extra_beat():
+    # a doubled stretch counts its positions per tracked beat from the first downbeat, so one beat
+    # the tracker added in a quiet bar moved every downbeat after it (Lapis at 63 s)
+    period = 60000.0 / 291.99
+    times = 8000.0 + np.arange(160) * period
+    times = np.sort(np.append(times, times[100] + 0.45 * period))
+    per_beat = (np.arange(len(times)) - 2) % 4 + 1
+    tempo = build_tempo_map(times, per_beat == 1, times[0], times[-1] + period)
+    k = tempo.segments[0].fit.indices
+
+    out = count_on_grid(per_beat, np.zeros(len(times), dtype=np.int64), tempo)
+
+    assert np.all((k[out == 1] - k[2]) % 4 == 0)
+    assert not np.all((k[per_beat == 1] - k[2]) % 4 == 0)
+    # the tracker's own positions are its own downbeats, they stay
+    assert np.array_equal(count_on_grid(per_beat, np.full(len(times), -1), tempo), per_beat)
 
 
 @pytest.mark.parametrize(

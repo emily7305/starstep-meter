@@ -21,7 +21,7 @@ import numpy as np
 
 from backend.analysis.beats import FALLBACK_BEATS_PER_BAR, TrackedBeats
 from backend.analysis.snap import onset_strengths
-from backend.analysis.tempo_map import felt_sections, related
+from backend.analysis.tempo_map import TempoMapResult, felt_sections, related
 from backend.analysis.tempo_range import TempoRange
 
 OctaveChoice = Literal["kept", "doubled", "halved"]
@@ -124,7 +124,7 @@ def check_octave(
 
 
 def _slice(tracked: TrackedBeats, first: int, stop: int) -> TrackedBeats:
-    return replace(tracked, times_ms=tracked.times_ms[first:stop], positions=tracked.positions[first:stop])
+    return replace(tracked, times_ms=tracked.times_ms[first:stop], positions=tracked.positions[first:stop], recounted=None)
 
 
 # what each choice does to a tempo
@@ -166,8 +166,45 @@ def check_octave_per_segment(
         tracked,
         times_ms=np.concatenate([p.times_ms for p, _ in checked]),
         positions=np.concatenate([p.positions for p, _ in checked]),
+        recounted=np.concatenate(
+            [np.full(len(p.times_ms), k if c.choice != "kept" else -1, dtype=np.int64) for k, (p, c) in enumerate(checked)]
+        ),
     )
     return joined, [c for _, c in checked]
+
+
+def count_on_grid(positions: np.ndarray, recounted: np.ndarray, tempo: TempoMapResult) -> np.ndarray:
+    """Bar positions the octave check counted, counted again on the tempo map's grid.
+
+    A doubled or halved stretch keeps only the tracker's first downbeat, every position after it
+    was counted per tracked beat. So a beat the tracker added or dropped moved every downbeat
+    after it by a beat, and the meter took that for an odd bar (Lapis at 63 s, one extra beat in
+    a quiet bar). Counted on the grid indices from the same first downbeat, they stay on one
+    lattice. The tracker's own positions are left as they are.
+    """
+    pos = np.asarray(positions)
+    out = pos.copy()
+    groups = np.asarray(recounted)
+    for seg in tempo.segments:
+        idx = np.arange(seg.first, seg.stop)
+        k = seg.fit.indices
+        for g in np.unique(groups[idx]):
+            if g < 0:
+                continue
+            mine = groups[idx] == g
+            length = int(pos[groups == g].max())
+            # a segment edge restarts the bars anyway, so each segment counts from its own first downbeat
+            first = np.flatnonzero(mine & (pos[idx] == 1))
+            if len(first) == 0 or length < 1:
+                continue
+            out[idx[mine]] = (k[mine] - k[first[0]]) % length + 1
+    return out
+
+
+def positions_on_grid(tracked: TrackedBeats, tempo: TempoMapResult) -> TrackedBeats:
+    if tracked.recounted is None or not (tracked.recounted >= 0).any():
+        return tracked
+    return replace(tracked, positions=count_on_grid(tracked.positions, tracked.recounted, tempo))
 
 
 def summary(checks: list[OctaveCheck]) -> OctaveSummary:

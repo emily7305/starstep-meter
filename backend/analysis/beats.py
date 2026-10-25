@@ -49,6 +49,9 @@ class TrackedBeats:
     tracker: Tracker
     # false for librosa, where positions are a guess from the beat order
     downbeats_known: bool
+    # which rough segment's positions the octave check counted again, -1 where they're the
+    # tracker's own. None before the octave check
+    recounted: np.ndarray | None = None
 
 
 def madmom_available() -> bool:

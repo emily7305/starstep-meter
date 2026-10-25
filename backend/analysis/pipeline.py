@@ -32,7 +32,7 @@ from backend.analysis.notation import (
     from_fits,
 )
 from backend.analysis.notation_edit import keep_decided
-from backend.analysis.octave import OctaveCheck, check_octave_per_segment, summary
+from backend.analysis.octave import OctaveCheck, check_octave_per_segment, positions_on_grid, summary
 from backend.analysis.snap import DEFAULT_WINDOW_MS, SnapResult, onset_strengths, snap_to_onsets
 from backend.analysis.tempo_edit import keep_manual_segments
 from backend.analysis.tempo_map import TempoMapConfig, TempoMapResult, build_tempo_map
@@ -380,6 +380,9 @@ def run_analysis(
         )
 
         enter("meter")
+        # positions the octave check counted per beat go on the grid first, an extra or dropped
+        # beat would move every downbeat after it. the beats file gets them like this too
+        tracked = positions_on_grid(tracked, tempo)
         # band strengths on every line and half line of the map, what meter and notation read.
         # they go in the beats file so the suggestions can be checked again without the audio
         flux = band_flux(samples, sample_rate, trim.start_ms, trim.end_ms)
