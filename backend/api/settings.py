@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
+from backend.analysis.cross_check import CrossCheckConfig
 from backend.analysis.snap import DEFAULT_WINDOW_MS
 from backend.analysis.tempo_range import DEFAULT_MAX_BPM, DEFAULT_MIN_BPM, TempoRange
 from backend.analysis.trim import DEFAULT_THRESHOLD_DB
@@ -37,6 +38,7 @@ class Settings:
     snap_window_ms: float = DEFAULT_WINDOW_MS
     min_bpm: float = DEFAULT_MIN_BPM
     max_bpm: float = DEFAULT_MAX_BPM
+    cross_check_ms: float = CrossCheckConfig().max_disagreement_ms
     # one worker is plenty, analysis is cpu bound and it's just me using it
     workers: int = 1
     # job folders untouched for this long are deleted at startup, 0 keeps them forever
@@ -49,6 +51,8 @@ class Settings:
             raise ValueError("workers must be at least 1")
         if self.snap_window_ms <= 0:
             raise ValueError("snap_window_ms must be positive")
+        if not self.cross_check_ms > 0:
+            raise ValueError("cross_check_ms must be positive")
         if self.retention_days < 0:
             raise ValueError("retention_days must be 0 or more")
         # TempoRange checks the bounds and names them in its error
@@ -76,6 +80,7 @@ class Settings:
             snap_window_ms=_read_env("STARSTEP_SNAP_WINDOW_MS", float, defaults.snap_window_ms),
             min_bpm=_read_env("STARSTEP_MIN_BPM", float, defaults.min_bpm),
             max_bpm=_read_env("STARSTEP_MAX_BPM", float, defaults.max_bpm),
+            cross_check_ms=_read_env("STARSTEP_CROSS_CHECK_MS", float, defaults.cross_check_ms),
             workers=_read_env("STARSTEP_WORKERS", int, defaults.workers),
             retention_days=_read_env("STARSTEP_RETENTION_DAYS", int, defaults.retention_days),
         )

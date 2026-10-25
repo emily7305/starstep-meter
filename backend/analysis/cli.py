@@ -1,7 +1,7 @@
 """Analyze one file without the server.
 
 Usage: python -m backend.analysis.cli <file> [--threshold-db -60] [--snap-window-ms 20]
-       [--tracker auto|madmom|librosa] [--min-bpm 60] [--max-bpm 320]
+       [--tracker auto|madmom|librosa] [--min-bpm 60] [--max-bpm 320] [--cross-check-ms 20]
        [--beats beats.json] [--work-dir DIR] [-v]
 
 Prints the timing report JSON to stdout. Stage progress and debug
@@ -16,6 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from backend.analysis.cross_check import CrossCheckConfig
 from backend.analysis.ffmpeg_tools import ToolNotFoundError
 from backend.analysis.ingest import DEFAULT_MAX_BYTES, IngestError, ingest_file
 from backend.analysis.pipeline import AnalysisConfig, StageError, run_analysis, snap_shift_ms
@@ -48,6 +49,7 @@ def _analyze(src: Path, work_dir: Path, args: argparse.Namespace) -> int:
                 snap_window_ms=args.snap_window_ms,
                 tracker=args.tracker,
                 tempo_range=args.tempo_range,
+                cross_check=args.cross_check,
             ),
         )
     except StageError as exc:
@@ -85,6 +87,17 @@ def _analyze(src: Path, work_dir: Path, args: argparse.Namespace) -> int:
         log(f"  [{i}]   {run.start_ms:.3f} -> {run.end_ms:.3f} ms, {run.numerator}/{run.denominator}, confidence {run.confidence:.2f}")
     for s in sorted(out.suggestions, key=lambda s: s.start_ms):
         log(f"suggest {s.kind} {s.start_ms:.3f} -> {s.end_ms:.3f} ms, {s.suggested_bpm:.4f} bpm from {s.grid_bpm:.4f}, score {s.score:.2f}")
+    if out.cross_check is None:
+        log("check   no cross-check, librosa is the main tracker")
+    else:
+        log(f"check   librosa, {len(out.second_ms)} beats, segments flagged over {out.cross_check.max_disagreement_ms:g} ms apart")
+        for i, c in enumerate(out.cross_check.segments):
+            apart = "too few beats to compare" if c.disagreement_ms is None else f"median {c.disagreement_ms:.2f} ms apart"
+            log(f"  [{i}]   {apart} over {c.compared} beats{', flagged' if c.flagged else ''}")
+    low = [s for s in out.confidence.spans if s.low]
+    log(f"conf    {' '.join(f'{c:.3f}' for c in out.confidence.segments)}, {len(low)} of {len(out.confidence.spans)} spans low")
+    for s in low:
+        log(f"  low   {s.start_ms:.3f} -> {s.end_ms:.3f} ms, {s.confidence:.2f}")
     if args.beats is not None:
         args.beats.write_text(out.beats.model_dump_json(indent=2) + "\n", encoding="utf-8")
         log(f"wrote   {args.beats}")
@@ -100,6 +113,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tracker", choices=["auto", "madmom", "librosa"], default="auto", help="auto uses madmom when it's installed")
     parser.add_argument("--min-bpm", type=float, default=DEFAULT_MIN_BPM, help="slowest tempo any tempo path considers")
     parser.add_argument("--max-bpm", type=float, default=DEFAULT_MAX_BPM, help="fastest tempo any tempo path considers")
+    parser.add_argument(
+        "--cross-check-ms",
+        type=float,
+        default=CrossCheckConfig().max_disagreement_ms,
+        help="flag a tempo segment where madmom and librosa are further apart than this",
+    )
     parser.add_argument("--beats", type=Path, help="also write the beats file here")
     parser.add_argument("--max-mb", type=int, default=DEFAULT_MAX_BYTES // (1024 * 1024))
     parser.add_argument("--work-dir", type=Path, help="keep the copied original and decoded wav here instead of a temp dir")
@@ -107,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         args.tempo_range = TempoRange(args.min_bpm, args.max_bpm)
+        args.cross_check = CrossCheckConfig(args.cross_check_ms)
     except ValueError as exc:
         parser.error(str(exc))
 

@@ -28,7 +28,7 @@ def test_run_analysis_builds_the_report_and_beats(tmp_path):
 
     out = run_analysis(src, work, filename="song.wav", sha256=sha256, on_stage=stages.append)
 
-    assert stages == ["decode", "trim", "beats", "snap", "tempo", "meter"]
+    assert stages == ["decode", "trim", "beats", "snap", "tempo", "meter", "check"]
     assert (work / "decoded.wav").exists()
     assert out.decoded.path == work / "decoded.wav"
 

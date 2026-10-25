@@ -1,7 +1,7 @@
 """Run the analysis on every song in a folder and write one csv row per file.
 
 Usage: python scripts/eval_local.py <folder> [--out eval_local.csv] [--tracker auto|madmom|librosa]
-       [--min-bpm 60] [--max-bpm 320] [--recursive]
+       [--min-bpm 60] [--max-bpm 320] [--cross-check-ms 20] [--recursive]
 
 Writes timing data only, never audio, and nothing next to the songs.
 """
@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.analysis.ffmpeg_tools import find_tool  # noqa: E402
 from backend.analysis.ingest import ALLOWED_EXTENSIONS  # noqa: E402
+from backend.analysis.cross_check import CrossCheckConfig  # noqa: E402
 from backend.analysis.octave import summary  # noqa: E402
 from backend.analysis.pipeline import AnalysisConfig, AnalysisOutput, StageError, run_analysis, snap_shift_ms  # noqa: E402
 from backend.analysis.tempo_range import DEFAULT_MAX_BPM, DEFAULT_MIN_BPM, TempoRange  # noqa: E402
@@ -30,7 +31,7 @@ COLUMNS = (
     "file", "duration_ms", "codec", "sample_rate", "tracker", "octave",
     "segments", "segment_starts_ms", "segment_bpms", "segment_confidences",
     "residual_rms_ms", "residual_p95_ms", "residual_max_ms", "outliers", "confidence",
-    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions",
+    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions", "cross_check_ms", "low_confidence",
     "beats", "beats_snapped", "beats_not_snapped", "median_snap_move_ms", "error",
 )
 _CHUNK = 1024 * 1024
@@ -51,6 +52,15 @@ def _find_songs(folder: Path, recursive: bool) -> list[tuple[str, Path]]:
     return sorted(songs)
 
 
+def _cross_check(out: AnalysisOutput) -> str:
+    # per segment, - with too few beats to compare, ! when flagged. empty without a cross-check
+    if out.cross_check is None:
+        return ""
+    return " ".join(
+        "-" if c.disagreement_ms is None else f"{c.disagreement_ms:.2f}{'!' if c.flagged else ''}" for c in out.cross_check.segments
+    )
+
+
 def _row(name: str, out: AnalysisOutput) -> dict[str, str]:
     tempo = out.tempo
     residuals = np.abs(tempo.residuals_ms)
@@ -67,7 +77,7 @@ def _row(name: str, out: AnalysisOutput) -> dict[str, str]:
         segments=str(len(tempo.segments)),
         segment_starts_ms=" ".join(f"{s.start_ms:.3f}" for s in tempo.segments),
         segment_bpms=" ".join(f"{s.fit.bpm:.4f}" for s in tempo.segments),
-        segment_confidences=" ".join(f"{s.fit.confidence:.3f}" for s in tempo.segments),
+        segment_confidences=" ".join(f"{c:.3f}" for c in out.confidence.segments),
         residual_rms_ms=f"{tempo.residual_rms_ms:.3f}",
         residual_p95_ms=f"{np.percentile(residuals, 95):.3f}",
         residual_max_ms=f"{residuals.max():.3f}",
@@ -77,6 +87,8 @@ def _row(name: str, out: AnalysisOutput) -> dict[str, str]:
         offbeat_runs=" ".join(f"{r.start_ms:.0f}-{r.end_ms:.0f}" for s in tempo.segments for r in s.offbeat_runs),
         meter=" ".join(f"{r.numerator}/{r.denominator}:{r.start_ms:.0f}" for r in out.meter.runs),
         notation_suggestions=" ".join(f"{s.kind}:{s.start_ms:.0f}-{s.end_ms:.0f}:{s.score:.2f}" for s in out.report.notation_suggestions),
+        cross_check_ms=_cross_check(out),
+        low_confidence=" ".join(f"{s.start_ms:.0f}-{s.end_ms:.0f}:{s.confidence:.2f}" for s in out.confidence.spans if s.low),
         beats=str(beats),
         beats_snapped=str(snapped),
         beats_not_snapped=str(beats - snapped),
@@ -129,10 +141,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tracker", choices=["auto", "madmom", "librosa"], default="auto", help="auto uses madmom when it's installed")
     parser.add_argument("--min-bpm", type=float, default=DEFAULT_MIN_BPM, help="slowest tempo any tempo path considers")
     parser.add_argument("--max-bpm", type=float, default=DEFAULT_MAX_BPM, help="fastest tempo any tempo path considers")
+    parser.add_argument(
+        "--cross-check-ms",
+        type=float,
+        default=CrossCheckConfig().max_disagreement_ms,
+        help="flag a tempo segment where madmom and librosa are further apart than this",
+    )
     parser.add_argument("--recursive", action="store_true", help="also look in subfolders")
     args = parser.parse_args(argv)
     try:
-        config = AnalysisConfig(tracker=args.tracker, tempo_range=TempoRange(args.min_bpm, args.max_bpm))
+        config = AnalysisConfig(
+            tracker=args.tracker,
+            tempo_range=TempoRange(args.min_bpm, args.max_bpm),
+            cross_check=CrossCheckConfig(args.cross_check_ms),
+        )
     except ValueError as exc:
         parser.error(str(exc))
 

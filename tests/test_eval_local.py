@@ -15,7 +15,7 @@ HEADER = [
     "file", "duration_ms", "codec", "sample_rate", "tracker", "octave",
     "segments", "segment_starts_ms", "segment_bpms", "segment_confidences",
     "residual_rms_ms", "residual_p95_ms", "residual_max_ms", "outliers", "confidence",
-    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions",
+    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions", "cross_check_ms", "low_confidence",
     "beats", "beats_snapped", "beats_not_snapped", "median_snap_move_ms", "error",
 ]
 

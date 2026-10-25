@@ -23,7 +23,7 @@ from backend.schema.models import TimingReport
 from tests.synth import ClickTrackSpec, cached_click_wav
 
 POLL_TIMEOUT_S = 60.0
-STAGE_ORDER = ["queued", "decode", "trim", "beats", "snap", "tempo", "meter", "done"]
+STAGE_ORDER = ["queued", "decode", "trim", "beats", "snap", "tempo", "meter", "check", "done"]
 
 
 @pytest.fixture
@@ -116,7 +116,7 @@ def test_click_track_job_end_to_end(client: TestClient, settings: Settings) -> N
     assert resp.status_code == 200, resp.text
     report = TimingReport.model_validate(resp.json())
 
-    assert report.schema_version == "2.3"
+    assert report.schema_version == "2.4"
     assert report.source.filename == "click 120.wav"
     assert report.source.codec == "pcm_f32le"
     assert report.source.decoder_padding_samples == 0

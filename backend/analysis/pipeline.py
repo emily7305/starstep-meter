@@ -1,4 +1,4 @@
-"""Runs decode -> trim -> beats -> snap -> tempo -> meter and builds the report and beats file."""
+"""Runs decode -> trim -> beats -> snap -> tempo -> meter -> check and builds the report and beats file."""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ from backend.analysis.beats import (
     bias_correction_ms,
     track_beats,
 )
+from backend.analysis.confidence import Confidence, ConfidenceConfig, assess, expected_misfits
+from backend.analysis.cross_check import SECOND_TRACKER, CrossCheck, CrossCheckConfig, compare, second_opinion
 from backend.analysis.decode import DecodedAudio, decode_to_wav, load_mono
 from backend.analysis.features import GridFeatures, band_flux, grid_features
 from backend.analysis.meter import MeterConfig, MeterResult, infer_meter
@@ -36,10 +38,13 @@ from backend.analysis.tempo_edit import keep_manual_segments
 from backend.analysis.tempo_map import TempoMapConfig, TempoMapResult, build_tempo_map
 from backend.analysis.tempo_range import TempoRange
 from backend.analysis.trim import DEFAULT_THRESHOLD_DB, TrimResult, find_trim, stretch_level
+from backend.schema.models import CrossCheck as CrossCheckReport
 from backend.schema.models import (
     AudioSource,
     Beat,
     BeatsFile,
+    ConfidenceSpan,
+    CrossCheckSegment,
     GridFeature,
     MeterSegment,
     NotationSuggestion,
@@ -50,10 +55,10 @@ from backend.schema.models import (
     Trim,
 )
 
-Stage = Literal["queued", "decode", "trim", "beats", "snap", "tempo", "meter", "done", "failed"]
-STAGES: tuple[Stage, ...] = ("queued", "decode", "trim", "beats", "snap", "tempo", "meter", "done", "failed")
+Stage = Literal["queued", "decode", "trim", "beats", "snap", "tempo", "meter", "check", "done", "failed"]
+STAGES: tuple[Stage, ...] = ("queued", "decode", "trim", "beats", "snap", "tempo", "meter", "check", "done", "failed")
 # the stages run_analysis actually runs, so the only ones a StageError can name
-RunStage = Literal["decode", "trim", "beats", "snap", "tempo", "meter"]
+RunStage = Literal["decode", "trim", "beats", "snap", "tempo", "meter", "check"]
 
 DECODED_NAME = "decoded.wav"
 
@@ -74,6 +79,8 @@ class AnalysisConfig:
     tempo_map: TempoMapConfig = TempoMapConfig()
     meter: MeterConfig = MeterConfig()
     notation: NotationConfig = NotationConfig()
+    cross_check: CrossCheckConfig = CrossCheckConfig()
+    confidence: ConfidenceConfig = ConfidenceConfig()
 
 
 @dataclass(frozen=True)
@@ -91,6 +98,11 @@ class AnalysisOutput:
     meter: MeterResult
     features: GridFeatures
     suggestions: list[Suggestion]
+    # librosa's snapped beats, empty when the main tracker is librosa itself
+    second_ms: np.ndarray
+    # None when the main tracker is librosa, there's nothing to compare it with then
+    cross_check: CrossCheck | None
+    confidence: Confidence
 
 
 def _ms(value: float) -> float:
@@ -98,14 +110,16 @@ def _ms(value: float) -> float:
     return round(float(value), 3)
 
 
-def tempo_segments(tempo: TempoMapResult) -> list[TempoSegment]:
+def tempo_segments(tempo: TempoMapResult, confidences: list[float] | None = None) -> list[TempoSegment]:
+    # without the confidence stage (the tests that build a report by hand) it's the residual share
+    values = confidences if confidences is not None else [s.fit.confidence for s in tempo.segments]
     segments = [
         TempoSegment(
             start_ms=_ms(s.start_ms),
             end_ms=_ms(s.end_ms),
             bpm=round(s.fit.bpm, 4),
             anchor_ms=_ms(s.anchor_ms),
-            confidence=round(s.fit.confidence, 3),
+            confidence=round(value, 3),
             source="auto",
             ratio_merged=[
                 RatioMergedSection(
@@ -119,7 +133,7 @@ def tempo_segments(tempo: TempoMapResult) -> list[TempoSegment]:
             ],
         )
         # each end is the same float as the next start, so they round the same and stay contiguous
-        for s in tempo.segments
+        for s, value in zip(tempo.segments, values)
     ]
     return segments
 
@@ -153,6 +167,46 @@ def notation_suggestions(suggestions: list[Suggestion]) -> list[NotationSuggesti
     ]
 
 
+def confidence_spans(confidence: Confidence, tempo_map: list[TempoSegment]) -> list[ConfidenceSpan]:
+    # only where an auto segment is, a manual one kept through re-analysis has its own grid
+    auto = [(s.start_ms, s.end_ms) for s in tempo_map if s.source == "auto"]
+    out = []
+    for span in confidence.spans:
+        mid = (span.start_ms + span.end_ms) / 2.0
+        if not any(a <= mid < b for a, b in auto):
+            continue
+        out.append(
+            ConfidenceSpan(
+                start_ms=_ms(span.start_ms),
+                end_ms=_ms(span.end_ms),
+                confidence=round(span.confidence, 3),
+                residual_share=None if span.residual_share is None else round(span.residual_share, 3),
+                agreement=None if span.agreement is None else round(span.agreement, 3),
+                low=span.low,
+            )
+        )
+    return out
+
+
+def cross_check_report(cross: CrossCheck | None) -> CrossCheckReport | None:
+    if cross is None:
+        return None
+    return CrossCheckReport(
+        tracker=SECOND_TRACKER,
+        max_disagreement_ms=cross.max_disagreement_ms,
+        segments=[
+            CrossCheckSegment(
+                start_ms=_ms(c.start_ms),
+                end_ms=_ms(c.end_ms),
+                disagreement_ms=None if c.disagreement_ms is None else round(c.disagreement_ms, 2),
+                compared=c.compared,
+                flagged=c.flagged,
+            )
+            for c in cross.segments
+        ],
+    )
+
+
 def build_report(
     filename: str,
     sha256: str,
@@ -162,8 +216,10 @@ def build_report(
     previous: TimingReport | None = None,
     meter: MeterResult | None = None,
     suggestions: list[Suggestion] | None = None,
+    confidence: Confidence | None = None,
+    cross: CrossCheck | None = None,
 ) -> TimingReport:
-    tempo_map = tempo_segments(tempo)
+    tempo_map = tempo_segments(tempo, confidence.segments if confidence is not None else None)
     meter_map = meter_segments(meter) if meter is not None else []
     notes = notation_suggestions(suggestions or [])
     edits = []
@@ -194,6 +250,8 @@ def build_report(
             for r in seg.offbeat_runs
         ],
         notation_suggestions=notes,
+        confidence_spans=confidence_spans(confidence, tempo_map) if confidence is not None else [],
+        cross_check=cross_check_report(cross),
         edits=edits,
     )
 
@@ -210,6 +268,7 @@ def build_beats_file(
     snap: SnapResult,
     tempo: TempoMapResult,
     features: GridFeatures | None = None,
+    second_ms: np.ndarray | None = None,
 ) -> BeatsFile:
     if tracked.downbeats_known:
         positions = tracked.positions
@@ -240,7 +299,15 @@ def build_beats_file(
             )
             for t, v in zip(features.times_ms, features.values)
         ]
-    return BeatsFile(sha256=sha256, tracker=tracked.tracker, octave=summary(octave), beats=beats, grid_features=stored)
+    second = [] if second_ms is None else [max(0.0, _ms(t)) for t in second_ms]
+    return BeatsFile(
+        sha256=sha256,
+        tracker=tracked.tracker,
+        octave=summary(octave),
+        beats=beats,
+        grid_features=stored,
+        cross_check_beats=second,
+    )
 
 
 def run_analysis(
@@ -329,12 +396,22 @@ def run_analysis(
         suggestions = feel_suggestions(segments, meter.runs, features, config.notation) + fold_suggestions(
             segments, features, trim.start_ms, trim.end_ms, config.tempo_map, config.notation
         )
+
+        enter("check")
+        # librosa's tracker as a second opinion. with librosa as the main tracker it would only
+        # agree with itself, so there's no check then and the confidence is the residuals alone
+        cross = None
+        second = np.zeros(0)
+        if tracked.tracker != SECOND_TRACKER:
+            second = second_opinion(samples, sample_rate, trim.start_ms, trim.end_ms, config.tempo_range, config.snap_window_ms)
+            cross = check_against(tempo, snap.times_ms, second, config)
+        confidence = assess(tempo, snap.times_ms, cross, config.confidence)
     except Exception as exc:
         # keep whatever the stage said, the ui shows it as is
         raise StageError(stage, str(exc) or type(exc).__name__) from exc
 
-    report = build_report(filename, sha256, decoded, trim, tempo, previous, meter, suggestions)
-    beats = build_beats_file(sha256, tracked, octave, snap, tempo, features)
+    report = build_report(filename, sha256, decoded, trim, tempo, previous, meter, suggestions, confidence, cross)
+    beats = build_beats_file(sha256, tracked, octave, snap, tempo, features, second)
     return AnalysisOutput(
         report=report,
         beats=beats,
@@ -347,7 +424,18 @@ def run_analysis(
         meter=meter,
         features=features,
         suggestions=suggestions,
+        second_ms=second,
+        cross_check=cross,
+        confidence=confidence,
     )
+
+
+def check_against(tempo: TempoMapResult, times_ms: np.ndarray, second_ms: np.ndarray, config: AnalysisConfig = AnalysisConfig()) -> CrossCheck:
+    """The cross-check per tempo segment, with the felt sections and off-beat runs left out."""
+    felt, offbeat = expected_misfits(tempo, times_ms, config.confidence)
+    skip = [(a, b) for a, b, _ in felt] + offbeat
+    segments = [(s.start_ms, s.end_ms) for s in tempo.segments]
+    return compare(times_ms, second_ms, segments, skip, config.cross_check)
 
 
 def snap_shift_ms(tracked: TrackedBeats, snap: SnapResult) -> float:

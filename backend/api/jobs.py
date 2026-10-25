@@ -6,6 +6,7 @@ import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import cast
 
+from backend.analysis.cross_check import CrossCheckConfig
 from backend.analysis.pipeline import DECODED_NAME, AnalysisConfig, Stage, StageError, run_analysis
 from backend.api.models import ErrorStage, JobError, JobStatus
 from backend.api.settings import Settings
@@ -15,7 +16,7 @@ from backend.schema.models import TimingReport
 log = logging.getLogger("starstep.jobs")
 
 RESTART_MESSAGE = "server restarted before the job finished"
-_ERROR_STAGES = ("queued", "decode", "trim", "beats", "snap", "tempo", "meter")
+_ERROR_STAGES = ("queued", "decode", "trim", "beats", "snap", "tempo", "meter", "check")
 
 
 def _error_stage(stage: str) -> ErrorStage:
@@ -30,6 +31,7 @@ class JobRunner:
             trim_threshold_db=settings.trim_threshold_db,
             snap_window_ms=settings.snap_window_ms,
             tempo_range=settings.tempo_range,
+            cross_check=CrossCheckConfig(settings.cross_check_ms),
         )
         # no celery or redis, the job dirs on disk are the only state
         self._executor = ThreadPoolExecutor(max_workers=settings.workers, thread_name_prefix="analysis")

@@ -202,7 +202,7 @@ def test_delete_of_an_unknown_job_is_404(client: TestClient, job_id: str) -> Non
 
 
 def fake_analysis(original_path, work_dir, filename, sha256, on_stage=None, config=None, previous=None):
-    for stage in ("decode", "trim", "beats", "snap", "tempo", "meter"):
+    for stage in ("decode", "trim", "beats", "snap", "tempo", "meter", "check"):
         on_stage(stage)
     (Path(work_dir) / "decoded.wav").write_bytes(b"RIFF-decoded")
     report = make_report().model_copy(update={"source": make_report().source.model_copy(update={"filename": filename})})
