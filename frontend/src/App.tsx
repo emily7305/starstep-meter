@@ -12,6 +12,7 @@ import {
   reanalyzeJob,
   uploadAudio,
 } from "./api";
+import { ExportPanel } from "./components/ExportPanel";
 import { HealthReadout, type Health } from "./components/HealthReadout";
 import { RecentJobs } from "./components/RecentJobs";
 import { ReopenPrompt } from "./components/ReopenPrompt";
@@ -421,6 +422,7 @@ export function App() {
               <span className="reanalyze__hint">manual segments and edits stay</span>
             </div>
           )}
+          {jobId !== null && report !== null && <ExportPanel jobId={jobId} source={report.source} disabled={run.busy} />}
 
           <h2 className="section-label section-label--spaced">recent</h2>
           <RecentJobs jobs={jobs} currentId={jobId} error={jobsError} onOpen={(id) => openJob(id, true)} />

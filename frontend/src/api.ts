@@ -1,3 +1,4 @@
+import { downloadName, type ExportChoice, exportPath } from "./exportOptions";
 import type { HealthStatus, JobStatus, JobSummary, TempoEditOp, UploadResponse } from "./types/api";
 import type { BeatsFile } from "./types/beats";
 import type { TimingReport } from "./types/timingReport";
@@ -105,6 +106,25 @@ export function reanalyzeJob(jobId: string, signal?: AbortSignal): Promise<Uploa
     method: "POST",
     signal,
   });
+}
+
+export interface ExportFile {
+  blob: Blob;
+  filename: string;
+}
+
+// fetched rather than linked, so a refused export shows its reason instead of saving it as the file
+export async function fetchExport(jobId: string, choice: ExportChoice, signal?: AbortSignal): Promise<ExportFile> {
+  let res: Response;
+  try {
+    res = await fetch(exportPath(jobId, choice), { signal, headers: { accept: "application/json" } });
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    throw offlineError();
+  }
+  if (!res.ok) throw errorFromResponse(res.status, await res.text());
+  const fallback = `${jobId}.${choice.preset}.json`;
+  return { blob: await res.blob(), filename: downloadName(res.headers.get("content-disposition"), fallback) };
 }
 
 // the decoded wav the analysis ran on, so the waveform shares the report's timeline
