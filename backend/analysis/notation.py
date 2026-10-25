@@ -16,8 +16,9 @@ those already follow another pulse.
 
 Fold. A first or last stretch near the edge of the song that the tempo map kept at its own
 tempo may still be its neighbour's, the tracker losing the beat in an outro. The neighbour's
-grid is carried through it, and if the onsets sit on that grid at least as well as on the
-stretch's own, folding it in is suggested.
+grid is carried through each of its segments, and where the onsets sit on that grid at least
+as well as on the segment's own, counting the loud and long segments for more, folding it in
+is suggested.
 """
 
 from __future__ import annotations
@@ -56,7 +57,8 @@ class NotationConfig:
     # leakage from something else. clicks leave under 0.05 there, the test drums 1.0
     kick_min: float = 0.2
     # fold: the stretch has to be near the edge (tempo map's edge rule) and the carried grid has
-    # to catch at least this share of the onsets the two grids catch together
+    # to catch at least this share of the onsets the two grids catch together, 0.5 is a draw. a
+    # fade with no attacks is a draw, a real change scores near 0
     fold_min_score: float = 0.5
 
     def __post_init__(self) -> None:
@@ -337,19 +339,25 @@ def fold_suggestions(
     for run, n in _edge_runs(segments, song_start_ms, song_end_ms, tempo_config):
         other = segments[n]
         start, end = segments[run[0]].start_ms, segments[run[-1]].end_ms
-        carried = features.lookup(half_lines(other.anchor_ms, other.period_ms, start, end)).sum(axis=1)
-        own = np.concatenate([
-            features.lookup(half_lines(segments[i].anchor_ms, segments[i].period_ms, segments[i].start_ms,
-                                       segments[i].end_ms)).sum(axis=1)
-            for i in run
-        ])
-        carried, own = carried[np.isfinite(carried)], own[np.isfinite(own)]
-        if len(carried) == 0 or len(own) == 0:
+        # each segment of the stretch on its own, weighted by how loud and how long it is. pooled
+        # into one median, ENDYMION's quiet fade (both grids even) outweighed the loud 4/3 part
+        # where the carried grid catches 30% more, and the outro scored 0.48
+        scores, weights = [], []
+        for i in run:
+            seg = segments[i]
+            carried = features.lookup(half_lines(other.anchor_ms, other.period_ms, seg.start_ms, seg.end_ms)).sum(axis=1)
+            own = features.lookup(half_lines(seg.anchor_ms, seg.period_ms, seg.start_ms, seg.end_ms)).sum(axis=1)
+            carried, own = carried[np.isfinite(carried)], own[np.isfinite(own)]
+            if len(carried) == 0 or len(own) == 0:
+                continue
+            on, off = float(np.median(carried)), float(np.median(own))
+            if on + off <= 0:
+                continue
+            scores.append(on / (on + off))
+            weights.append(max(on, off) * (seg.end_ms - seg.start_ms))
+        if not scores or sum(weights) <= 0:
             continue
-        on, off = float(np.median(carried)), float(np.median(own))
-        if on + off <= 0:
-            continue
-        score = on / (on + off)
+        score = float(np.average(scores, weights=weights))
         if score >= config.fold_min_score:
             out.append(Suggestion(start, end, "fold", other.bpm, segments[run[0]].bpm, round(score, 3)))
     return out

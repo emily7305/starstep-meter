@@ -9,9 +9,16 @@ import pytest
 
 from backend.analysis import pipeline
 from backend.analysis.beats import TrackedBeats
-from backend.analysis.features import band_flux, grid_features, half_lines
+from backend.analysis.features import GridFeatures, band_flux, grid_features, half_lines
 from backend.analysis.meter import MeterRun
-from backend.analysis.notation import NotationConfig, Segment, _classify, feel_suggestions, suggest_from_files
+from backend.analysis.notation import (
+    NotationConfig,
+    Segment,
+    _classify,
+    feel_suggestions,
+    fold_suggestions,
+    suggest_from_files,
+)
 from backend.analysis.pipeline import run_analysis
 from tests.synth import ClickTrackSpec, DrumTrackSpec, cached_click_wav, cached_drum_wav, click_track, drum_track
 
@@ -211,6 +218,47 @@ def test_an_outro_the_tracker_lost_gets_a_fold_suggestion(monkeypatch, tmp_path)
     assert fold.suggested_bpm == pytest.approx(220.0, abs=0.01)
     assert fold.grid_bpm == report.tempo_map[1].bpm
     assert fold.score > 0.9
+
+
+def _outro_features(segments, carried_level, fade_level):
+    # the body at 1, the first outro segment louder on the carried 220 grid than off it, the
+    # second a fade where every position reads the same, like ENDYMION's last 7.7 s
+    main, loud, fade = segments
+    positions = np.unique(np.concatenate([
+        half_lines(main.anchor_ms, main.period_ms, main.start_ms, fade.end_ms),
+        half_lines(loud.anchor_ms, loud.period_ms, loud.start_ms, loud.end_ms),
+        half_lines(fade.anchor_ms, fade.period_ms, fade.start_ms, fade.end_ms),
+    ]))
+    d = (positions - main.anchor_ms) / (main.period_ms / 2)
+    on_carried = np.abs(d - np.round(d)) * main.period_ms / 2 < 1.0
+    level = np.where(positions < loud.start_ms, 1.0, np.where(positions < fade.start_ms, np.where(on_carried, carried_level, 1.0), fade_level))
+    return GridFeatures(times_ms=positions, values=np.column_stack((np.zeros_like(level), level, np.zeros_like(level))))
+
+
+OUTRO = [
+    Segment(0.0, 99818.182, 220.0, 0.0),
+    Segment(99818.182, 102218.182, 292.75, 99818.182),
+    Segment(102218.182, 107418.182, 267.87, 102218.182),
+]
+
+
+@pytest.mark.parametrize("min_score, folds", [(NotationConfig().fold_min_score, 1), (0.6, 0)], ids=["default", "stricter"])
+def test_a_fade_doesnt_outweigh_the_loud_part_of_an_outro(min_score, folds):
+    # the fade has more positions than the loud part, scored as one pool it would be a draw at best
+    features = _outro_features(OUTRO, carried_level=1.4, fade_level=0.37)
+    found = fold_suggestions(OUTRO, features, 0.0, OUTRO[-1].end_ms, config=NotationConfig(fold_min_score=min_score))
+
+    assert len(found) == folds
+    if folds:
+        (fold,) = found
+        assert (fold.start_ms, fold.end_ms, fold.suggested_bpm, fold.grid_bpm) == (99818.182, 107418.182, 220.0, 292.75)
+        assert 0.5 < fold.score < 0.6
+
+
+def test_an_outro_at_its_own_tempo_gets_no_fold_however_quiet_its_end():
+    # the loud part catches more on its own grid than on the carried one, a real change
+    features = _outro_features(OUTRO, carried_level=0.6, fade_level=0.37)
+    assert fold_suggestions(OUTRO, features, 0.0, OUTRO[-1].end_ms) == []
 
 
 @pytest.mark.ffmpeg
