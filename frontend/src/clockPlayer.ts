@@ -7,6 +7,8 @@
 // would come out early by as much. so it's started a little ahead on the context clock like the
 // clicks are, and contextTimeAt() is exact for both
 
+import { type PcmAudio, parseWav, pcmFromBuffer } from "./wav";
+
 type Listener = () => void;
 
 // long enough that start() lands before the time it names, short enough not to feel laggy
@@ -17,6 +19,9 @@ export interface ClockContext {
   readonly currentTime: number;
   readonly state: AudioContextState;
   readonly destination: AudioNode;
+  // not every browser has them, and outputLatency can change while playing (a device switch)
+  readonly outputLatency?: number;
+  readonly baseLatency?: number;
   createGain(): GainNode;
   createBufferSource(): AudioBufferSourceNode;
   decodeAudioData(data: ArrayBuffer): Promise<AudioBuffer>;
@@ -29,6 +34,9 @@ export class ClockPlayer {
   private readonly gain: GainNode;
   private readonly listeners = new Map<string, Set<Listener>>();
   private buffer: AudioBuffer | null = null;
+  // the wav's own samples, null when it didn't parse
+  private pcm: PcmAudio | null = null;
+  private fallbackPcm: PcmAudio | null = null;
   private source: AudioBufferSourceNode | null = null;
   // while playing, songStart (s) plays at contextStart on the context clock
   private songStart = 0;
@@ -84,6 +92,8 @@ export class ClockPlayer {
     this.stopSource();
     this.currentSrc = value;
     this.buffer = null;
+    this.pcm = null;
+    this.fallbackPcm = null;
     this.position = 0;
     this.paused = true;
     this.error = null;
@@ -98,11 +108,16 @@ export class ClockPlayer {
         if (!res.ok) throw new Error(`could not fetch the audio, http ${res.status}`);
         return res.arrayBuffer();
       })
-      .then((data) => this.context.decodeAudioData(data))
-      .then((buffer) => {
+      .then((data) => {
+        // parsed first, decodeAudioData detaches the buffer it's given
+        const pcm = parseWav(data);
+        return this.context.decodeAudioData(data).then((buffer) => ({ buffer, pcm }));
+      })
+      .then(({ buffer, pcm }) => {
         // a newer src took over while this one was decoding
         if (id !== this.loading) return;
         this.buffer = buffer;
+        this.pcm = pcm;
         this.emit("loadedmetadata", "durationchange", "canplay");
       })
       .catch((err: unknown) => {
@@ -116,10 +131,31 @@ export class ClockPlayer {
     return this.buffer?.duration ?? 0;
   }
 
-  get currentTime(): number {
+  // the samples the zoomed view draws from. wavesurfer's own decode is 8 kHz and the context's is
+  // at the device rate, but that view is for 1 ms work, so it wants the file's rate. the context
+  // decode stands in only when the wav couldn't be parsed
+  samplesForView(): PcmAudio | null {
+    if (this.pcm !== null) return this.pcm;
+    if (this.buffer === null) return null;
+    this.fallbackPcm ??= pcmFromBuffer(this.buffer);
+    return this.fallbackPcm;
+  }
+
+  // where the song is in what has been rendered to the context, ahead of what is heard by the
+  // output latency. everything that needs the true position uses this, the clicks included
+  get songTime(): number {
     if (this.paused) return this.position;
     // inside the start lead the music hasn't started, so the playhead waits with it
     const t = this.songStart + Math.max(0, this.context.currentTime - this.contextStart) * this.rate;
+    return Math.min(t, this.duration);
+  }
+
+  // what the playhead shows: the time being heard, which trails songTime by the output latency.
+  // for drawing only, the audio and the clicks are never offset by it
+  get currentTime(): number {
+    if (this.paused) return this.position;
+    const elapsed = this.context.currentTime - this.contextStart - this.latencyInfo().seconds;
+    const t = this.songStart + Math.max(0, elapsed) * this.rate;
     return Math.min(t, this.duration);
   }
 
@@ -140,7 +176,7 @@ export class ClockPlayer {
     if (!(value > 0) || value === this.rate) return;
     const playing = !this.paused;
     if (playing) {
-      this.position = this.currentTime;
+      this.position = this.songTime;
       this.stopSource();
     }
     this.rate = value;
@@ -182,7 +218,8 @@ export class ClockPlayer {
 
   pause(): void {
     if (this.paused) return;
-    this.position = this.currentTime;
+    // where the audio stopped, not where the playhead was
+    this.position = this.songTime;
     this.stopSource();
     this.paused = true;
     this.emit("pause");
@@ -192,6 +229,16 @@ export class ClockPlayer {
   contextTimeAt(songSeconds: number): number | null {
     if (this.paused) return null;
     return this.contextStart + (songSeconds - this.songStart) / this.rate;
+  }
+
+  // the latency taken off the playhead, and which of the two values the browser reported. both
+  // are estimates: outputLatency is missing in some browsers and can be coarse on others
+  latencyInfo(): { seconds: number; output: boolean; base: boolean } {
+    const usable = (v: number | undefined): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+    const { outputLatency, baseLatency } = this.context;
+    const output = usable(outputLatency);
+    const base = usable(baseLatency);
+    return { seconds: (output ? outputLatency : 0) + (base ? baseLatency : 0), output, base };
   }
 
   canPlayType(type: string): string {

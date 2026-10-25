@@ -126,7 +126,7 @@ class FakeClock implements ClickClock {
     this.epoch += 1;
   }
 
-  get currentTime(): number {
+  get songTime(): number {
     if (this.contextStart === null) return this.songStart;
     return this.songStart + Math.max(0, this.context.currentTime - this.contextStart);
   }

@@ -18,6 +18,7 @@ import { readPalette } from "../theme";
 import type { TempoEditOp } from "../types/api";
 import type { BeatsFile } from "../types/beats";
 import type { TimingReport } from "../types/timingReport";
+import type { PcmAudio } from "../wav";
 import { Loupe } from "./Loupe";
 import { MeterControl } from "./MeterControl";
 import { SegmentControl } from "./SegmentControl";
@@ -42,7 +43,8 @@ interface Props {
 type AudioState =
   | { kind: "none" }
   | { kind: "loading" }
-  | { kind: "ready"; buffer: AudioBuffer | null }
+  // the wav at its own rate for the zoomed view, see ClockPlayer.samplesForView
+  | { kind: "ready"; pcm: PcmAudio | null }
   | { kind: "failed"; message: string };
 
 // px per second, 0 is fit to width
@@ -79,6 +81,7 @@ export function Timeline(props: Props) {
   const [span, setSpan] = useState(1);
   const [centerMs, setCenterMs] = useState<number | null>(null);
   const palette = useMemo(readPalette, []);
+  const [latency, setLatency] = useState<{ seconds: number; output: boolean; base: boolean } | null>(null);
 
   const [suggestion, setSuggestion] = useState<number | null>(null);
 
@@ -174,10 +177,17 @@ export function Timeline(props: Props) {
     setZoom(0);
 
     const subscriptions = [
-      ws.on("ready", () => setAudio({ kind: "ready", buffer: ws.getDecodedData() })),
+      ws.on("ready", () => {
+        setAudio({ kind: "ready", pcm: player.samplesForView() });
+        setLatency(player.latencyInfo());
+      }),
       ws.on("error", (err) => setAudio({ kind: "failed", message: err.message || "could not decode the audio" })),
       ws.on("timeupdate", (t) => setCurrentMs(t * 1000)),
-      ws.on("play", () => setPlaying(true)),
+      ws.on("play", () => {
+        setPlaying(true);
+        // outputLatency settles once the output is running, and changes with the device
+        setLatency(player.latencyInfo());
+      }),
       ws.on("pause", () => setPlaying(false)),
       ws.on("finish", () => setPlaying(false)),
       ws.on("interaction", (t) => {
@@ -316,6 +326,18 @@ export function Timeline(props: Props) {
               {formatMs(currentMs)}
               {report !== null && <span className="transport__total"> / {formatMs(report.source.duration_ms)}</span>}
             </p>
+            {ready && latency !== null && (
+              <p className="transport__latency" title="the playhead is drawn this much behind the audio, the sound and the clicks aren't moved">
+                {latency.output || latency.base ? (
+                  <>
+                    playhead <span className="mono">−{formatMs(latency.seconds * 1000)}</span>{" "}
+                    {latency.output ? "output latency" : "base latency only, no output latency reported"}
+                  </>
+                ) : (
+                  "the browser reports no output latency, the playhead isn't compensated"
+                )}
+              </p>
+            )}
             <div className="transport__zoom" aria-label="zoom">
               <button
                 type="button"
@@ -341,7 +363,7 @@ export function Timeline(props: Props) {
 
           <div className="detail__loupe">
             <StableLoupe
-              audio={audio.kind === "ready" ? audio.buffer : null}
+              audio={audio.kind === "ready" ? audio.pcm : null}
               grid={grid}
               centerMs={ready ? centerMs : null}
               spanMs={spanMs}

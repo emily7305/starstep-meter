@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { crispX } from "../grid";
 import { mapLines, type TempoGrid } from "../tempoMap";
 import type { Palette } from "../theme";
+import { type PcmAudio, sampleRange } from "../wav";
 
 interface Props {
-  audio: AudioBuffer | null;
+  audio: PcmAudio | null;
   grid: TempoGrid | null;
   // audio time at the centre, it stays put while the anchor moves so the line slides over the attack
   centerMs: number | null;
@@ -35,11 +36,10 @@ function draw(canvas: HTMLCanvasElement, widthPx: number, props: Props): void {
   const mid = waveH / 2;
 
   if (audio !== null) {
-    // webaudio resampled this to the context rate, which is fine, times go through its own rate
-    const data = audio.getChannelData(0);
+    // the file's own samples at its own rate, times go through that rate
+    const data = audio.samples;
     const rate = audio.sampleRate;
-    const first = Math.max(0, Math.floor((startMs / 1000) * rate));
-    const last = Math.min(data.length, Math.ceil((endMs / 1000) * rate));
+    const { first, last } = sampleRange(audio, startMs, endMs);
     // scale to the loudest sample in view, a quiet intro would be a flat line otherwise
     let peak = 1e-6;
     for (let i = first; i < last; i += 1) peak = Math.max(peak, Math.abs(data[i] ?? 0));

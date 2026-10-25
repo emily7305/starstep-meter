@@ -46,7 +46,9 @@ export interface ClickClock {
     createBufferSource(): AudioBufferSourceNode;
   };
   readonly epoch: number;
-  readonly currentTime: number;
+  // the rendered position, not the playhead: the playhead trails it by the output latency, and
+  // scheduling from that would eat the lookahead
+  readonly songTime: number;
   contextTimeAt(songSeconds: number): number | null;
 }
 
@@ -121,7 +123,7 @@ export class ClickScheduler {
       this.cancel();
       this.epoch = this.clock.epoch;
     }
-    const songNow = this.clock.currentTime;
+    const songNow = this.clock.songTime;
     if (this.clock.contextTimeAt(songNow) === null) return;
     const from = this.until ?? songNow;
     const to = songNow + LOOKAHEAD_S;

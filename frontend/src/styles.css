@@ -212,6 +212,14 @@ body {
   color: var(--ink-faint);
 }
 
+.transport__latency {
+  max-width: 20ch;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-faint);
+}
+
 .transport__zoom {
   display: flex;
   align-items: center;
