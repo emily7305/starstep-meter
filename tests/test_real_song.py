@@ -277,14 +277,15 @@ def test_younithm_off_beat_runs_are_not_low_confidence():
         assert _low_over(conf, run.start_ms - 8 * period, run.end_ms + 8 * period) == []
 
 
-def test_low_confidence_on_the_real_songs_is_where_the_tracker_struggled():
+def test_low_confidence_on_the_real_songs_is_where_the_trackers_struggled():
     # what's shaded on the three songs: the fades at the end, ENDYMION's intro (its beats about
-    # 11 ms late) and 88 to 97 s where madmom lost a beat. every low span is inside one of these,
-    # and each of these has one. see docs/decisions.md (milestone 6)
+    # 11 ms late), 79 to 97 s around where madmom lost a beat, and 106 to 110 s where librosa took
+    # the off-beat over even eighths. every low span is inside one of these, and each of these has
+    # one. see docs/decisions.md (cross-check on the real songs)
     struggles = {
         "misoilepunch": [(128900.0, 134214.0)],
         "younithm": [(169900.0, 174736.0)],
-        "endymion": [(1143.0, 5600.0), (88000.0, 97200.0)],
+        "endymion": [(1143.0, 5600.0), (79700.0, 97200.0), (105800.0, 110300.0)],
     }
     for name, regions in struggles.items():
         conf, _ = _confidence(name)
@@ -293,3 +294,19 @@ def test_low_confidence_on_the_real_songs_is_where_the_tracker_struggled():
             assert any(a <= s.start_ms and s.end_ms <= b for a, b in regions), (name, s.start_ms, s.end_ms)
         for a, b in regions:
             assert any(a <= s.start_ms and s.end_ms <= b for s in low), (name, a, b)
+
+
+def test_the_cross_check_flags_only_endymions_outro():
+    # the right segments sit 4 to 7 ms apart on median, the 267.87 outro that the chart has at 220
+    # is the one over 20 ms
+    flagged = {}
+    for name in ("misoilepunch", "younithm", "endymion"):
+        beats = BeatsFile.model_validate(upgrade_beats(json.loads((REAL / name / "beats.json").read_text(encoding="utf-8"))))
+        if not beats.cross_check_beats:
+            pytest.skip(f"tests/real/{name}/beats.json has no cross_check_beats")
+        meter, _ = _analysis(name)
+        times = np.array([b.time_ms for b in beats.beats])
+        check = check_against(meter.tempo, times, np.array(beats.cross_check_beats))
+        flagged[name] = [round(c.disagreement_ms or 0.0) for c in check.segments if c.flagged]
+        assert all(c.disagreement_ms is not None for c in check.segments)
+    assert flagged == {"misoilepunch": [], "younithm": [], "endymion": [21]}
