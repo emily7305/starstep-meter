@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from backend.analysis.bars import bar_lines
-from backend.analysis.meter import MeterConfig, infer_meter
+from backend.analysis.meter import MeterConfig, _accent_runs, infer_meter
 from backend.analysis.pipeline import run_analysis
 from backend.analysis.tempo_map import build_tempo_map
 from tests.synth import ClickTrackSpec, cached_click_wav
@@ -206,6 +206,48 @@ def test_click_track_meter_and_change_bar(spec, numerators, change_bar):
         change = report.meter_map[1].start_ms
         assert lines.index(min(lines, key=lambda t: abs(t - change))) == change_bar
         assert change == pytest.approx(track.onsets_ms[64], abs=1.0)
+
+
+# a 4/4 stretch longer than the 7/4 after it. the first 7 beat bar also reads as a loud 4/4 bar,
+# and the longer 4/4 run used to take it, so the 7/4 came out one bar late
+LATE_CHANGE = [
+    pytest.param(ClickTrackSpec(bpm=120, beats=200, lead_silence_s=0.71, accent_downbeats=True, meter_changes=((144, 7),)), 36, id="one-tempo"),
+    pytest.param(
+        ClickTrackSpec(
+            bpm=120, beats=200, lead_silence_s=0.71, accent_downbeats=True, tempo_changes=((96, 150.0),), meter_changes=((144, 7),)
+        ),
+        36,
+        id="tempo-change",
+    ),
+]
+
+
+@pytest.mark.ffmpeg
+@pytest.mark.usefixtures("madmom")
+@pytest.mark.parametrize("spec, change_bar", LATE_CHANGE)
+def test_a_meter_change_after_a_long_stretch_lands_on_its_bar(spec, change_bar):
+    out, track = _analyzed(spec)
+    report = out.report
+
+    assert [m.numerator for m in report.meter_map] == [4, 7]
+    change = report.meter_map[1].start_ms
+    assert change == pytest.approx(track.onsets_ms[144], abs=1.0)
+    lines = _report_bar_lines(report)
+    # bar 0 is the first downbeat on these tracks, 144 beats of 4/4 before the change
+    assert lines.index(min(lines, key=lambda t: abs(t - change))) == change_bar
+    for line in lines:
+        assert np.abs(track.downbeats_ms - line).min() < 1.0
+
+
+def test_the_first_bar_of_a_new_length_goes_to_the_new_run():
+    # accents every 4 beats up to 144, then every 7: the bar at 144 fits both
+    acc = np.ones(200)
+    acc[0:144:4] = 2.0
+    acc[144:200:7] = 2.0
+    runs = _accent_runs(acc, 0, MeterConfig())
+    assert [(r.start, r.length) for r in sorted(runs, key=lambda r: r.start)] == [(0, 4), (144, 7)]
+    four = next(r for r in runs if r.length == 4)
+    assert four.last == 140
 
 
 # the click tracks from milestones 3b and 3c, madmom's downbeats in the section follow the felt

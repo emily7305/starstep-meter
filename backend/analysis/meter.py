@@ -158,6 +158,14 @@ def _accent_runs(acc: np.ndarray, k_lo: int, config: MeterConfig) -> list[_Run]:
                     first = k_lo + int(starts[i])
                     found.append(_Run(first, length, first + (j - i - 1) * length, seen=j - i, accent=True))
                 i = j
+    # the first bar of a new length also reads as one more bar of the old one: its first beat is
+    # the loud one and the beats after it are quiet. it belongs to the new run, otherwise whichever
+    # run is longer takes it and the change comes out a bar late (a 4/4 -> 7/4 click track did)
+    for r in found:
+        assert r.length is not None
+        if r.last > r.start and any(o.length != r.length and o.start == r.last and o.last > o.start for o in found):
+            r.last -= r.length
+            r.seen -= 1
     # the longest stretches first, later ones lose the bars they share with them
     found.sort(key=lambda r: -(r.last - r.start + r.length))
     taken: list[tuple[int, int]] = []
