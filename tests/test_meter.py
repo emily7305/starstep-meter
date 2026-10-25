@@ -118,6 +118,21 @@ def test_accents_every_two_bars_dont_make_eight_four():
     assert run.numerator == 4
 
 
+@pytest.mark.parametrize("min_level, numerators", [(MeterConfig().accent_min_level, [4]), (0.0, [4, 3])], ids=["default", "no-floor"])
+def test_a_fade_out_is_too_quiet_for_accent_bars(min_level, numerators):
+    # the last 16 beats fade to almost nothing with every 3rd one a little louder, like the end of
+    # MisoilePunch. at that level it's noise, not 3/4
+    times = _beats(270.0, 96)
+
+    def accents(at_ms):
+        idx = np.round((np.asarray(at_ms) - times[0]) / (60000.0 / 270.0)).astype(int)
+        fade = idx >= 80
+        return np.where(fade, 0.02, 1.0) * np.where(fade & ((idx - 80) % 3 == 0), 1.5, 1.0)
+
+    result = _meter(times, _positions([4] * 24), accents, config=MeterConfig(accent_min_level=min_level))
+    assert [r.numerator for r in result.runs] == numerators
+
+
 def test_accents_move_the_anchor_onto_beat_one():
     # madmom hears 4/4 starting a beat late, the attacks are 3/4 from the first beat
     times = _beats(150.0, 96)

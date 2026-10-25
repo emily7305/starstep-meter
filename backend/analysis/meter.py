@@ -44,9 +44,13 @@ class MeterConfig:
     accent_ratio: float = 1.3
     accent_min_bars: int = 4
     accent_min_beats: int = 3
+    # the accented beat also has to carry at least this share of the segment's median beat strength.
+    # MisoilePunch's fade-out had 0.03 against 0.02 for its last 13 beats, which passed the
+    # ratio and came out as 3/4 over the last 4 s
+    accent_min_level: float = 0.25
 
     def __post_init__(self) -> None:
-        if self.min_bars < 1 or self.accent_min_bars < 1 or self.accent_ratio <= 1:
+        if self.min_bars < 1 or self.accent_min_bars < 1 or self.accent_ratio <= 1 or self.accent_min_level < 0:
             raise ValueError("meter thresholds are out of range")
         if not 2 <= self.accent_min_beats <= self.max_bar_beats:
             raise ValueError("bar lengths are out of range")
@@ -130,6 +134,8 @@ def _accent_runs(acc: np.ndarray, k_lo: int, config: MeterConfig) -> list[_Run]:
     """Runs of bars whose first beat is clearly the loudest, for every bar length and phase."""
     found: list[_Run] = []
     n = len(acc)
+    finite = acc[np.isfinite(acc)]
+    floor = config.accent_min_level * float(np.median(finite)) if len(finite) else np.inf
     for length in range(config.accent_min_beats, config.max_bar_beats + 1):
         for phase in range(length):
             starts = np.arange(phase, n - length + 1, length)
@@ -138,7 +144,7 @@ def _accent_runs(acc: np.ndarray, k_lo: int, config: MeterConfig) -> list[_Run]:
             ok = np.zeros(len(starts), dtype=bool)
             for i, s in enumerate(starts):
                 bar = acc[s:s + length]
-                if np.all(np.isfinite(bar)) and bar[0] > 0 and bar[0] >= config.accent_ratio * bar[1:].max():
+                if np.all(np.isfinite(bar)) and bar[0] > floor and bar[0] >= config.accent_ratio * bar[1:].max():
                     ok[i] = True
             i = 0
             while i < len(ok):
