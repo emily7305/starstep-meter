@@ -239,6 +239,32 @@ def _merge_short(runs: list[_Run], seg: _Segment, min_bars: int, default: int) -
     return out
 
 
+def _music_start_shift(first: _Run, k_music: int, stop: int, acc: np.ndarray, k_lo: int, config: MeterConfig) -> int:
+    """Beats the first run's bars move so the beat the music starts on is beat 1, 0 to leave them.
+
+    madmom can take the first beat of a song for a pickup and put beat 1 a beat later (Lapis,
+    where the intro opens on the downbeat). A real pickup leads into a downbeat that's louder than
+    it, so the bars only move when the first beat is clearly louder than the downbeat the tracker
+    picked, and the downbeats they'd get over the run aren't clearly weaker than the tracker's.
+    """
+    assert first.length is not None
+    length = first.length
+    downbeat = first.start - ((first.start - k_music) // length) * length
+    if downbeat == k_music or first.accent:
+        return 0
+    lo, hi = k_music - k_lo, min(stop, k_lo + len(acc)) - k_lo
+    if lo < 0 or downbeat - k_lo >= hi:
+        return 0
+    at_music, at_downbeat = acc[lo], acc[downbeat - k_lo]
+    if not (np.isfinite(at_music) and np.isfinite(at_downbeat)) or at_music < config.accent_ratio * at_downbeat:
+        return 0
+    moved, tracked = acc[lo:hi:length], acc[downbeat - k_lo:hi:length]
+    if np.isfinite(moved).any() and np.isfinite(tracked).any():
+        if np.nanmedian(tracked) >= config.accent_ratio * np.nanmedian(moved):
+            return 0
+    return k_music - downbeat
+
+
 def infer_meter(
     tempo: TempoMapResult,
     times_ms: np.ndarray,
@@ -270,6 +296,7 @@ def infer_meter(
         downbeats = sorted({int(x) for x in k[keep & downbeat[s.first:s.stop]] if k_lo <= x < k_hi})
         runs = _downbeat_runs(downbeats, seg, config.max_bar_beats)
 
+        acc = None
         if accents is not None and len(grid) >= config.accent_min_bars * config.accent_min_beats:
             acc = np.asarray(accents(grid), dtype=np.float64).copy()
             acc[seg.excluded] = np.nan
@@ -293,6 +320,11 @@ def infer_meter(
 
         default = 4
         runs = _merge_short(runs, seg, config.min_bars, default) if runs else [_Run(k_lo, default, k_lo, seen=0)]
+        # the song's own start, when the tracker heard a beat right there. the seen count stays, it's
+        # about how well the bar length holds and that didn't change
+        if si == 0 and acc is not None and len(k) and int(k[0]) <= k_lo:
+            stop = runs[1].start if len(runs) > 1 else k_hi
+            runs[0].start += _music_start_shift(runs[0], int(k[0]), stop, acc, k_lo, config)
 
         # the anchor goes onto beat 1 of the first run, its first downbeat from the first tracked beat on.
         # that's madmom's first downbeat already unless the accents or a stumble said otherwise

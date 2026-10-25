@@ -146,6 +146,47 @@ def test_accents_move_the_anchor_onto_beat_one():
     assert result.tempo.segments[0].anchor_ms == pytest.approx(times[0], abs=0.01)
 
 
+def _opening(times, first, downbeat, rest=1.0, every_tracked=None):
+    # accents with the first beat and the tracker's first downbeat (index 1) set by hand
+    period = float(np.median(np.diff(times)))
+
+    def accents(at_ms):
+        idx = np.round((np.asarray(at_ms) - times[0]) / period).astype(int)
+        out = np.full(len(idx), rest)
+        if every_tracked is not None:
+            out[idx % 4 == 1] = every_tracked
+        out[idx == 0] = first
+        out[idx == 1] = downbeat
+        return out
+
+    return accents
+
+
+@pytest.mark.parametrize(
+    "first, downbeat, every_tracked, ratio, moved",
+    [
+        # Lapis opens on the downbeat, its first beat reads 2.7 times the one madmom picked
+        (1.7, 0.63, None, MeterConfig().accent_ratio, True),
+        # a real pickup leads into a louder downbeat
+        (0.8, 1.6, None, MeterConfig().accent_ratio, False),
+        # the tracker's downbeats are clearly the loud ones over the rest of the song
+        (1.7, 0.63, 1.6, MeterConfig().accent_ratio, False),
+        (1.7, 0.63, None, 3.0, False),
+    ],
+    ids=["opens-on-beat-1", "pickup", "lattice-says-tracker", "ratio-3"],
+)
+def test_the_first_beat_is_beat_one_unless_the_pickup_holds_up(first, downbeat, every_tracked, ratio, moved):
+    # madmom calls the first beat a pickup and starts its 4/4 bars on the second one
+    times = _beats(146.0, 96)
+    positions = np.roll(_positions([4] * 24), 1)
+    config = MeterConfig(accent_ratio=ratio)
+
+    result = _meter(times, positions, _opening(times, first, downbeat, every_tracked=every_tracked), config=config)
+
+    assert [r.numerator for r in result.runs] == [4]
+    assert result.tempo.segments[0].anchor_ms == pytest.approx(times[0] if moved else times[1], abs=0.01)
+
+
 def test_librosa_meter_has_half_the_confidence():
     times = _beats(128.0, 96)
     (run,) = _meter(times, _positions([4] * 24), downbeats_known=False).runs
