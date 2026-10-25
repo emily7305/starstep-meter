@@ -10,6 +10,8 @@ Milestone 4 adds meter and notation suggestions. The analysis infers the meter (
 
 Milestone 5 adds export and a way to check the grid by ear. The timing JSON downloads from the browser, with the beats file if asked for, and is checked against the JSON Schema in `shared/schema/` before it goes out. A Sonolus preset gives the values a Sonolus level needs (the bgm offset in seconds, the bpm changes and the time signatures), with a decoder compensation setting for a player that decodes the audio differently from ffmpeg. A click track plays a click on every beat and an accented one on every bar line, on the same audio clock as the song. Every manual change is one entry in the edit log. Old jobs are deleted after 14 days without a change, one job can be deleted by hand, and a job still waiting in the queue when the server stops runs when it starts again.
 
+Milestone 6 adds a second opinion on the beats, a confidence for the tempo map, and a list for setting up a chart. librosa's beat tracker runs as a cross-check next to madmom and flags the tempo segments where the two disagree by more than a configurable number of ms (felt sections and off-beat runs are left out, since the grid deliberately doesn't follow the tracker there). Every tempo segment and every stretch of 16 grid beats gets a confidence from the fit residuals and that agreement, and the low ones are shaded on the timeline. A chart setup panel lists the music offset and every bpm and time signature change by measure, for typing into a chart editor (MikuMikuWorld was the one checked). The zoomed view draws the wav at its own sample rate, and the playhead is drawn behind the sound by the output latency the browser reports. Jobs can be deleted from the recent list.
+
 It does not find sections yet. The tempo map and the meter are tuned on synthetic tracks and a handful of real songs. The half and double time suggestions found nothing on the three real songs checked so far, whose drums show no plain backbeat to read (see `docs/decisions.md`), so on a real song check the bands, the bar lines and the suggestions, and fix them by hand where they are wrong. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
 
 ## Dependencies and licenses
@@ -206,6 +208,14 @@ After a job finishes, the timeline shows the waveform with the beat grid and the
 - When the analysis kept a felt section (a dotted or triplet rhythm) on the segment's grid, the panel lists it under "kept on this grid" with its own bpm and ratio, like `203.36 bpm (3/4)`. "split out" splits at both its ends, so it gets its own tempo back. The report's tempo map list shows the same sections.
 - Where the beat tracker followed the off-beat for a while, the timeline hatches that stretch and the panel lists it under "off-beat runs" with its start, end and beat count. The grid stays on the beats there.
 
+Stretches the analysis is less sure of are shaded on the timeline: a darker wash with a dotted edge along the bottom and a "low confidence" label. Each is a span of 16 grid beats whose confidence is under 0.5. The confidence comes from how many beats sit within 10 ms of the grid and how well librosa's beats agree, and the formula is in `docs/decisions.md` (confidence, milestone 6). Only spans under auto segments are shaded, because the spans were measured on the analysis' grid and a segment set by hand has a different one.
+
+Each tempo or time signature change after the first gets a label on the timeline at its bar line, like `m.24 · 150.00 bpm` or `m.37 · 3/4`. One label shows both when they share a line, and when zoomed out a label that would run into the one before it is left out. The numbers are the bar numbers along the top, which start at 0 on the first bar line in the audio, not on the first downbeat. With a lead-in shorter than a bar those are the same line. With a longer intro the first downbeat gets a later number.
+
+Under the notation suggestions is the chart setup panel, with the music offset and every bpm and time signature change by measure. "Setting up a chart from the list" below goes through it.
+
+Under the play time, a line says how far behind the audio the playhead is drawn, like `playhead −42.0 ms output latency`. It is the output latency and base latency the browser reports, and it is read again as the device changes. Only the drawing moves, the music and the clicks are not. When the browser reports no output latency, the line says the playhead isn't compensated. On Bluetooth the reported number may still be off.
+
 Every change shows up in the report's edits list. Splitting or merging a segment that the analysis fitted refits it from the tracked beats, while a segment whose bpm or anchor was set by hand keeps its grid.
 
 If a re-analysis fails, the last good report stays on screen with a note saying at which stage the re-analysis failed. The header says `madmom failed to import` when madmom is installed but doesn't import, with the error in its tooltip.
@@ -224,7 +234,7 @@ Each edit in the report's edits list is one manual change. When one change touch
 
 The export block in the source column downloads the JSON. "timing json" is the report as it is, and "include beats.json" adds the beats file. "sonolus" gives the values for a Sonolus level instead, see "Sonolus export" below. The file is named after the song, like `song.timing.json` or `song.sonolus.json`. The last choice is remembered in the browser.
 
-To delete a job and its files, upload and decoded wav included, use the job id from the url:
+Each job in the recent list has a delete button. It asks "delete this job and its files?" first, and deletes only on the second press, upload and decoded wav included. The button is not shown for a job that is queued or running, and the server refuses to delete one. The same can be done from the command line with the job id from the url:
 
 ```bash
 curl -X DELETE http://127.0.0.1:8000/api/jobs/<job id>
@@ -254,6 +264,7 @@ python -m backend.api
 | `STARSTEP_SNAP_WINDOW_MS` | 20 | How far, in ms, onset snap may move a tracked beat |
 | `STARSTEP_MIN_BPM` | 60 | The slowest tempo, in bpm, that any tempo path considers |
 | `STARSTEP_MAX_BPM` | 320 | The fastest tempo, in bpm, that any tempo path considers |
+| `STARSTEP_CROSS_CHECK_MS` | 20 | Flags a tempo segment where madmom and librosa's beats are further apart than this, in ms |
 | `STARSTEP_WORKERS` | 1 | Number of analysis workers |
 | `STARSTEP_RETENTION_DAYS` | 14 | Job folders that haven't changed for this many days are deleted at startup, 0 keeps them |
 
@@ -265,11 +276,11 @@ The CLI runs the same analysis on one file and prints the report JSON:
 python -m backend.analysis.cli path\to\song.mp3 -v
 ```
 
-With `-v`, stage progress and debug numbers go to stderr, including the `beats` line (the tracker and how many beats it found), the `octave` lines (one per rough tempo segment: what the half or double check did, the tracked bpm, and the midpoint and parity ratios it decides on), the `snap` line (how many beats snapped to an onset, the bias shift applied to madmom's beats before the search, and the median move) and the `tempo` line (the number of segments, the residual rms, the outliers and the confidence), followed by one `[i]` line per segment with its start and end, bpm, anchor and beat count. `-v` also prints a `meter` line (how many meter segments and how many grid positions were read) with one `[i]` line per meter segment (start, end, numerator/denominator and confidence), and one `suggest` line per suggestion (kind, start and end, the suggested bpm and the bpm it was made on, and the score). `--threshold-db` sets the trim threshold. `--tracker auto|madmom|librosa` picks the beat tracker. `auto`, the default, uses madmom when it's installed and falls back to librosa otherwise, `madmom` is an error if madmom is missing or fails to import, and `librosa` skips madmom. `--snap-window-ms` sets how far onset snap may move a tracked beat, 20 ms by default. `--min-bpm` and `--max-bpm` set the slowest and fastest tempo any tempo path considers, 60 and 320 by default. `--beats PATH` also writes the beats file to PATH, and the report still goes to stdout. `--work-dir` keeps the copied original and the decoded WAV in a folder you choose instead of a temp dir.
+With `-v`, stage progress and debug numbers go to stderr, including the `beats` line (the tracker and how many beats it found), the `octave` lines (one per rough tempo segment: what the half or double check did, the tracked bpm, and the midpoint and parity ratios it decides on), the `snap` line (how many beats snapped to an onset, the bias shift applied to madmom's beats before the search, and the median move) and the `tempo` line (the number of segments, the residual rms, the outliers and the confidence), followed by one `[i]` line per segment with its start and end, bpm, anchor and beat count. `-v` also prints a `meter` line (how many meter segments and how many grid positions were read) with one `[i]` line per meter segment (start, end, numerator/denominator and confidence), and one `suggest` line per suggestion (kind, start and end, the suggested bpm and the bpm it was made on, and the score). The `check` line gives the librosa cross-check: how many beats librosa found and the distance above which a segment is flagged, with one `[i]` line per tempo segment saying the median distance between the two trackers' beats, how many beats were compared, and `flagged` when it is over the limit (or `too few beats to compare`). When librosa is the main tracker, the `check` line says there is no cross-check. The `conf` line lists the confidence of each tempo segment and how many of the 16 beat spans are low, followed by one `low` line per low span with its start and end and its confidence. `--threshold-db` sets the trim threshold. `--tracker auto|madmom|librosa` picks the beat tracker. `auto`, the default, uses madmom when it's installed and falls back to librosa otherwise, `madmom` is an error if madmom is missing or fails to import, and `librosa` skips madmom. `--snap-window-ms` sets how far onset snap may move a tracked beat, 20 ms by default. `--cross-check-ms` sets how far apart madmom's and librosa's beats may be in a tempo segment before it is flagged, 20 ms by default. `--min-bpm` and `--max-bpm` set the slowest and fastest tempo any tempo path considers, 60 and 320 by default. `--beats PATH` also writes the beats file to PATH, and the report still goes to stdout. `--work-dir` keeps the copied original and the decoded WAV in a folder you choose instead of a temp dir.
 
 ### Storage
 
-Each job keeps a copy of the upload, the decoded WAV, and `beats.json` (every tracked beat, with its raw and snapped time) under `data/jobs/<job id>/`. `beats.json` also holds the band strengths (low, mid and high) at every grid line and half line. They are timing numbers only, and they let the suggestions be checked again without the audio. The decoded WAV is mono float32, about 10 MB per minute at 44.1 kHz. When the server starts, it deletes job folders that haven't changed for 14 days (`STARSTEP_RETENTION_DAYS`). A change is the upload, an analysis or re-analysis, or an edit, so a job you're still editing stays, and one you only open or export doesn't count as changed. `data/` is git-ignored.
+Each job keeps a copy of the upload, the decoded WAV, and `beats.json` (every tracked beat, with its raw and snapped time) under `data/jobs/<job id>/`. `beats.json` also holds the band strengths (low, mid and high) at every grid line and half line. They are timing numbers only, and they let the suggestions be checked again without the audio. It also holds librosa's snapped beats (`cross_check_beats`), also timing only, so the cross-check and the confidence can be worked out again without the audio. The decoded WAV is mono float32, about 10 MB per minute at 44.1 kHz. When the server starts, it deletes job folders that haven't changed for 14 days (`STARSTEP_RETENTION_DAYS`). A change is the upload, an analysis or re-analysis, or an edit, so a job you're still editing stays, and one you only open or export doesn't count as changed. `data/` is git-ignored.
 
 A job that was still waiting in the queue when the server stopped runs when it starts again. One that was in the middle of its analysis is marked failed instead ("server restarted before the job finished"), and "re-analyze" runs it again.
 
@@ -289,7 +300,7 @@ In bash:
 python scripts/eval_local.py ~/path/to/songs --recursive --tracker madmom --out results/songs.csv
 ```
 
-`--recursive` also looks in subfolders. `--tracker auto|madmom|librosa` works as in the CLI. `--min-bpm` and `--max-bpm` set the tempo range, 60 and 320 by default. `--out` is the csv to write. It defaults to `eval_local.csv` in the current directory, and nothing is written next to the songs. Progress goes to stderr, one line per song, and the last line says how many files failed.
+`--recursive` also looks in subfolders. `--tracker auto|madmom|librosa` works as in the CLI. `--min-bpm` and `--max-bpm` set the tempo range, 60 and 320 by default. `--cross-check-ms` sets the distance above which a tempo segment is flagged by the librosa cross-check, 20 ms by default. `--out` is the csv to write. It defaults to `eval_local.csv` in the current directory, and nothing is written next to the songs. Progress goes to stderr, one line per song, and the last line says how many files failed.
 
 The csv has timing data only, never audio. The decoded WAV of a song exists only in a temp folder while that song is analyzed. Error messages have absolute paths replaced: the song folder by `<folder>`, the temp folder by `<tmp>` and the home folder by `~`. The file names of the songs are in the csv, as paths relative to the folder, so read it before you share it.
 
@@ -297,12 +308,14 @@ The columns:
 
 - `file`, `duration_ms`, `codec`, `sample_rate` and `tracker` say which song the row is, how long it is, how it was encoded, and which beat tracker ran.
 - `octave` is what the half or double check did over the song: `kept`, `doubled`, `halved` or `mixed`.
-- `segments` is the number of tempo segments, and `segment_starts_ms`, `segment_bpms` and `segment_confidences` list each segment's start, bpm and confidence in order, separated by spaces.
+- `segments` is the number of tempo segments, and `segment_starts_ms`, `segment_bpms` and `segment_confidences` list each segment's start, bpm and confidence in order, separated by spaces. The confidence is the milestone 6 one, worked out from the fit residuals and the cross-check agreement (see `docs/decisions.md`), and halved for the librosa fallback.
 - `residual_rms_ms` is the rms distance in ms of the beats that fit their grids, and `residual_p95_ms` and `residual_max_ms` are the 95th percentile and the largest distance over all beats, each measured from the grid of the beat's own segment. A beat in a felt section or an off-beat run is measured from the subdivision it sits on.
 - `outliers` is the number of beats that were too far from their grid to count as fitting it.
 - `confidence` is the share of all beats within 10 ms of their grid, halved for the librosa fallback.
 - `ratio_merged` lists the felt sections kept on their segment's grid, like `3/4:44511-58724` (the ratio, then start and end in ms), and `offbeat_runs` the stretches where the tracker followed the off-beat, like `48664-52872`. Both are separated by spaces and empty when there are none.
 - `meter` lists the meter segments, like `4/4:97 7/4:27948` (the signature, then start in ms), and `notation_suggestions` the suggestions, like `half:97-37020:0.62` (the kind, start and end in ms, then the score). Both are separated by spaces and empty when there are none.
+- `cross_check_ms` has one value per tempo segment, separated by spaces: the median distance in ms between madmom's and librosa's beats. A `-` means there were too few beats to compare, and a `!` after the number means the segment was flagged. It is empty when there was no cross-check.
+- `low_confidence` lists the spans of 16 grid beats with a confidence under 0.5 as `start-end:confidence`, with start and end in ms, separated by spaces and empty when there are none.
 - `beats`, `beats_snapped` and `beats_not_snapped` are how many beats the tracker found and how many did and did not find an onset inside the snap window.
 - `median_snap_move_ms` is the median distance in ms that a beat moved from the tracker's output to where it snapped, including the 11.8 ms bias shift for madmom. It is the real-song check of madmom's −11.8 ms bias. If the bias holds, the value comes out close to 11 ms (the shift, less the 0.7 ms or so by which snapped beats land before the attack), and a value far from that means the bias needs measuring again on real songs.
 - `error` is empty for a song that worked, and otherwise holds a one-line message.
@@ -318,9 +331,9 @@ python -m pytest
 python -m backend.schema.export_schema --check
 ```
 
-Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. The tempo map tests run on synthetic beat lists and click tracks with known change points and felt rhythm sections. The meter and notation tests run on click tracks with meter changes and on generated drum tracks with half and double time sections. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
+Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. The tempo map tests run on synthetic beat lists and click tracks with known change points and felt rhythm sections. The meter and notation tests run on click tracks with meter changes and on generated drum tracks with half and double time sections. `tests/test_cross_check.py` and `tests/test_confidence.py` run on beat lists, and the confidence tests also on click tracks with a messy section, felt sections and an off-beat section. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
 
-`tests/test_real_song.py` checks the tempo map on real songs' `beats.json` and `report.json`, one folder per song under `tests/real/` (for example `tests/real/endymion/`). That folder is git-ignored, it holds timing data only, and a song's tests skip when its folder is missing. The test also runs the notation suggestions again from `beats.json`, and skips that part for a song whose beats file has no band strengths, which is any song analyzed before milestone 4. To refresh a song, analyze it again and copy `beats.json` and `report.json` from `data/jobs/<job id>/` into `tests/real/<song>/`.
+`tests/test_real_song.py` checks the tempo map on real songs' `beats.json` and `report.json`, one folder per song under `tests/real/` (for example `tests/real/endymion/`). That folder is git-ignored, it holds timing data only, and a song's tests skip when its folder is missing. The test also runs the notation suggestions again from `beats.json`, and skips that part for a song whose beats file has no band strengths, which is any song analyzed before milestone 4. It also checks the confidence on the real songs: no low confidence on MisoilePunch♪'s felt sections or on YOUNITHM's off-beat runs. Those checks run without the cross-check, because the stored beats files are from before it. To refresh a song, analyze it again and copy `beats.json` and `report.json` from `data/jobs/<job id>/` into `tests/real/<song>/`.
 
 Frontend checks run from `frontend`:
 
@@ -331,7 +344,7 @@ npm run check:types
 npm run build
 ```
 
-The frontend tests cover the beat-to-pixel mapping, the tempo map grid with the bar lines from the meter map, the edit queue, the suggestion helpers, the job url helpers, the edit log rows, the export options, and the click track and player on a fake audio context.
+The frontend tests cover the beat-to-pixel mapping, the tempo map grid with the bar lines from the meter map, the edit queue, the suggestion helpers, the job url helpers, the edit log rows, the export options, the chart setup list, the wav reader, the playhead latency, and the click track and player on a fake audio context.
 
 When you change `backend/schema/models.py` or `backend/schema/export_models.py`:
 
@@ -535,6 +548,27 @@ The suggestions are tuned on these synthetic drums only, so run `scripts/eval_lo
 
 Don't commit the generated audio.
 
+## Setting up a chart from the list
+
+The chart setup panel lists what to type into a chart editor. These steps use MikuMikuWorld, the editor the list was checked against.
+
+1. Convert the song to a wav with ffmpeg. The panel shows the command with the song's name filled in, which for an mp3 is:
+
+   ```bash
+   ffmpeg -i song.mp3 song.wav
+   ```
+
+   ffmpeg skips the decoder padding at the start of an mp3 the same way the analysis does, so the wav lines up with the timeline.
+2. Load that wav as the song in the editor.
+3. Type the offset labelled "with the wav from ffmpeg" into the music offset field. It is minus where measure 0 is in the audio, shown with 3 decimals, so a negative value is normal. A positive offset in MikuMikuWorld starts the song later.
+4. Add each bpm and time signature change at the measure the list gives, in order. Measures count from 0, like the bar numbers on the timeline. A row marked mid-measure is not on a bar line, so put it at the listed beat inside the measure, where beat 1 is the bar line.
+
+To use the original mp3 in the editor instead, type the second offset, "with the original mp3". MikuMikuWorld plays the mp3's decoder padding, so that offset is the padding further negative. For MisoilePunch♪, measure 0 is at `62.362` ms, so the offset is `-62.362` ms with the wav. The mp3 has `23.021` ms of decoder padding, so the offset is `-85.382` ms with the mp3. Both offsets are always shown. The decoder compensation setting of the Sonolus export does not apply here.
+
+"copy list" copies the two offsets and one line per change. "more decimals" shows the bpm with 4 decimals instead of 2. Clicking a row moves the timeline and the zoomed view to that change and gives its label on the timeline the accent.
+
+The tool never cuts the audio. Trim only marks where the music starts, so the offset is what tells an editor that plays the file from 0 ms where the first measure is.
+
 ## Sonolus export
 
 "sonolus" in the export block, or `GET /api/jobs/<job id>/export?preset=sonolus`, gives:
@@ -547,6 +581,8 @@ Don't commit the generated audio.
 Level time 0 is beat 0, and the bgm plays at level time + `bgmOffset` seconds, which is how the official Sonolus converters use it. Beat 0 is a bar line at or before the start of the audio, so the intro isn't cut and `bgmOffset` is 0 or negative before decoder compensation. Where these conventions come from is in `docs/decisions.md` (Sonolus export).
 
 Decoder compensation is how many ms later than ffmpeg the player's decoder plays the audio. It's 0 by default, which is right for a decoder that honours the gapless info in an mp3 or m4a. The other preset is the file's decoder padding, like 25.057 ms for an mp3 from lame, for a decoder that plays the padding. Only `bgmOffset` changes, every beat stays where it is. A wav or flac has no padding, so only 0 is offered.
+
+The default is still 0 ms, and which preset is right for the real Sonolus app is still open. It waits on the test level in "Checking the offset in Sonolus" below, and there is no result from it yet.
 
 The same from the command line:
 
