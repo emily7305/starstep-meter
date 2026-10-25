@@ -166,7 +166,7 @@ def test_reanalyze_keeps_a_manual_segment_and_the_edit_log(client: TestClient, s
     edited = resp.json()
     assert edited["tempo_map"][0]["source"] == "manual"
     assert edited["tempo_map"][0]["bpm"] == 100.0
-    assert len(edited["edits"]) == 3
+    assert len(edited["edits"]) == 1
 
     # removed, so the beats checked below can only come from the new run
     (settings.jobs_dir / job_id / "beats.json").unlink()

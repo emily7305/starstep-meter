@@ -172,13 +172,6 @@ def logged(edits: list[dict]) -> list[tuple]:
     return [(e["field"], e["old"], e["new"]) for e in edits]
 
 
-def changes(edits: list[dict]) -> dict[str, tuple]:
-    # field -> (old, new), one entry per field is part of what's checked
-    out = {e["field"]: (e["old"], e["new"]) for e in edits}
-    assert len(out) == len(edits), edits
-    return out
-
-
 def snapshot(root: Path) -> dict[str, bytes | None]:
     # folders count too, so a stray temp file or a new job dir shows up
     return {p.relative_to(root).as_posix(): p.read_bytes() if p.is_file() else None for p in sorted(root.rglob("*"))}
@@ -191,7 +184,7 @@ def grid_lines(tempo_map: list[dict]) -> np.ndarray:
 # --- set_meter ---
 
 
-def test_set_meter_makes_the_segment_manual_and_logs_each_changed_field(client: TestClient, settings: Settings) -> None:
+def test_set_meter_makes_the_segment_manual_and_logs_one_entry(client: TestClient, settings: Settings) -> None:
     original = make_report()
     job_id = write_done_job(settings, original)
 
@@ -200,12 +193,10 @@ def test_set_meter_makes_the_segment_manual_and_logs_each_changed_field(client: 
     body = resp.json()
     segment = body["meter_map"][0]
     assert (segment["numerator"], segment["denominator"], segment["source"], segment["confidence"]) == (6, 8, "manual", None)
-    assert changes(body["edits"]) == {
-        "meter_map/0/numerator": (4, 6),
-        "meter_map/0/denominator": (4, 8),
-        "meter_map/0/confidence": (0.9, None),
-        "meter_map/0/source": ("auto", "manual"),
-    }
+    (edit,) = body["edits"]
+    assert edit["field"] == "meter_map/0"
+    assert edit["old"] == {"numerator": 4, "denominator": 4, "confidence": 0.9, "source": "auto"}
+    assert edit["new"] == {"numerator": 6, "denominator": 8, "confidence": None, "source": "manual"}
 
     # only the meter segment and the edit log move
     expected = original.model_copy(
@@ -295,13 +286,17 @@ def test_apply_suggestion_splits_the_tempo_map_and_marks_it_applied(client: Test
     assert [s["bpm"] for s in tempo] == [BPM, BPM / 2, BPM]
     assert [s["source"] for s in tempo] == ["manual"] * 3
     assert [s["status"] for s in body["notation_suggestions"]] == ["applied", "open"]
+    # two places changed, so the one entry sits at the report itself
     assert logged(body["edits"]) == [
-        ("tempo_map", dump(original.tempo_map), tempo),
-        ("notation_suggestions/0/status", "open", "applied"),
+        (
+            "",
+            {"tempo_map": dump(original.tempo_map), "notation_suggestions/0/status": "open"},
+            {"tempo_map": tempo, "notation_suggestions/0/status": "applied"},
+        )
     ]
 
     # nothing moves, half drops every other line inside the span
-    old_lines, new_lines = grid_lines(body["edits"][0]["old"]), grid_lines(tempo)
+    old_lines, new_lines = grid_lines(body["edits"][0]["old"]["tempo_map"]), grid_lines(tempo)
     assert all(np.abs(old_lines - t).min() <= LINE_TOLERANCE_MS for t in new_lines)
     assert len(old_lines) - len(new_lines) == (HALF_SPAN[1] - HALF_SPAN[0]) / BEAT_MS / 2
 

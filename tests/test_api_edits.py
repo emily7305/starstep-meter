@@ -256,11 +256,18 @@ def stored_report(settings: Settings, job_id: str) -> TimingReport:
     return TimingReport.model_validate_json(text)
 
 
+def flat(edit: dict) -> dict[str, tuple]:
+    # one entry as path -> (old, new). with several values changed old and new are objects keyed under field
+    if not isinstance(edit["old"], dict):
+        return {edit["field"]: (edit["old"], edit["new"])}
+    assert edit["old"].keys() == edit["new"].keys(), edit
+    return {f"{edit['field']}/{key}": (edit["old"][key], edit["new"][key]) for key in edit["old"]}
+
+
 def changes(edits: list[dict]) -> dict[str, tuple]:
-    # field -> (old, new), one entry per field is part of what's checked
-    out = {e["field"]: (e["old"], e["new"]) for e in edits}
-    assert len(out) == len(edits), edits
-    return out
+    # one manual change is one entry, however many values it touched
+    assert len(edits) == 1, edits
+    return flat(edits[0])
 
 
 def snapshot(root: Path) -> dict[str, bytes | None]:
@@ -271,7 +278,7 @@ def snapshot(root: Path) -> dict[str, bytes | None]:
 # --- set_anchor ---
 
 
-def test_set_anchor_appends_an_edit_per_changed_field_on_an_auto_segment(client: TestClient, settings: Settings) -> None:
+def test_set_anchor_on_an_auto_segment_logs_one_entry(client: TestClient, settings: Settings) -> None:
     job_id = write_done_job(settings)
 
     before = datetime.now(timezone.utc)
@@ -282,18 +289,13 @@ def test_set_anchor_appends_an_edit_per_changed_field_on_an_auto_segment(client:
     body = resp.json()
     segment = body["tempo_map"][0]
     assert (segment["anchor_ms"], segment["source"], segment["confidence"]) == (2100.5, "manual", None)
-    assert len(body["edits"]) == 3
-    for edit in body["edits"]:
-        assert set(edit) == {"field", "old", "new", "timestamp"}
-    assert changes(body["edits"]) == {
-        "tempo_map/0/anchor_ms": (2000.0, 2100.5),
-        "tempo_map/0/source": ("auto", "manual"),
-        "tempo_map/0/confidence": (1.0, None),
-    }
-    # one request is one moment, however many fields it touched
-    stamps = {e["timestamp"] for e in body["edits"]}
-    assert len(stamps) == 1
-    stamp = datetime.fromisoformat(stamps.pop())
+    # the flip to manual rides along, so the entry is the segment's and holds only what changed
+    (edit,) = body["edits"]
+    assert set(edit) == {"field", "old", "new", "timestamp"}
+    assert edit["field"] == "tempo_map/0"
+    assert edit["old"] == {"anchor_ms": 2000.0, "confidence": 1.0, "source": "auto"}
+    assert edit["new"] == {"anchor_ms": 2100.5, "confidence": None, "source": "manual"}
+    stamp = datetime.fromisoformat(edit["timestamp"])
     assert stamp.utcoffset() is not None
     assert before <= stamp <= after
 
@@ -327,8 +329,10 @@ def test_edit_on_a_manual_segment_logs_only_what_changed(
 
     resp = patch_edit(client, job_id, body)
     assert resp.status_code == 200, resp.text
-    # no source entry, it was manual already
-    assert set(changes(resp.json()["edits"])) == {f"tempo_map/0/{name}" for name in [field, *also_logged]}
+    # no source in it, it was manual already. one value is logged at its own path, two at the segment's
+    (edit,) = resp.json()["edits"]
+    assert edit["field"] == ("tempo_map/0" if also_logged else f"tempo_map/0/{field}")
+    assert set(flat(edit)) == {f"tempo_map/0/{name}" for name in [field, *also_logged]}
 
 
 def test_anchor_is_rounded_to_three_decimals(client: TestClient, settings: Settings) -> None:
@@ -397,7 +401,7 @@ def test_resending_an_edited_anchor_adds_nothing(client: TestClient, settings: S
     again = patch_anchor(client, job_id, 2250.0)
     assert again.status_code == 200, again.text
     assert again.json() == first.json()
-    assert len(first.json()["edits"]) == 3
+    assert len(first.json()["edits"]) == 1
     assert stored_report(settings, job_id).edits == TimingReport.model_validate(first.json()).edits
 
 
@@ -410,16 +414,16 @@ def test_edits_are_append_only(client: TestClient, settings: Settings) -> None:
         resp = patch_anchor(client, job_id, value)
         assert resp.status_code == 200, resp.text
         edits = resp.json()["edits"]
-        # the first edit also flips the segment to manual, the rest are one entry each
-        assert len(edits) == (3 if i == 0 else len(previous) + 1)
+        assert len(edits) == i + 1
         # earlier entries come back byte for byte, timestamps included
         assert edits[: len(previous)] == previous
         previous = edits
 
-    anchor_edits = [e for e in previous if e["field"] == "tempo_map/0/anchor_ms"]
-    assert [e["new"] for e in anchor_edits] == values
-    assert [e["old"] for e in anchor_edits] == [2000.0, *values[:-1]]
-    assert len(previous) == 5
+    # the first one also flipped the segment to manual, so it's the segment's entry
+    assert [e["field"] for e in previous] == ["tempo_map/0", "tempo_map/0/anchor_ms", "tempo_map/0/anchor_ms"]
+    moves = [flat(e)["tempo_map/0/anchor_ms"] for e in previous]
+    assert [new for _, new in moves] == values
+    assert [old for old, _ in moves] == [2000.0, *values[:-1]]
 
     report = stored_report(settings, job_id)
     assert report.tempo_map[0].anchor_ms == values[-1]
@@ -618,19 +622,21 @@ def test_concurrent_patches_lose_no_edit(client: TestClient, settings: Settings)
     assert [r.status_code for r in responses] == [200] * 20
 
     report = stored_report(settings, job_id)
-    anchor_edits = [e for e in report.edits if e.field == "tempo_map/0/anchor_ms"]
-    assert len(anchor_edits) == 20
-    assert sorted(e.new for e in anchor_edits) == values
+    edits = [e.model_dump(mode="json") for e in report.edits]
+    # the flip to manual is logged by whichever request got there first, and only by that one. its entry
+    # is the segment's with the anchor inside, the other 19 are the anchor alone
+    assert [e["field"] for e in edits] == ["tempo_map/0"] + ["tempo_map/0/anchor_ms"] * 19
+    first = flat(edits[0])
+    assert set(first) == {"tempo_map/0/anchor_ms", "tempo_map/0/confidence", "tempo_map/0/source"}
+    assert first["tempo_map/0/confidence"] == (1.0, None)
+    assert first["tempo_map/0/source"] == ("auto", "manual")
+    moves = [flat(e)["tempo_map/0/anchor_ms"] for e in edits]
+    assert sorted(new for _, new in moves) == values
     # a read-modify-write that lost an update would break the chain here
-    assert anchor_edits[0].old == 2000.0
-    for earlier, later in zip(anchor_edits, anchor_edits[1:]):
-        assert later.old == earlier.new
-    assert report.tempo_map[0].anchor_ms == anchor_edits[-1].new
-    # the flip to manual is logged by whichever request got there first, and only by that one
-    assert sorted(e.field for e in report.edits if e.field != "tempo_map/0/anchor_ms") == [
-        "tempo_map/0/confidence",
-        "tempo_map/0/source",
-    ]
+    assert moves[0][0] == 2000.0
+    for earlier, later in zip(moves, moves[1:]):
+        assert later[0] == earlier[1]
+    assert report.tempo_map[0].anchor_ms == moves[-1][1]
     assert client.get(f"/api/jobs/{job_id}/report").json() == report.model_dump(mode="json")
 
 
@@ -644,12 +650,10 @@ def test_set_bpm_changes_one_segment_and_logs_the_flip_to_manual(client: TestCli
     resp = patch_bpm(client, job_id, 90.0, segment=1)
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert changes(body["edits"]) == {
-        "tempo_map/1/bpm": (60.0, 90.0),
-        "tempo_map/1/source": ("auto", "manual"),
-        "tempo_map/1/confidence": (1.0, None),
-    }
-    assert len({e["timestamp"] for e in body["edits"]}) == 1
+    (edit,) = body["edits"]
+    assert edit["field"] == "tempo_map/1"
+    assert edit["old"] == {"bpm": 60.0, "confidence": 1.0, "source": "auto"}
+    assert edit["new"] == {"bpm": 90.0, "confidence": None, "source": "manual"}
     # the grid is rebuilt around the same anchor and the edges stay
     assert TimingReport.model_validate(body).tempo_map == [
         original.tempo_map[0],
@@ -682,7 +686,8 @@ def test_doubling_then_halving_the_bpm_lands_back_exactly(client: TestClient, se
     segment = halved.json()["tempo_map"][0]
     assert segment["bpm"] == bpm
     assert segment["anchor_ms"] == 2010.0
-    bpm_edits = [(e["old"], e["new"]) for e in halved.json()["edits"] if e["field"] == "tempo_map/0/bpm"]
+    # the first entry is the segment's, it flipped to manual then
+    bpm_edits = [flat(e)["tempo_map/0/bpm"] for e in halved.json()["edits"]]
     assert bpm_edits == [(bpm, bpm * 2), (bpm * 2, bpm)]
     assert stored_report(settings, job_id).tempo_map[0].bpm == bpm
 

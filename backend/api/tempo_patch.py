@@ -1,11 +1,18 @@
 """Applies one edit from PATCH /report and writes what changed into edits.
 
-The edit log has to say exactly what moved. A value edit (bpm, anchor, a meter's
-signature) adds one entry per field that changed in that segment, the flip to
-manual and the dropped confidence included. Split, merge and match change the
-shape of a list, so they log the whole tempo_map or meter_map before and after.
-Applying a suggestion logs the tempo_map before and after and the suggestion's
-status, dismissing one only its status.
+The edit log has to say exactly what moved, and one manual change is one entry.
+field is the deepest path that holds everything the change touched. With one
+changed value, old and new are that value. With several, they're objects keyed
+by each value's path under field, "" being the report itself.
+
+- a value edit (bpm, anchor, a meter's signature) on a segment that was already
+  manual changes one value, so it's logged at that value's own path. The first
+  edit of an auto segment also flips source and drops confidence, so it's logged
+  at the segment's path with those keys.
+- split, split out, merge and match change the shape of a list, so they log the
+  whole tempo_map or meter_map before and after.
+- applying a suggestion changes the tempo_map and the suggestion's status, so it's
+  logged at "" with both. dismissing one only changes its status.
 """
 
 from __future__ import annotations
@@ -30,6 +37,7 @@ from backend.api.models import (
     SetMeter,
     Split,
     SplitMeter,
+    SplitOut,
     TempoEdit,
 )
 from backend.schema.models import BeatsFile, Edit, MeterSegment, TempoSegment, TimingReport
@@ -46,19 +54,32 @@ def tracked_times(beats: BeatsFile | None) -> TrackedTimes | None:
     )
 
 
-def _segment_edits(
+def _segment_edit(
     index: int, old: TempoSegment | MeterSegment, new: TempoSegment | MeterSegment, now: datetime, path: str = "tempo_map"
 ) -> list[Edit]:
     before, after = old.model_dump(mode="json"), new.model_dump(mode="json")
+    changed = [key for key in before if before[key] != after[key]]
+    if not changed:
+        return []
+    if len(changed) == 1:
+        key = changed[0]
+        return [Edit(field=f"{path}/{index}/{key}", old=before[key], new=after[key], timestamp=now)]
     return [
-        Edit(field=f"{path}/{index}/{key}", old=before[key], new=after[key], timestamp=now)
-        for key in before
-        if before[key] != after[key]
+        Edit(
+            field=f"{path}/{index}",
+            old={key: before[key] for key in changed},
+            new={key: after[key] for key in changed},
+            timestamp=now,
+        )
     ]
 
 
+def _dumped(segments: list) -> list:
+    return [s.model_dump(mode="json") for s in segments]
+
+
 def _whole(path: str, old: list, new: list, now: datetime) -> Edit:
-    return Edit(field=path, old=[s.model_dump(mode="json") for s in old], new=[s.model_dump(mode="json") for s in new], timestamp=now)
+    return Edit(field=path, old=_dumped(old), new=_dumped(new), timestamp=now)
 
 
 def _validated(changed: TimingReport) -> TimingReport:
@@ -87,7 +108,7 @@ def _meter_edit(report: TimingReport, body: SetMeter | SplitMeter | MergeMeter, 
     if new_map == report.meter_map:
         return report
     if isinstance(body, SetMeter) and old_map == report.meter_map:
-        edits = _segment_edits(body.segment, old_map[body.segment], new_map[body.segment], now, "meter_map")
+        edits = _segment_edit(body.segment, old_map[body.segment], new_map[body.segment], now, "meter_map")
     else:
         edits = [_whole("meter_map", report.meter_map, new_map, now)]
     return _validated(report.model_copy(update={"meter_map": new_map, "edits": [*report.edits, *edits]}))
@@ -101,18 +122,25 @@ def _suggestion_edit(report: TimingReport, body: ApplySuggestion | DismissSugges
     if suggestions[index].status != "open":
         raise TempoEditError(f"suggestion {index} was already {suggestions[index].status}")
     status = "applied" if isinstance(body, ApplySuggestion) else "dismissed"
-    edits = []
+    status_path = f"notation_suggestions/{index}/status"
     tempo_map = report.tempo_map
     if isinstance(body, ApplySuggestion):
         try:
             tempo_map = notation_edit.apply_suggestion(report.tempo_map, suggestions, index)
         except SuggestionError as exc:
             raise TempoEditError(str(exc)) from exc
-        edits.append(_whole("tempo_map", report.tempo_map, tempo_map, now))
-    edits.append(Edit(field=f"notation_suggestions/{index}/status", old="open", new=status, timestamp=now))
+        # two places change, so the one entry sits at the report itself
+        edit = Edit(
+            field="",
+            old={"tempo_map": _dumped(report.tempo_map), status_path: "open"},
+            new={"tempo_map": _dumped(tempo_map), status_path: status},
+            timestamp=now,
+        )
+    else:
+        edit = Edit(field=status_path, old="open", new=status, timestamp=now)
     marked = list(suggestions)
     marked[index] = suggestions[index].model_copy(update={"status": status})
-    changed = report.model_copy(update={"tempo_map": tempo_map, "notation_suggestions": marked, "edits": [*report.edits, *edits]})
+    changed = report.model_copy(update={"tempo_map": tempo_map, "notation_suggestions": marked, "edits": [*report.edits, edit]})
     return _validated(changed)
 
 
@@ -134,6 +162,8 @@ def apply_tempo_edit(report: TimingReport, body: TempoEdit, beats: BeatsFile | N
         new_map = tempo_edit.set_bpm(old_map, body.segment, round(body.bpm, 6))
     elif isinstance(body, Split):
         new_map = tempo_edit.split(old_map, body.at_ms, tracked_times(beats))
+    elif isinstance(body, SplitOut):
+        new_map = tempo_edit.split_out(old_map, body.segment, body.section, tracked_times(beats))
     elif isinstance(body, Merge):
         new_map = tempo_edit.merge(old_map, body.segment, tracked_times(beats))
     elif isinstance(body, Match):
@@ -144,7 +174,7 @@ def apply_tempo_edit(report: TimingReport, body: TempoEdit, beats: BeatsFile | N
     if new_map == old_map:
         return report
     if isinstance(body, (SetAnchor, SetBpm)):
-        edits = _segment_edits(body.segment, old_map[body.segment], new_map[body.segment], now)
+        edits = _segment_edit(body.segment, old_map[body.segment], new_map[body.segment], now)
     else:
         edits = [_whole("tempo_map", old_map, new_map, now)]
     return _validated(report.model_copy(update={"tempo_map": new_map, "edits": [*report.edits, *edits]}))

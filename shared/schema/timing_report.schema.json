@@ -53,7 +53,7 @@
       "additionalProperties": false,
       "properties": {
         "field": {
-          "description": "path of the changed value, e.g. tempo_map/0/bpm",
+          "description": "the deepest path that holds everything the change touched, e.g. tempo_map/0/bpm. with one changed value old and new are that value, with several they're objects keyed by each value's path under field, and an empty field is the report itself",
           "title": "Field",
           "type": "string"
         },

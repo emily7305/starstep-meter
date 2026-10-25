@@ -1,7 +1,7 @@
 /* generated from shared/schema/timing_report.schema.json by npm run gen:types, don't edit by hand */
 
 /**
- * path of the changed value, e.g. tempo_map/0/bpm
+ * the deepest path that holds everything the change touched, e.g. tempo_map/0/bpm. with one changed value old and new are that value, with several they're objects keyed by each value's path under field, and an empty field is the report itself
  */
 export type Field = string;
 export type JsonValue = unknown;

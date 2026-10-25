@@ -170,7 +170,12 @@ class NotationSuggestion(_Strict):
 
 
 class Edit(_Strict):
-    field: str = Field(description="path of the changed value, e.g. tempo_map/0/bpm")
+    # one manual change is one entry, however many values it touched
+    field: str = Field(
+        description="the deepest path that holds everything the change touched, e.g. tempo_map/0/bpm. "
+        "with one changed value old and new are that value, with several they're objects keyed by each "
+        "value's path under field, and an empty field is the report itself"
+    )
     old: JsonValue
     new: JsonValue
     timestamp: AwareDatetime

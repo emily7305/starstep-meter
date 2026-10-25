@@ -79,6 +79,13 @@ class Split(_Op):
     at_ms: _Ms
 
 
+class SplitOut(_Op):
+    # splits at both ends of one of the segment's ratio_merged sections, one edit for the two cuts
+    op: Literal["split_out"]
+    segment: _Index
+    section: _Index
+
+
 class Merge(_Op):
     # merges this segment with the one after it
     op: Literal["merge"]
@@ -122,6 +129,16 @@ class DismissSuggestion(_Op):
 
 
 TempoEdit = Annotated[
-    SetAnchor | SetBpm | Split | Merge | Match | SetMeter | SplitMeter | MergeMeter | ApplySuggestion | DismissSuggestion,
+    SetAnchor
+    | SetBpm
+    | Split
+    | SplitOut
+    | Merge
+    | Match
+    | SetMeter
+    | SplitMeter
+    | MergeMeter
+    | ApplySuggestion
+    | DismissSuggestion,
     Field(discriminator="op"),
 ]

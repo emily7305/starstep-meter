@@ -159,6 +159,29 @@ def split(segments: list[TempoSegment], at_ms: float, tracked: TrackedTimes | No
     return [*segments[:index], left, right, *segments[index + 1:]]
 
 
+def split_out(
+    segments: list[TempoSegment], index: int, section: int, tracked: TrackedTimes | None = None
+) -> list[TempoSegment]:
+    """Split segment index at both ends of one of its ratio merged sections, as one edit.
+
+    The section gets its own fitted tempo back, the same as splitting at its start and then at
+    its end. An end within half a beat of the segment's edge is already a boundary and isn't split.
+    """
+    _check_index(segments, index)
+    seg = segments[index]
+    if not 0 <= section < len(seg.ratio_merged):
+        raise TempoEditError(f"segment {index} has no kept section {section}, it has {len(seg.ratio_merged)}")
+    note = seg.ratio_merged[section]
+    gap = MIN_SPLIT_BEATS * period_ms(seg)
+    cut_start = note.start_ms - seg.start_ms >= gap
+    cut_end = seg.end_ms - note.end_ms >= gap
+    if not cut_start and not cut_end:
+        raise TempoEditError(f"kept section {section} already covers segment {index}")
+    out = split(segments, note.start_ms, tracked) if cut_start else segments
+    # the end lands in the right half of the first split, or in the untouched segment
+    return split(out, note.end_ms, tracked) if cut_end else out
+
+
 def merge(segments: list[TempoSegment], index: int, tracked: TrackedTimes | None = None) -> list[TempoSegment]:
     """Merge segment index with the one after it into one manual segment.
 

@@ -274,10 +274,13 @@ def test_edit_on_the_last_good_report_is_appended_and_carried_into_the_next_run(
     body = resp.json()
     assert body["tempo_map"][0]["bpm"] == 90.0
     assert body["tempo_map"][0]["source"] == "manual"
-    # the earlier entry first and untouched, then one per field that changed
+    # the earlier entry first and untouched, then one for the edit, the segment's since it flipped to manual
     assert body["edits"][0] == json.loads(earlier.model_dump_json())
-    assert {e["field"]: (e["old"], e["new"]) for e in body["edits"][1:]}["tempo_map/0/bpm"] == (120.0, 90.0)
-    assert len(body["edits"]) == 4
+    assert len(body["edits"]) == 2
+    edit = body["edits"][1]
+    assert edit["field"] == "tempo_map/0"
+    assert edit["old"] == {"bpm": 120.0, "confidence": 1.0, "source": "auto"}
+    assert edit["new"] == {"bpm": 90.0, "confidence": None, "source": "manual"}
     assert client.get(f"/api/jobs/{job_id}/report").json() == body
     assert TimingReport.model_validate_json((job_dir / "report.json").read_text(encoding="utf-8")) == TimingReport.model_validate(body)
     # still a failed job, the edit doesn't change that
