@@ -15,6 +15,7 @@ import {
 } from "./api";
 import { chartStartFor, storedFirstMeasure, storeFirstMeasure } from "./chartSetup";
 import { ExportPanel } from "./components/ExportPanel";
+import { Footer } from "./components/Footer";
 import { HealthReadout, type Health } from "./components/HealthReadout";
 import { QuickAnswer } from "./components/QuickAnswer";
 import { RecentJobs } from "./components/RecentJobs";
@@ -22,13 +23,16 @@ import { ReopenPrompt } from "./components/ReopenPrompt";
 import { ReportView } from "./components/ReportView";
 import { StageTrack, trackFor, type TrackPosition } from "./components/StageTrack";
 import { Timeline } from "./components/Timeline";
+import { Tour } from "./components/Tour";
 import { UploadPanel, type UploadProgress } from "./components/UploadPanel";
+import { carriesFiles, isAudioName, NOT_AUDIO } from "./fileDrop";
 import { ensureJapaneseFont } from "./fonts";
 import { failureText, reanalysisFailureText, stageLabel } from "./format";
 import { fileSha256, jobIdFromSearch, searchWithJob } from "./jobs";
 import { pollJob } from "./poll";
 import { EditSaver, nudged, type SaveState } from "./tempoEdits";
 import { type AnchorDraft, appliedSegment, segmentAt, splitOutSegment } from "./tempoMap";
+import { tourSeen } from "./tour";
 import type { JobStage, JobStatus, JobSummary, TempoEditOp } from "./types/api";
 import type { BeatsFile } from "./types/beats";
 import type { TimingReport } from "./types/timingReport";
@@ -116,6 +120,11 @@ export function App() {
   const [jobsError, setJobsError] = useState<string | null>(null);
   // earlier jobs for the file just picked, the upload waits until one is chosen
   const [matches, setMatches] = useState<JobSummary[] | null>(null);
+  // once per browser, the ? in the header opens it again
+  const [tourOpen, setTourOpen] = useState(() => !tourSeen());
+  // a file is being dragged over the page
+  const [dragging, setDragging] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const runAbort = useRef<AbortController | null>(null);
   const saver = useRef<EditSaver | null>(null);
   // key repeat fires faster than renders land, so nudges read these instead of state
@@ -313,6 +322,7 @@ export function App() {
     (next: File) => {
       runAbort.current?.abort();
       runAbort.current = null;
+      setNotice(null);
       setFile(next);
       setMatches(null);
       resetResult();
@@ -321,6 +331,48 @@ export function App() {
     },
     [resetResult],
   );
+
+  // a song dropped anywhere on the page is picked like one from the file dialog. dragenter and
+  // dragleave fire for every element on the way, so they're counted
+  useEffect(() => {
+    let depth = 0;
+    const enter = (event: DragEvent) => {
+      if (!carriesFiles(event.dataTransfer?.types)) return;
+      depth += 1;
+      setDragging(true);
+    };
+    const leave = (event: DragEvent) => {
+      if (!carriesFiles(event.dataTransfer?.types)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragging(false);
+    };
+    const over = (event: DragEvent) => {
+      if (!carriesFiles(event.dataTransfer?.types)) return;
+      // without this the browser opens the file itself
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    };
+    const drop = (event: DragEvent) => {
+      if (!carriesFiles(event.dataTransfer?.types)) return;
+      event.preventDefault();
+      depth = 0;
+      setDragging(false);
+      const dropped = event.dataTransfer?.files[0];
+      if (dropped === undefined) return;
+      if (isAudioName(dropped.name)) choose(dropped);
+      else setNotice(`${dropped.name}: ${NOT_AUDIO}`);
+    };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, [choose]);
 
   const upload = useCallback(async () => {
     if (file === null) return;
@@ -408,6 +460,20 @@ export function App() {
   if (run.errorText !== null) statusText = run.errorText;
   else if (run.stage !== null) statusText = stageLabel(run.stage);
 
+  const recent = (
+    <RecentJobs jobs={jobs} currentId={jobId} error={jobsError} onOpen={(id) => openJob(id, true)} onDelete={removeJob} />
+  );
+  const progress = (
+    <>
+      {matches !== null && (
+        <ReopenPrompt matches={matches} busy={run.busy} onReopen={(id) => openJob(id, true)} onFresh={() => void upload()} />
+      )}
+      {(run.busy || run.stage !== null || run.errorText !== null || report !== null) && (
+        <StageTrack position={run.track} message={statusText} />
+      )}
+    </>
+  );
+
   return (
     <>
       <header className="header">
@@ -415,67 +481,123 @@ export function App() {
           <StarMark />
           starstep-meter
         </h1>
-        <HealthReadout health={health} />
+        <div className="header__side">
+          <HealthReadout health={health} />
+          <button
+            type="button"
+            className="help-btn"
+            aria-label="help, show the tour"
+            title="show the tour again"
+            onClick={() => setTourOpen(true)}
+          >
+            ?
+          </button>
+        </div>
       </header>
 
-      {report !== null && chartStart !== null && <QuickAnswer report={report} start={chartStart} />}
+      {dragging && (
+        <div className="dropping" aria-hidden="true">
+          <p className="dropping__text">drop the song to load it</p>
+        </div>
+      )}
 
-      <Timeline
-        audioUrl={jobId === null ? null : audioUrl(jobId)}
-        report={report}
-        beats={beats}
-        draft={draft}
-        selected={selected}
-        saveState={saveState}
-        editable={!reshaping}
-        onSelect={setSelected}
-        onNudge={nudge}
-        onEdit={edit}
-        onRetry={retrySave}
-        firstMeasure={firstMeasure}
-        onFirstMeasure={(measure) => {
-          setFirstMeasure(measure);
-          storeFirstMeasure(measure);
-        }}
-      />
+      {report === null ? (
+        <main className="start">
+          <section className="start__drop" aria-label="load a song">
+            <UploadPanel
+              file={file}
+              busy={run.busy}
+              progress={run.progress}
+              variant="start"
+              notice={notice}
+              onChoose={choose}
+              onAnalyze={() => void analyze()}
+            >
+              {progress}
+            </UploadPanel>
+          </section>
+          <aside className="start__side" aria-labelledby="recent-label">
+            <h2 className="section-label" id="recent-label">
+              recent
+            </h2>
+            {recent}
+          </aside>
+        </main>
+      ) : (
+        <>
+          {chartStart !== null && <QuickAnswer report={report} start={chartStart} />}
 
-      <main className="content">
-        <section className="column" aria-labelledby="source-label">
-          <h2 className="section-label" id="source-label">
-            source
-          </h2>
-          <UploadPanel file={file} busy={run.busy} progress={run.progress} onChoose={choose} onAnalyze={() => void analyze()} />
-          {matches !== null && (
-            <ReopenPrompt matches={matches} busy={run.busy} onReopen={(id) => openJob(id, true)} onFresh={() => void upload()} />
-          )}
-          <StageTrack position={run.track} message={statusText} />
-          {jobId !== null && report !== null && (
-            <div className="reanalyze">
-              <button type="button" className="btn btn--outline" disabled={run.busy} onClick={() => void reanalyze()}>
-                re-analyze
-              </button>
-              <span className="reanalyze__hint">manual segments and edits stay</span>
-            </div>
-          )}
-          {jobId !== null && report !== null && <ExportPanel jobId={jobId} disabled={run.busy} />}
-
-          <h2 className="section-label section-label--spaced">recent</h2>
-          <RecentJobs
-            jobs={jobs}
-            currentId={jobId}
-            error={jobsError}
-            onOpen={(id) => openJob(id, true)}
-            onDelete={removeJob}
+          <Timeline
+            audioUrl={jobId === null ? null : audioUrl(jobId)}
+            report={report}
+            beats={beats}
+            draft={draft}
+            selected={selected}
+            saveState={saveState}
+            editable={!reshaping}
+            onSelect={setSelected}
+            onNudge={nudge}
+            onEdit={edit}
+            onRetry={retrySave}
+            firstMeasure={firstMeasure}
+            onFirstMeasure={(measure) => {
+              setFirstMeasure(measure);
+              storeFirstMeasure(measure);
+            }}
           />
-        </section>
 
-        <section className="column" aria-labelledby="report-label">
-          <h2 className="section-label" id="report-label">
-            report
-          </h2>
-          <ReportView report={report} beats={beats} />
-        </section>
-      </main>
+          <main className="content">
+            <section className="column" aria-labelledby="source-label">
+              <h2 className="section-label" id="source-label">
+                source
+              </h2>
+              <UploadPanel
+                file={file}
+                busy={run.busy}
+                progress={run.progress}
+                variant="compact"
+                notice={notice}
+                onChoose={choose}
+                onAnalyze={() => void analyze()}
+              >
+                {progress}
+              </UploadPanel>
+              {jobId !== null && (
+                <div className="reanalyze">
+                  <button
+                    type="button"
+                    className="btn btn--outline"
+                    disabled={run.busy}
+                    title="run every stage again on the stored upload, manual segments, decided suggestions and the edit log stay"
+                    onClick={() => void reanalyze()}
+                  >
+                    re-analyze
+                  </button>
+                  <span className="reanalyze__hint">manual segments and edits stay</span>
+                </div>
+              )}
+              {jobId !== null && <ExportPanel jobId={jobId} disabled={run.busy} />}
+            </section>
+
+            <section className="column" aria-labelledby="recent-label">
+              <h2 className="section-label" id="recent-label">
+                recent
+              </h2>
+              {recent}
+            </section>
+
+            <section className="column column--report" aria-labelledby="report-label">
+              <h2 className="section-label" id="report-label">
+                report
+              </h2>
+              <ReportView report={report} beats={beats} />
+            </section>
+          </main>
+        </>
+      )}
+
+      <Footer />
+      <Tour open={tourOpen} onClose={() => setTourOpen(false)} />
     </>
   );
 }

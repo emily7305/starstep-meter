@@ -51,7 +51,7 @@ export function QuickAnswer({ report, start }: Props) {
   const toggle = (topic: HelpKey) => setHelp((open) => (open === topic ? null : topic));
 
   return (
-    <section className="quick" aria-labelledby="quick-label">
+    <section className="quick" data-tour="card" aria-labelledby="quick-label">
       <div className="quick__head">
         <h2 className="quick__title" id="quick-label">
           for your chart
@@ -60,6 +60,7 @@ export function QuickAnswer({ report, start }: Props) {
           type="button"
           className="btn btn--chip"
           aria-pressed={decimals > 2}
+          title="the bpm with 4 decimals instead of 2"
           onClick={() => setDecimals((d) => (d > 2 ? 2 : MORE_DECIMALS))}
         >
           more decimals
@@ -67,6 +68,7 @@ export function QuickAnswer({ report, start }: Props) {
         <button
           type="button"
           className="btn btn--outline"
+          title="copy the bpm, both offsets and the time signature as text"
           onClick={() => void copyToClipboard(quickText(answer, decimals)).then(setCopyState)}
         >
           copy
@@ -85,16 +87,18 @@ export function QuickAnswer({ report, start }: Props) {
           <dt>
             offset <HelpButton topic="offset" open={help === "offset"} onToggle={toggle} />
           </dt>
-          <dd>
-            <span className="quick__which">{WAV_LABEL}</span>
-            <span className="quick__big mono">{formatOffset(answer.wavOffsetMs)}</span>
+          <dd className="quick__offsets">
+            <span className="quick__offset">
+              <span className="quick__big mono">{formatOffset(answer.wavOffsetMs)}</span>
+              <span className="quick__which">{WAV_LABEL}</span>
+            </span>
+            {answer.originalOffsetMs !== null && (
+              <span className="quick__offset">
+                <span className="quick__big mono">{formatOffset(answer.originalOffsetMs)}</span>
+                <span className="quick__which">{originalLabel(answer)}</span>
+              </span>
+            )}
           </dd>
-          {answer.originalOffsetMs !== null && (
-            <dd>
-              <span className="quick__which">{originalLabel(answer)}</span>
-              <span className="quick__big mono">{formatOffset(answer.originalOffsetMs)}</span>
-            </dd>
-          )}
         </div>
         <div className="quick__item">
           <dt>
