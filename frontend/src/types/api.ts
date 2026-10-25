@@ -41,6 +41,8 @@ export interface JobSummary {
   size_bytes: number;
   // iso utc string
   created_at: string;
+  // when a re-analysis last finished, iso utc, null when there hasn't been one
+  reanalyzed_at: string | null;
   status: JobState;
   // null when there's no report to count
   edits: number | null;

@@ -50,7 +50,7 @@ export function RecentJobs({ jobs, currentId, error, onOpen, onDelete }: Props) 
     <>
       {errorLine}
       {jobs.length === 0 ? (
-        <p className="empty empty--small">no jobs yet</p>
+        <p className="empty empty--small">no jobs yet, analyzed songs show up here</p>
       ) : (
         <ol className="recent" aria-label="recent jobs">
           {jobs.map((job) => {
@@ -64,13 +64,19 @@ export function RecentJobs({ jobs, currentId, error, onOpen, onDelete }: Props) 
                     type="button"
                     className="recent__row"
                     aria-current={job.job_id === currentId ? "true" : undefined}
+                    title="open this job, its edits come with it"
                     onClick={() => onOpen(job.job_id)}
                   >
                     <span className="recent__name mono" title={job.filename}>
                       {job.filename}
                     </span>
                     <span className="recent__meta mono">
-                      <span className="recent__date">{formatJobDate(job.created_at)}</span>
+                      <span className="recent__date" title="when the song was uploaded">
+                        {formatJobDate(job.created_at)}
+                      </span>
+                      {job.reanalyzed_at !== null && (
+                        <span className="recent__again">re-analyzed at {formatJobDate(job.reanalyzed_at)}</span>
+                      )}
                       {job.status !== "done" && (
                         <span className="recent__status" data-status={job.status}>
                           {job.status}
@@ -86,6 +92,7 @@ export function RecentJobs({ jobs, currentId, error, onOpen, onDelete }: Props) 
                       type="button"
                       className="btn btn--link recent__delete"
                       aria-label={`delete ${job.filename}`}
+                      title="delete the job with its upload, wav and edits, it asks first"
                       onClick={() => askToDelete(job.job_id)}
                     >
                       delete
