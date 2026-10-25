@@ -158,9 +158,15 @@ npm run dev
 
 ### Step 12: open the page and analyze
 
-Open http://127.0.0.1:5173. The header shows `ffmpeg ok · ffprobe ok · madmom ok` (or `madmom not installed` without Part 3). On the first visit a short tour of five steps points at the parts of the page, one at a time. `close tour` or Esc ends it, and the `?` at the right of the header shows it again whenever you want.
+Open http://127.0.0.1:5173. The header shows `ffmpeg ok · ffprobe ok · madmom ok` (or `madmom not installed` without Part 3). On the first visit a bubble beside `choose a song` says where to start. `done` or Esc closes it, and the `?` at the right of the header shows it again whenever you want.
 
-Before a song is loaded, most of the page is a large area that says `drop a song anywhere on the page`, with the `recent` list beside it. Drag a song (mp3, wav, flac, ogg or m4a) from a folder onto the page, or press `choose a song` and pick one. While a file is dragged over the page, it says `drop the song to load it`. A file that isn't audio gets a line saying so. Then press `analyze`. The pills under the button count through `upload`, `decode`, `trim`, `beats`, `snap`, `tempo`, `meter`, `check` and `done`. A 4 minute song takes under a minute with madmom.
+Before a song is loaded, most of the page is a large area that says `drop a song anywhere on the page`, with the `recent` list beside it. Under the button are the three steps, and under them `try with a demo` with the note `a generated click track, it stays out of the recent list`.
+
+A good first check that the install works is `try with a demo`, because it needs no song. The backend makes a short click track with drums on the spot (128 bpm in 4/4, 16 measures, no real music, and nothing is downloaded) and analyzes it. While it runs, the picker is replaced by a block with the name, the pills `upload`, `decode`, `trim`, `beats`, `snap`, `tempo`, `meter`, `check` and `done`, and the stage it is at with the time since it started, like `tracking beats 0:12`. A short while later the page shows the result, with the line `demo: a click track with drums made on this machine, not a real song. choose a song to analyze your own.` above the `for your chart` block. With madmom the block reads 128.00 bpm and 4/4. A tour of four steps runs on the result, pointing at `for your chart`, `the whole song`, `zoomed view` and `chart setup`, each with the rest of the page dimmed. `next` goes on, `done` or Esc ends it. The demo never shows in the `recent` list, and a new demo replaces the old one. If it fails, see Troubleshooting.
+
+For a song of your own, drag it (mp3, wav, flac, ogg or m4a) from a folder onto the page, or press `choose a song` and pick one. While a file is dragged over the page, it says `drop the song to load it`. A file that isn't audio gets a line saying so. Then press `analyze`. The picker is replaced by the same block as in the demo, this time with the song's name, and a 4 minute song takes under a minute with madmom. Once a song is open, the picker reads `choose another song`. `cancel` stops the analysis. A first analysis is deleted, and a stage that is running finishes first. If you drop another song while one is running, the page asks `start <name> instead? the current analysis stops.`, and `start it` or `keep the current one` answers.
+
+The four-step tour of the analyzed page runs once, the first time a result is on screen, and each time you run the demo. The `?` shows the steps for the screen that is up again, and it is disabled while the start screen is busy analyzing.
 
 If you pick a song that was analyzed before, the page says `this file was analyzed before` and offers `reopen` for each earlier job. That brings back the job with the changes you made to it. `analyze again as a new job` starts over instead.
 
@@ -204,14 +210,17 @@ Then check it:
 
 Click the band of the segment to fix, and use the panel for that segment (the panel with `segment 1 of 2` at the top, on the right of the page in a wide window).
 
-- If the tempo is half or double what it should be, press `×2` or `÷2`.
+- If the tempo is half or double what it should be, press `×2` or `÷2`. That is how the chart writes it and not a correction of the analysis, so the segment stays `auto`. The band label reads like `145.99 bpm · ÷2`, and the panel says `written at ÷2 of the analysis' bpm, a re-analysis keeps it`.
 - If the grid is a little early or late, press `−1 ms` or `+1 ms` to move it, or click the timeline and press ← and →. The change is saved about half a second after the last step, and `saved` appears.
 - If the song really changes tempo in the middle, `split here` splits the segment at the beat shown in the zoomed view.
 - The `meter 1 of 2` panel under the zoomed view sets the time signature by hand with `set meter`.
 - The `notation suggestions` list, next to the meter panel, offers a half time, double time or fold into neighbour reading of a stretch. `apply` takes it, `dismiss` throws it away. Nothing is applied on its own.
+- A `downbeat may shift here` row in the same list means the tracker's bars restart partway into a bar there, and its column reads like `bars restart 1 beat into the bar`. `apply` restarts the bars on that beat.
 - The same list has a row for each stretch where the notes between the beats are uneven, like `swing 2.00:1` or `gallop, 8th-16th-16th`, with the note division to set the editor's grid to there, like `1/12`. These never change anything in the analysis. Clicking a row jumps there.
 
-Every change appears in the `edits` list in the report column, and `re-analyze` keeps them. The README section "Using it" describes every control.
+A segment you changed by hand in any other way than `÷2` and `×2` is manual, and the panel compares it with the latest analysis. When the analysis would put it somewhere else, the panel says so, like `this segment is manual; the new analysis would put its first beat 411.0 ms (1 beat) earlier`, and `reset to auto` replaces the segment with what the analysis has there, keeping a `÷2` or `×2`.
+
+Every change appears in the `edits` list in the report column, and `re-analyze` can keep them (step 18). The README section "Using it" describes every control.
 
 ### Step 16: read the chart setup list
 
@@ -245,9 +254,11 @@ When a song has a long silence at the start, the offset is negative instead. For
 
 The tool never cuts the audio. The offset is what tells the editor where measure 0 is in the file.
 
-### Step 18: reopen or delete a job
+### Step 18: reopen, re-analyze or delete a job
 
-The page's url ends in `?job=...` from the first analysis on, so a reload brings the same job back with its changes. The `recent` list, beside the drop area before a song is open and in the middle column under the editor after, lists earlier jobs, newest first, and pressing one reopens it. `re-analyze` runs the analysis again on the same job and keeps your changes. The job then moves to the top of the list and says `re-analyzed at` with the time.
+The page's url ends in `?job=...` from the first analysis on, so a reload brings the same job back with its changes. The `recent` list, beside the drop area before a song is open and in the middle column under the editor after, has one entry per file, newest first, and pressing one reopens it. A file analyzed more than once has an `N analyses` toggle that lists the earlier analyses, each with its date, its edits, `open` and `delete`.
+
+`re-analyze` runs the analysis again on the same job, and it asks first: `keep my edits` (the default), `start fresh` or `cancel`. `keep my edits` keeps your manual segments, `÷2` and `×2`, manual meter, decided suggestions and edit log. `start fresh` asks once more, `drop every manual edit of this song and analyze it again? the edit log keeps the history.`, and then analyzes the song as if it were new. The edit log gets one entry saying what was dropped. While it runs, the report stays on screen with the edits locked, and `cancel` goes back to the report it had. The job then moves to the top of the list and says `re-analyzed at` with the time.
 
 Each job in the list has a `delete` button. Pressing it asks `delete this job and its files?`, and pressing `delete` again removes the job, its upload and its decoded audio. `cancel` keeps it. A job that is still waiting or running has no `delete` button until it's done.
 
@@ -257,7 +268,7 @@ Press Ctrl + C in each window, then close them.
 
 ## Part 6: check that it works
 
-A generated click track has known right answers. In a window with `(.venv)` showing, from the repo folder:
+`try with a demo` in step 12 is the quickest check. A generated click track made by the script below has known right answers too. In a window with `(.venv)` showing, from the repo folder:
 
 ```powershell
 python scripts\make_click_track.py click-120.wav --bpm 120 --lead 2
@@ -303,7 +314,7 @@ The backend window from step 10 isn't running, or it stopped with an error. Star
 
 ### The header says `ffmpeg missing`, or a job fails with `analysis failed at decode — check that ffmpeg is on PATH`
 
-The backend can't find ffmpeg. Go back to step 3, then start the backend again in a new window.
+The backend can't find ffmpeg. Go back to step 3, then start the backend again in a new window. `try with a demo` fails for the same reason.
 
 ### The backend stops with an error about the address already being in use
 
