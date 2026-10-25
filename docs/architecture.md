@@ -116,6 +116,6 @@ Vite + React + TypeScript. In dev, Vite proxies `/api` to the backend, so there'
 
 ## scripts (`scripts/`)
 
-- `make_click_track.py` writes a click track for checking by hand, with tempo changes and felt rhythm sections if asked.
+- `make_click_track.py` writes a click track for checking by hand, with tempo changes, felt rhythm sections and ticks between the beats (swing, gallop) if asked.
 - `eval_local.py` runs the pipeline on every song in a local folder and writes a csv of timing numbers (meter and notation suggestions included), for tuning thresholds on real songs. It never writes audio.
 - `check_madmom.py` checks a madmom install.

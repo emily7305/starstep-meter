@@ -372,7 +372,13 @@ Start the backend and the frontend as described in Running.
 7. The zoomed view is labelled `zoomed view around the playhead ±60 ms`, and `40 ms` and `400 ms` change that to `±20 ms` and `±200 ms`.
 8. Hover over buttons: each has a tooltip. Nothing on the page is smaller than 12 px.
 9. Press `re-analyze`. When it finishes, the job is at the top of `recent` and says `re-analyzed at` with the time.
-10. For swing, make a click track with swung ticks, `python -c` is enough with `tests/synth.py`'s `ClickTrackSpec(subdivisions=...)`, or analyze a swung song. The suggestions list shows a `swing` row with `1/12`, and the chart setup panel a line like `m.9 to m.16 · swing 2.00:1 · 1/12`. Press `÷2` on the segment: the division reads `1/24`.
+10. Swing and gallop, on a click track with softer ticks between the beats:
+
+    ```bash
+    python scripts/make_click_track.py swing-check.wav --bpm 146 --beats 128 --lead 1 --accent --subdivision 32:32:2/3 --subdivision 64:32:1/2,3/4
+    ```
+
+    The script prints the swing from about 14150.7 to 27301.4 ms and the gallop from about 27301.4 to 40452.1 ms. Analyze it. The suggestions list has a `swing 2.00:1` row with `1/12` and a `gallop, 8th-16th-16th` row with `1/16`, each starting within a bar of those times, and the chart setup panel has a line for each, like `m.9 to m.16 · swing 2.00:1 · 1/12`. Press `÷2` on the segment: the swing row reads `1/24` and the gallop `1/32`.
 11. Lapis: analyze `SHIKI - Lapis.mp3`. The meter is 4/4 all the way through, with no `m.38 · 1/4` row in the chart setup list. The offset with the mp3 is about `-7279.6` ms at 291.99 bpm. Press `÷2`: about `-6457.6` ms, with measure 1 on the first beat, 17 ms from the chart's -6475 ms by ear.
 
 Don't commit the generated audio.

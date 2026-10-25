@@ -2,6 +2,7 @@
 
 Usage: python scripts/make_click_track.py click-120.wav [--bpm 120] [--lead 2.0] [--tail 2.0] [--beats 40] [--accent]
        [--change BEAT:BPM ...] [--meter BEAT:BEATS_PER_BAR ...] [--rhythm BEAT:COUNT:POSITIONS ...]
+       [--subdivision BEAT:COUNT:FRACTIONS ...]
 
 Prints the ground truth (first click, first downbeat, end of the last
 click) so the result in the UI can be compared against it.
@@ -43,6 +44,23 @@ def _rhythm(text: str) -> tuple[int, int, tuple[float, ...]]:
         raise argparse.ArgumentTypeError(f"expected BEAT:COUNT:POSITIONS like 128:32:0,1.5,3, got {text!r}") from None
 
 
+def _fraction(text: str) -> float:
+    # 2/3 or 0.6667, a swung 8th reads better as a fraction
+    num, _, den = text.partition("/")
+    return float(num) / float(den) if den else float(num)
+
+
+def _subdivision(text: str) -> tuple[int, int, tuple[float, ...]]:
+    beat, count, fractions = (text.split(":") + ["", ""])[:3]
+    try:
+        parsed = int(beat), int(count), tuple(_fraction(f) for f in fractions.split(","))
+    except (ValueError, ZeroDivisionError):
+        raise argparse.ArgumentTypeError(f"expected BEAT:COUNT:FRACTIONS like 32:32:2/3, got {text!r}") from None
+    if not all(0 < f < 1 for f in parsed[2]):
+        raise argparse.ArgumentTypeError(f"fractions are inside a beat, between 0 and 1, got {text!r}")
+    return parsed
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("out", type=Path)
@@ -66,6 +84,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--rhythm", type=_rhythm, action="append", default=[], metavar="BEAT:COUNT:POSITIONS", help="felt rhythm, repeatable"
     )
+    # COUNT beats from click BEAT with a softer, higher tick at these FRACTIONS of every beat, over
+    # the beat clicks. 2/3 swings the 8ths, 1/2,3/4 is a gallop
+    parser.add_argument(
+        "--subdivision",
+        type=_subdivision,
+        action="append",
+        default=[],
+        metavar="BEAT:COUNT:FRACTIONS",
+        help="ticks between the beats, repeatable",
+    )
     args = parser.parse_args(argv)
     if any(not 0 < beat < args.beats for beat, _ in args.change):
         parser.error("a --change beat has to be between 1 and --beats - 1")
@@ -75,6 +103,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("a --meter bar length has to be at least 1")
     if any(beat < 0 or count < 1 or beat + count > args.beats for beat, count, _ in args.rhythm):
         parser.error("a --rhythm section has to fit inside --beats")
+    if any(beat < 0 or count < 1 or beat + count > args.beats for beat, count, _ in args.subdivision):
+        parser.error("a --subdivision section has to fit inside --beats")
 
     spec = ClickTrackSpec(
         bpm=args.bpm,
@@ -88,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         tempo_changes=tuple(args.change),
         meter_changes=tuple(args.meter),
         patterns=tuple(args.rhythm),
+        subdivisions=tuple(args.subdivision),
     )
     track = click_track(spec)
     write_wav(track, args.out)
@@ -100,6 +131,9 @@ def main(argv: list[str] | None = None) -> int:
         # only right without a tempo change before it, which is how the readme check uses it
         start = track.content_start_ms + beat * period_ms
         print(f"  rhythm      {','.join(f'{p:g}' for p in positions)} from beat {beat} to {beat + count}, about {start:.1f} to {start + count * period_ms:.1f} ms")
+    for beat, count, fractions in spec.subdivisions:
+        start = track.content_start_ms + beat * period_ms
+        print(f"  between     {','.join(f'{f:.4g}' for f in fractions)} of every beat from beat {beat} to {beat + count}, about {start:.1f} to {start + count * period_ms:.1f} ms")
     print(f"  first click {track.content_start_ms:.3f} ms")
     if args.accent:
         until = ", until the first meter change" if spec.meter_changes else ""
