@@ -133,6 +133,8 @@ class JobRunner:
             # beats and report first, so "done" is never visible without something to fetch
             self._store.write_beats(job_id, out.beats)
             self._store.write_report(job_id, out.report)
+            if reanalysis:
+                self._store.mark_reanalyzed(job_id)
             self._store.write_status(job_id, JobStatus(status="done", stage="done"))
         except StageError as exc:
             log.info("job %s failed at %s: %s", job_id, exc.stage, exc.message)

@@ -46,6 +46,8 @@ class JobSummary(BaseModel):
     sha256: str
     size_bytes: int
     created_at: str
+    # when a re-analysis last finished, None when there hasn't been one
+    reanalyzed_at: str | None = None
     status: Literal["queued", "running", "done", "failed"]
     # how many manual edits the report holds, None when there's no report to count
     edits: int | None

@@ -43,7 +43,7 @@ All times are milliseconds from the first decoded sample. Trim only reports boun
   - `POST /api/jobs`: upload, returns the job id.
   - `GET /api/jobs/{id}`: status, with `report_available` for a failed re-analysis that left the last good report.
   - `GET /api/jobs/{id}/report`: the timing report.
-  - `GET /api/jobs`: every job, newest first. `?sha256=` narrows it to one file.
+  - `GET /api/jobs`: every job, newest first, where a finished re-analysis counts as new (`reanalyzed_at`). `?sha256=` narrows it to one file.
   - `PATCH /api/jobs/{id}/report`: one edit, `{"op": "set_anchor" | "set_bpm" | "split" | "split_out" | "merge" | "match" | "set_meter" | "split_meter" | "merge_meter" | "apply_suggestion" | "dismiss_suggestion", ...}`, appends exactly one entry to `edits`.
   - `POST /api/jobs/{id}/reanalyze`: runs the analysis again, keeping manual segments and edits.
   - `GET /api/jobs/{id}/beats`: the beats file.
@@ -62,7 +62,7 @@ Job storage, one directory per job under `data/jobs/<job_id>/`:
 ```
 original.<ext>   the upload as received
 decoded.wav      ffmpeg output the analysis ran on
-job.json         filename, sha256, size, created_at
+job.json         filename, sha256, size, created_at, reanalyzed_at
 status.json      {status, stage, error}, rewritten on every stage change
 report.json      the timing report, once done
 beats.json       every tracked beat (snapped and raw time, residual, bar), the band strengths at the grid and librosa's beats, once done

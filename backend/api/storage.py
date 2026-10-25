@@ -42,6 +42,8 @@ class JobRecord(BaseModel):
     sha256: str
     size_bytes: int
     created_at: str
+    # when a re-analysis last finished, the job moves up the recent list then
+    reanalyzed_at: str | None = None
 
 
 class _StatusFile(JobStatus):
@@ -188,6 +190,10 @@ class JobStore:
         text = (self.job_dir(job_id) / JOB_FILE).read_text(encoding="utf-8")
         return JobRecord.model_validate_json(text)
 
+    def mark_reanalyzed(self, job_id: str) -> None:
+        record = self.read_job(job_id).model_copy(update={"reanalyzed_at": _utc_now()})
+        _write_atomic(self.job_dir(job_id) / JOB_FILE, record.model_dump_json(indent=2) + "\n")
+
     def write_status(self, job_id: str, status: JobStatus) -> None:
         # report_available is worked out when the status is read, a stored copy would go stale
         stored = _StatusFile(**status.model_dump(exclude={"report_available"}), updated_at=_utc_now())
@@ -250,6 +256,7 @@ class JobStore:
             sha256=record.sha256,
             size_bytes=record.size_bytes,
             created_at=record.created_at,
+            reanalyzed_at=record.reanalyzed_at,
             status=status.status,
             edits=edits,
         )
@@ -264,8 +271,9 @@ class JobStore:
                 continue
             if summary is not None and (sha256 is None or summary.sha256 == sha256):
                 out.append(summary)
-        # iso timestamps in utc sort as text, newest first
-        return sorted(out, key=lambda s: s.created_at, reverse=True)
+        # iso timestamps in utc sort as text, newest first. a re-analysis counts as new, it's the
+        # job someone is working on
+        return sorted(out, key=lambda s: max(s.created_at, s.reanalyzed_at or ""), reverse=True)
 
     def decoded_path(self, job_id: str) -> Path:
         return self.job_dir(job_id) / DECODED_NAME
