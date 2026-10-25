@@ -303,6 +303,15 @@ def test_real_d_measure_1_is_where_the_intro_starts():
     assert at_292 == pytest.approx(at_146 - 4 * 60000.0 / segment.fit.bpm, abs=0.01)
 
 
+@pytest.mark.parametrize("name", ["real_a", "real_b", "real_c", "real_d"])
+def test_no_downbeat_shift_on_the_real_songs(name):
+    # with the bar positions counted on the grid none of them has a slip left. real_c's restart at
+    # 94.7 s and real_d's at 63 s were both per-beat counting, see docs/decisions.md (milestone 7b)
+    meter, found = _analysis(name)
+    assert meter.shifts == []
+    assert [s for s in found if s.kind == "shift"] == []
+
+
 # --- confidence on the real songs (milestone 6) ---
 
 
