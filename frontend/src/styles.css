@@ -634,6 +634,14 @@ body {
   text-align: right;
 }
 
+.edits__line {
+  display: block;
+}
+
+.edits__key {
+  color: var(--ink-soft);
+}
+
 .edits__time {
   color: var(--ink-faint);
 }

@@ -1,3 +1,4 @@
+import { editChanges, editLabel } from "../editLog";
 import { formatBpm, formatFineMs, formatHz, formatMs } from "../format";
 import type { BeatsFile } from "../types/beats";
 import type { Edit, TimingReport } from "../types/timingReport";
@@ -13,18 +14,6 @@ const EDITS_SHOWN = 8;
 function paddingText(samples: number, sampleRate: number): string {
   if (samples === 0) return "none";
   return `${samples} samples · ${formatFineMs((samples / sampleRate) * 1000)}`;
-}
-
-function editValue(field: string, value: unknown): string {
-  if (value === null) return "–";
-  // split and merge log the whole map
-  if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? "segment" : "segments"}`;
-  if (typeof value === "number") {
-    if (field.endsWith("/bpm")) return `${value} bpm`;
-    if (field.endsWith("/confidence")) return value.toFixed(3);
-    return formatFineMs(value);
-  }
-  return typeof value === "string" ? value : JSON.stringify(value);
 }
 
 function editTime(edit: Edit): string {
@@ -101,9 +90,14 @@ export function ReportView({ report, beats }: Props) {
         <ol className="edits" start={edits.length - shown.length + 1}>
           {shown.map((edit, i) => (
             <li key={`${edit.timestamp}-${i}`} className="edits__item mono">
-              <span className="edits__field">{edit.field}</span>
+              <span className="edits__field">{editLabel(edit)}</span>
               <span className="edits__change">
-                {editValue(edit.field, edit.old)} → {editValue(edit.field, edit.new)}
+                {editChanges(edit).map((change) => (
+                  <span key={change.path} className="edits__line">
+                    {change.path && <span className="edits__key">{change.path} </span>}
+                    {change.old} → {change.new}
+                  </span>
+                ))}
               </span>
               <span className="edits__time">{editTime(edit)}</span>
             </li>

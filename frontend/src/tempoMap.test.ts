@@ -8,6 +8,7 @@ import {
   meterOrDefault,
   nearestLineMs,
   segmentAt,
+  splitOutSegment,
   tempoGrid,
   visibleMapLines,
 } from "./tempoMap";
@@ -215,5 +216,25 @@ describe("meterOrDefault and appliedSegment", () => {
     expect(appliedSegment(three, half)).toBe(3);
     expect(appliedSegment(three, { ...half, start_ms: 17000 })).toBe(2);
     expect(appliedSegment(three, { ...half, kind: "fold", start_ms: 17000, end_ms: 38000 })).toBe(1);
+  });
+});
+
+describe("splitOutSegment", () => {
+  const felt = (start: number, end: number) => ({ start_ms: start, end_ms: end, bpm: 90, ratio: "3/4", fit: 1 });
+
+  it("lands on the kept section once it's split out", () => {
+    const map = [seg(1000, 38000, 120, 1000)];
+    map[0] = { ...map[0], ratio_merged: [felt(9000, 17000)] } as TempoSegment;
+
+    expect(splitOutSegment(map, 0, 0)).toBe(1);
+  });
+
+  it("stays put when the section starts with the segment, only its end gets cut", () => {
+    // 200 ms in is under half a 500 ms beat, the server doesn't cut there
+    const map = [seg(1000, 38000, 120, 1000)];
+    map[0] = { ...map[0], ratio_merged: [felt(1200, 17000)] } as TempoSegment;
+
+    expect(splitOutSegment(map, 0, 0)).toBe(0);
+    expect(splitOutSegment(map, 0, 3)).toBe(0);
   });
 });

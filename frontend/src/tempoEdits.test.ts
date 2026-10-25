@@ -69,16 +69,18 @@ describe("validBpm", () => {
 });
 
 describe("withSegmentEdit", () => {
-  it("logs the anchor, the flip to manual and the dropped confidence, like the server", () => {
+  it("logs the anchor, the flip to manual and the dropped confidence as one entry, like the server", () => {
     const after = withSegmentEdit(makeReport(), { op: "set_anchor", segment: 1, anchor_ms: 17003 }, NOW);
 
     expect(after.tempo_map[1]).toEqual({ ...seg(17000, 38000, 150, 17003, null) });
-    expect(after.edits.map((e) => [e.field, e.old, e.new])).toEqual([
-      ["tempo_map/1/anchor_ms", 17000, 17003],
-      ["tempo_map/1/confidence", 1, null],
-      ["tempo_map/1/source", "auto", "manual"],
+    expect(after.edits).toEqual([
+      {
+        field: "tempo_map/1",
+        old: { anchor_ms: 17000, confidence: 1, source: "auto" },
+        new: { anchor_ms: 17003, confidence: null, source: "manual" },
+        timestamp: "2026-03-02T10:15:30.250Z",
+      },
     ]);
-    expect(after.edits.every((e) => e.timestamp === "2026-03-02T10:15:30.250Z")).toBe(true);
     expect(after.tempo_map[0]).toEqual(makeReport().tempo_map[0]);
   });
 
@@ -94,7 +96,9 @@ describe("withSegmentEdit", () => {
     const report = makeReport();
     // the same bpm on an auto segment still marks it as set by hand
     const manual = withSegmentEdit(report, { op: "set_bpm", segment: 0, bpm: 120 }, NOW);
-    expect(manual.edits.map((e) => e.field)).toEqual(["tempo_map/0/confidence", "tempo_map/0/source"]);
+    expect(manual.edits.map((e) => [e.field, e.old, e.new])).toEqual([
+      ["tempo_map/0", { confidence: 1, source: "auto" }, { confidence: null, source: "manual" }],
+    ]);
     expect(withSegmentEdit(manual, { op: "set_bpm", segment: 0, bpm: 120 }, NOW)).toBe(manual);
     expect(withSegmentEdit(report, { op: "set_bpm", segment: 5, bpm: 120 }, NOW)).toBe(report);
     expect(withSegmentEdit(report, { op: "split", at_ms: 9000 }, NOW)).toBe(report);

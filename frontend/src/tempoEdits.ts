@@ -29,6 +29,8 @@ export function validBpm(bpm: number): boolean {
 const SEGMENT_FIELDS = ["start_ms", "end_ms", "bpm", "anchor_ms", "confidence", "source"] as const;
 
 // mirrors tempo_patch.py for the two value edits, so they show up before the patch comes back.
+// one change is one entry: a single changed value at its own path, several (the first edit of an
+// auto segment also flips source and drops confidence) as objects at the segment's path.
 // split and merge refit on the server, there's nothing honest to show until it answers
 export function withSegmentEdit(report: TimingReport, op: TempoEditOp, now: Date): TimingReport {
   if (op.op !== "set_anchor" && op.op !== "set_bpm") return report;
@@ -38,16 +40,21 @@ export function withSegmentEdit(report: TimingReport, op: TempoEditOp, now: Date
     op.op === "set_anchor"
       ? { ...old, anchor_ms: roundMs(op.anchor_ms), confidence: null, source: "manual" }
       : { ...old, bpm: op.bpm, confidence: null, source: "manual" };
-  const timestamp = now.toISOString();
-  const edits: Edit[] = SEGMENT_FIELDS.filter((key) => old[key] !== changed[key]).map((key) => ({
-    field: `tempo_map/${op.segment}/${key}`,
-    old: old[key],
-    new: changed[key],
-    timestamp,
-  }));
-  if (edits.length === 0) return report;
+  const keys = SEGMENT_FIELDS.filter((key) => old[key] !== changed[key]);
+  const [only] = keys;
+  if (only === undefined) return report;
+  const path = `tempo_map/${op.segment}`;
+  const edit: Edit =
+    keys.length === 1
+      ? { field: `${path}/${only}`, old: old[only], new: changed[only], timestamp: now.toISOString() }
+      : {
+          field: path,
+          old: Object.fromEntries(keys.map((key) => [key, old[key]])),
+          new: Object.fromEntries(keys.map((key) => [key, changed[key]])),
+          timestamp: now.toISOString(),
+        };
   const tempoMap = report.tempo_map.map((s, i) => (i === op.segment ? changed : s)) as TimingReport["tempo_map"];
-  return { ...report, tempo_map: tempoMap, edits: [...report.edits, ...edits] };
+  return { ...report, tempo_map: tempoMap, edits: [...report.edits, edit] };
 }
 
 export type SaveState =

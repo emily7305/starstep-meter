@@ -24,7 +24,7 @@ import { failureText, reanalysisFailureText, stageLabel } from "./format";
 import { fileSha256, jobIdFromSearch, searchWithJob } from "./jobs";
 import { pollJob } from "./poll";
 import { EditSaver, nudged, type SaveState } from "./tempoEdits";
-import { type AnchorDraft, appliedSegment, segmentAt } from "./tempoMap";
+import { type AnchorDraft, appliedSegment, segmentAt, splitOutSegment } from "./tempoMap";
 import type { JobStage, JobStatus, JobSummary, TempoEditOp } from "./types/api";
 import type { BeatsFile } from "./types/beats";
 import type { TimingReport } from "./types/timingReport";
@@ -206,10 +206,11 @@ export function App() {
   const edit = useCallback((op: TempoEditOp) => {
     const current = reportRef.current;
     if (current === null || saver.current === null) return;
-    if (op.op === "split" || op.op === "merge" || op.op === "match") {
+    if (op.op === "split" || op.op === "split_out" || op.op === "merge" || op.op === "match") {
       setReshaping(true);
       // keep the selection on the segment the edit was about once the indices move
       if (op.op === "split") setSelected(segmentAt(current.tempo_map, op.at_ms) + 1);
+      else if (op.op === "split_out") setSelected(splitOutSegment(current.tempo_map, op.segment, op.section));
       else if (op.op === "match" && op.side === "previous") setSelected(op.segment - 1);
       else setSelected(op.segment);
     } else if (op.op === "apply_suggestion") {

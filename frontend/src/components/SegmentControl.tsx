@@ -189,7 +189,7 @@ export function SegmentControl(props: Props) {
         <>
           <span className="segment__sub">kept on this grid</span>
           <ul className="segment__felt">
-            {segment.ratio_merged.map((note) => (
+            {segment.ratio_merged.map((note, section) => (
               <li key={`${note.start_ms}-${note.end_ms}`} className="segment__felt-item">
                 <span className="mono" title={`fit ${note.fit.toFixed(2)}, its beats on this grid against its own`}>
                   {feltText(note)}
@@ -199,10 +199,7 @@ export function SegmentControl(props: Props) {
                   className="btn btn--step"
                   disabled={disabled}
                   title="split at both ends so this stretch gets its own tempo back"
-                  onClick={() => {
-                    onEdit({ op: "split", at_ms: note.start_ms });
-                    onEdit({ op: "split", at_ms: note.end_ms });
-                  }}
+                  onClick={() => onEdit({ op: "split_out", segment: index, section })}
                 >
                   split out
                 </button>

@@ -245,6 +245,15 @@ export function appliedSegment(map: TempoSegment[], suggestion: NotationSuggesti
   return suggestion.start_ms - seg.start_ms > 1 ? i + 1 : i;
 }
 
+// which segment the kept section ends up as once it's split out, to keep it selected. the start
+// is only cut when it's past half a beat from the segment's start, the same rule as the backend
+export function splitOutSegment(map: TempoSegment[], segment: number, section: number): number {
+  const seg = map[segment];
+  const note = seg?.ratio_merged[section];
+  if (seg === undefined || note === undefined) return segment;
+  return note.start_ms - seg.start_ms >= 0.5 * periodMs(seg.bpm) ? segment + 1 : segment;
+}
+
 export interface Band {
   index: number;
   startMs: number;

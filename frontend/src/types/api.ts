@@ -51,6 +51,8 @@ export type TempoEditOp =
   | { op: "set_anchor"; segment: number; anchor_ms: number }
   | { op: "set_bpm"; segment: number; bpm: number }
   | { op: "split"; at_ms: number }
+  // splits at both ends of one of the segment's ratio_merged sections, as one edit
+  | { op: "split_out"; segment: number; section: number }
   | { op: "merge"; segment: number }
   // this segment takes the neighbour's bpm and anchor and joins it
   | { op: "match"; segment: number; side: "previous" | "next" }
