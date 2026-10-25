@@ -354,6 +354,15 @@ body {
   cursor: not-allowed;
 }
 
+.btn--toggle[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.btn--toggle[aria-pressed="true"]:hover {
+  background: var(--ink-soft);
+}
+
 .btn--chip {
   padding: 2px 8px;
   border: 1px solid var(--line);

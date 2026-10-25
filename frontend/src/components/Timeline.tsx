@@ -1,6 +1,8 @@
 import { type KeyboardEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { BeatGridPlugin } from "../beatGridPlugin";
+import { ClickScheduler, clickSamples } from "../clickTrack";
+import { ClockPlayer } from "../clockPlayer";
 import { formatDeltaMs, formatFineMs, formatMs } from "../format";
 import type { SaveState } from "../tempoEdits";
 import {
@@ -49,6 +51,13 @@ const LOUPE_SPANS_MS = [40, 120, 400];
 
 const StableLoupe = memo(Loupe);
 
+function clickBuffer(context: AudioContext, accent: boolean): AudioBuffer {
+  const samples = clickSamples(context.sampleRate, accent);
+  const buffer = context.createBuffer(1, samples.length, context.sampleRate);
+  buffer.copyToChannel(samples, 0);
+  return buffer;
+}
+
 function nearest(values: number[], target: number): number | null {
   let best: number | null = null;
   for (const v of values) if (best === null || Math.abs(v - target) < Math.abs(best - target)) best = v;
@@ -61,8 +70,10 @@ export function Timeline(props: Props) {
   const sectionRef = useRef<HTMLElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const gridRef = useRef<BeatGridPlugin | null>(null);
+  const clicksRef = useRef<ClickScheduler | null>(null);
   const [audio, setAudio] = useState<AudioState>({ kind: "none" });
   const [playing, setPlaying] = useState(false);
+  const [clickTrack, setClickTrack] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [zoom, setZoom] = useState(0);
   const [span, setSpan] = useState(1);
@@ -129,9 +140,18 @@ export function Timeline(props: Props) {
       },
       labelFont: `500 10px ${palette.fontMono}`,
     });
+    // the music and the click track share this context, so a click and the beat it marks are
+    // started on one clock. see clockPlayer.ts and decisions.md (click track)
+    const context = new AudioContext();
+    const player = new ClockPlayer(context);
+    const clicks = new ClickScheduler(player, context.destination, {
+      plain: clickBuffer(context, false),
+      accent: clickBuffer(context, true),
+    });
     const ws = WaveSurfer.create({
       container,
       url: audioUrl,
+      media: player as unknown as HTMLMediaElement,
       height: "auto",
       waveColor: palette.inkFaint,
       progressColor: palette.inkSoft,
@@ -147,6 +167,7 @@ export function Timeline(props: Props) {
     });
     wsRef.current = ws;
     gridRef.current = plugin;
+    clicksRef.current = clicks;
     setAudio({ kind: "loading" });
     setPlaying(false);
     setCurrentMs(0);
@@ -170,11 +191,24 @@ export function Timeline(props: Props) {
     ];
     return () => {
       for (const unsubscribe of subscriptions) unsubscribe();
+      clicks.dispose();
       ws.destroy();
+      // wavesurfer leaves a media element it was handed alone
+      player.destroy();
       wsRef.current = null;
       gridRef.current = null;
+      clicksRef.current = null;
     };
   }, [audioUrl, palette]);
+
+  // the click track follows the grid on screen, a nudged anchor included
+  useEffect(() => {
+    clicksRef.current?.setGrid(grid);
+  }, [grid, audio.kind]);
+
+  useEffect(() => {
+    clicksRef.current?.setEnabled(clickTrack);
+  }, [clickTrack, audio.kind]);
 
   useEffect(() => {
     gridRef.current?.setMap(grid, segmentBands, tempoMap !== null && tempoMap.length > 1 ? selected : null, offbeatShades, marks);
@@ -267,6 +301,16 @@ export function Timeline(props: Props) {
               onClick={() => void wsRef.current?.playPause()}
             >
               {playing ? "pause" : "play"}
+            </button>
+            <button
+              type="button"
+              className="btn btn--outline btn--toggle"
+              aria-pressed={clickTrack}
+              disabled={!ready}
+              title="a click on every beat of the grid, a higher one on every bar line"
+              onClick={() => setClickTrack((on) => !on)}
+            >
+              click track
             </button>
             <p className="transport__time mono">
               {formatMs(currentMs)}
