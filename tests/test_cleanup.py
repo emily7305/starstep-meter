@@ -201,7 +201,7 @@ def test_delete_of_an_unknown_job_is_404(client: TestClient, job_id: str) -> Non
 # --- queued jobs after a restart ---
 
 
-def fake_analysis(original_path, work_dir, filename, sha256, on_stage=None, config=None, previous=None):
+def fake_analysis(original_path, work_dir, filename, sha256, on_stage=None, config=None, previous=None, keep_edits=True):
     for stage in ("decode", "trim", "beats", "snap", "tempo", "meter", "check"):
         on_stage(stage)
     (Path(work_dir) / "decoded.wav").write_bytes(b"RIFF-decoded")

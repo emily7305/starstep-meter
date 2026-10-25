@@ -1082,6 +1082,8 @@ def test_job_summary_has_the_stored_fields_and_the_status(client: TestClient, se
             "reanalyzed_at": None,
             "status": "failed",
             "edits": None,
+            # an upload, not the generated demo
+            "demo": False,
         }
     ]
 
