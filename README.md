@@ -8,7 +8,7 @@ Milestone 3 runs on your own machine, and adds tempo maps to the beat tracking o
 
 Milestone 4 adds meter and notation suggestions. The analysis infers the meter (beats per bar) of each tempo segment from madmom's downbeats, and the accents get a say where they are clearly stronger than the other beats of a bar. Bar lines are drawn from the meter map, and a meter can be set by hand per region. It also suggests where a chart may write the pulse at half or twice the tempo (a half or double time feel, read from the kick and snare bands), and where a first or last stretch of the song may be its neighbour's tempo (a fold). Suggestions are never applied automatically. Each one can be applied, as one edit (a half or double time feel leaves every grid line where it is), or dismissed, and both stay through re-analysis.
 
-It does not find sections, make a click track, or export with per-player offset compensation yet; those are later milestones. The tempo map, the meter and the suggestions are only tuned on synthetic tracks so far, so on a real song check the bands, the bar lines and the suggestions, and fix them by hand where they are wrong. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports (when they exist) contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
+It does not find sections, make a click track, or export with per-player offset compensation yet; those are later milestones. The tempo map and the meter are tuned on synthetic tracks and a handful of real songs. The half and double time suggestions found nothing on the three real songs checked so far, whose drums show no plain backbeat to read (see `docs/decisions.md`), so on a real song check the bands, the bar lines and the suggestions, and fix them by hand where they are wrong. This is for personal use only. The server binds to 127.0.0.1, there are no accounts or sharing, and exports (when they exist) contain timing data only, never audio. Uploaded audio is kept only in the local `data/` folder.
 
 ## Dependencies and licenses
 
@@ -502,7 +502,7 @@ In the UI, upload `drums-check.wav` and wait for the job to finish.
 4. Press "dismiss" on the other one. The edits list logs its status.
 5. Press "re-analyze". Neither suggestion comes back.
 
-The suggestions are tuned on these synthetic drums only, so run `scripts/eval_local.py` on your songs again and compare the `notation_suggestions` column with the charts. To let `tests/test_real_song.py` check MisoilePunch♪ (no half or double suggestions), YOUNITHM (half at the measures charted at 130) and ENDYMION, analyze each one again and copy its `beats.json` and `report.json` into `tests/real/<song>/` as before.
+The suggestions are tuned on these synthetic drums only, so run `scripts/eval_local.py` on your songs again and compare the `notation_suggestions` column with the charts. To let `tests/test_real_song.py` check MisoilePunch♪ (4/4 and no suggestions), YOUNITHM (half at the measures charted at 130, an expected failure for now) and ENDYMION (a fold for its outro), analyze each one again and copy its `beats.json` and `report.json` into `tests/real/<song>/` as before.
 
 Don't commit the generated audio.
 
