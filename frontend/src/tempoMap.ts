@@ -2,6 +2,7 @@
 // and bar lines from the meter map. plain functions on top of grid.ts, no dom, so they can be
 // tested on their own. the bar rule is the backend's (backend/analysis/bars.py), keep them in step
 
+import { notationText } from "./segmentReview";
 import { periodMs, timeToX, xToTime, type GridLine, type View } from "./grid";
 import type { MeterSegment, NotationSuggestion, TempoSegment } from "./types/timingReport";
 
@@ -320,8 +321,17 @@ export interface Band {
   endMs: number;
   bpm: number;
   manual: boolean;
+  // x2 or /2 on an auto segment, a notation choice
+  notation: string | null;
 }
 
 export function bands(map: TempoSegment[]): Band[] {
-  return map.map((s, index) => ({ index, startMs: s.start_ms, endMs: s.end_ms, bpm: s.bpm, manual: s.source === "manual" }));
+  return map.map((s, index) => ({
+    index,
+    startMs: s.start_ms,
+    endMs: s.end_ms,
+    bpm: s.bpm,
+    manual: s.source === "manual",
+    notation: s.source === "auto" ? notationText(s.notation_scale) : null,
+  }));
 }

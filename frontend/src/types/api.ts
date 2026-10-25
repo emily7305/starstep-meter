@@ -54,6 +54,8 @@ export interface JobSummary {
 export type TempoEditOp =
   | { op: "set_anchor"; segment: number; anchor_ms: number }
   | { op: "set_bpm"; segment: number; bpm: number }
+  // a manual segment back to what the latest analysis has there, x2 or /2 kept
+  | { op: "reset_segment"; segment: number }
   | { op: "split"; at_ms: number }
   // splits at both ends of one of the segment's ratio_merged sections, as one edit
   | { op: "split_out"; segment: number; section: number }

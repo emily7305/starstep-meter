@@ -157,7 +157,7 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
         ctx.fillRect(left, heightPx - 2, right - left, 2);
       }
 
-      const text = `${formatBpm(band.bpm)}${band.manual ? " · manual" : ""}`;
+      const text = `${formatBpm(band.bpm)}${band.manual ? " · manual" : ""}${band.notation !== null ? ` · ${band.notation}` : ""}`;
       const textW = ctx.measureText(text).width;
       // pinned to the left edge of the view while the band's start is scrolled off
       const x = Math.max(left, 0) + 4;

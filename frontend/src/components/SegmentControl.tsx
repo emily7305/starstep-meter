@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { formatBpm, formatFineMs } from "../format";
+import { notationText, reviewText, type SegmentReview } from "../segmentReview";
 import { type SaveState, validBpm } from "../tempoEdits";
 import type { TempoEditOp } from "../types/api";
 import type { CrossCheckSegment, OffbeatRun, RatioMergedSection, TempoSegment } from "../types/timingReport";
@@ -18,6 +19,8 @@ interface Props {
   // the second tracker's verdict on this segment, null once it's been edited or without a check
   crossCheck: CrossCheckSegment | null;
   maxDisagreementMs: number | null;
+  // a manual segment next to what the latest analysis has under it, null when they agree
+  review: SegmentReview | null;
   disabled: boolean;
   onNudge: (steps: number) => void;
   onEdit: (op: TempoEditOp) => void;
@@ -44,8 +47,18 @@ function bpmText(bpm: number): string {
 
 // half and double time, then dotted and triplet feel, the same ratios the analysis checks
 const FACTORS: Array<{ label: string; factor: number; name: string; title: string }> = [
-  { label: "÷2", factor: 1 / 2, name: "half", title: "halve the bpm, the anchor stays and every other line goes" },
-  { label: "×2", factor: 2, name: "double", title: "double the bpm, a line goes between each pair" },
+  {
+    label: "÷2",
+    factor: 1 / 2,
+    name: "half",
+    title: "halve the bpm, the anchor stays and every other line goes. how the chart writes it, the segment stays auto",
+  },
+  {
+    label: "×2",
+    factor: 2,
+    name: "double",
+    title: "double the bpm, a line goes between each pair. how the chart writes it, the segment stays auto",
+  },
   { label: "×3/4", factor: 3 / 4, name: "3/4 of", title: "multiply the bpm by 3/4, the anchor stays and the lines move further apart" },
   { label: "×4/3", factor: 4 / 3, name: "4/3 of", title: "multiply the bpm by 4/3, the anchor stays and the lines move closer together" },
   { label: "×2/3", factor: 2 / 3, name: "2/3 of", title: "multiply the bpm by 2/3, the anchor stays and the lines move further apart" },
@@ -64,7 +77,7 @@ function feltText(note: RatioMergedSection): string {
 }
 
 export function SegmentControl(props: Props) {
-  const { segment, index, count, anchorMs, beatMs, saveState, offbeatRuns, crossCheck, maxDisagreementMs, disabled } = props;
+  const { segment, index, count, anchorMs, beatMs, saveState, offbeatRuns, crossCheck, maxDisagreementMs, review, disabled } = props;
   const { onNudge, onEdit, onRetry } = props;
   const [bpmDraft, setBpmDraft] = useState(String(segment.bpm));
   useEffect(() => setBpmDraft(String(segment.bpm)), [segment.bpm, index]);
@@ -95,6 +108,25 @@ export function SegmentControl(props: Props) {
         {segment.confidence === null ? "set by hand" : `confidence ${segment.confidence.toFixed(2)}`} ·{" "}
         {checkText(crossCheck, maxDisagreementMs)}
       </p>
+      {segment.source === "auto" && notationText(segment.notation_scale) !== null && (
+        <p className="segment__note">
+          written at <span className="mono">{notationText(segment.notation_scale)}</span> of the analysis' bpm, a re-analysis keeps it
+        </p>
+      )}
+      {review !== null && (
+        <div className="segment__review">
+          <p className="segment__note">{reviewText(review)}</p>
+          <button
+            type="button"
+            className="btn btn--outline"
+            disabled={disabled}
+            title="replace this segment with what the analysis has here, as one edit. a x2 or /2 stays"
+            onClick={() => onEdit({ op: "reset_segment", segment: index })}
+          >
+            reset to auto
+          </button>
+        </div>
+      )}
 
       <span className="segment__sub">bpm</span>
       <output className="segment__value mono" aria-live="polite">

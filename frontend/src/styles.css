@@ -996,6 +996,27 @@ body {
   color: var(--danger);
 }
 
+.segment__note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+/* a manual segment the latest analysis disagrees with */
+.segment__review {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0 8px 10px;
+  border-left: 2px solid var(--accent);
+}
+
+.segment__review .segment__note {
+  color: var(--ink);
+}
+
 .segment__value {
   font-size: 22px;
   font-weight: 500;

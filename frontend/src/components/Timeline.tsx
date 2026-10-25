@@ -36,6 +36,7 @@ import { Loupe } from "./Loupe";
 import { MeterControl } from "./MeterControl";
 import { Overview } from "./Overview";
 import { SegmentControl } from "./SegmentControl";
+import { reviewSegment } from "../segmentReview";
 import { SuggestionList } from "./SuggestionList";
 
 interface Props {
@@ -667,6 +668,7 @@ export function Timeline(props: Props) {
                   : null
               }
               maxDisagreementMs={report.cross_check?.max_disagreement_ms ?? null}
+              review={reviewSegment(report, selected)}
               disabled={!ready || !editable}
               onNudge={onNudge}
               onEdit={onEdit}

@@ -136,10 +136,16 @@ describe("nearestLineMs", () => {
 describe("bands", () => {
   it("has one band per segment with its bpm and source", () => {
     expect(bands(three)).toEqual([
-      { index: 0, startMs: 1000, endMs: 9000, bpm: 120, manual: false },
-      { index: 1, startMs: 9000, endMs: 17000, bpm: 240, manual: false },
-      { index: 2, startMs: 17000, endMs: 38000, bpm: 120, manual: true },
+      { index: 0, startMs: 1000, endMs: 9000, bpm: 120, manual: false, notation: null },
+      { index: 1, startMs: 9000, endMs: 17000, bpm: 240, manual: false, notation: null },
+      { index: 2, startMs: 17000, endMs: 38000, bpm: 120, manual: true, notation: null },
     ]);
+  });
+
+  it("names x2 and /2 on an auto segment, not on a manual one", () => {
+    const halved = [{ ...seg(1000, 9000, 60, 1000), notation_scale: 0.5 }, { ...seg(9000, 17000, 480, 9000), notation_scale: 4 }];
+    expect(bands(halved).map((b) => b.notation)).toEqual(["÷2", "×4"]);
+    expect(bands([{ ...seg(1000, 9000, 60, 1000, "manual"), notation_scale: 0.5 }])[0]?.notation).toBeNull();
   });
 });
 

@@ -225,7 +225,7 @@ export function App() {
   const edit = useCallback((op: TempoEditOp) => {
     const current = reportRef.current;
     if (current === null || saver.current === null) return;
-    if (op.op === "split" || op.op === "split_out" || op.op === "merge" || op.op === "match") {
+    if (op.op === "split" || op.op === "split_out" || op.op === "merge" || op.op === "match" || op.op === "reset_segment") {
       setReshaping(true);
       // keep the selection on the segment the edit was about once the indices move
       if (op.op === "split") setSelected(segmentAt(current.tempo_map, op.at_ms) + 1);
