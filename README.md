@@ -214,7 +214,7 @@ When the job is done, the page shows the `for your chart` card above the timelin
 The `for your chart` card at the top is the short version of the whole analysis, in words that don't need the technical panels. It is worked out from the chart setup list further down, so its numbers can't differ from that list.
 
 - `bpm` is the tempo of the song. When the speed changes, it reads `bpm at the start` and gives the first one.
-- `offset` is where the first measure starts in the song, as the number to type into a chart editor's music offset field. There are two: `if you load the wav made with ffmpeg`, and, only when the original file has decoder padding, `if you load the original mp3` (or m4a, or whichever the original is). Step 6 explains the difference.
+- `offset` is the number to type into a chart editor's music offset field. It is minus the place where measure 0 starts in the song. Measure 0 is one empty bar before the bar the music starts in, so the offset is negative after a long silence at the start and positive when the silence is shorter than a bar. There are two: `if you load the wav made with ffmpeg`, and, only when the original file has decoder padding, `if you load the original mp3` (or m4a, or whichever the original is). Step 6 explains the difference.
 - `time signature` is the one at the start, like `4/4`.
 - Each of the three has a `?` button that opens a one line explanation.
 - When the bpm or the time signature changes, a line says so, like `this song changes speed 3 times and changes time signature once`, with a `see every change` link to the chart setup list.
@@ -225,7 +225,7 @@ For a steady song with no warning, the card is all that is needed. If the card s
 
 ### 3. Check the grid with the click track and the zoomed view
 
-The timeline shows the waveform with the beat grid on it and the tempo segments as bands. Each band has a label along the bottom, like `200.00 bpm · manual` (`· manual` only appears once the segment was edited by hand). The numbers along the top are bar numbers. They start at 0 on the first bar line in the audio, not on the first downbeat. With a lead-in shorter than a bar those are the same line. With a longer intro the first downbeat gets a later number. They are the same numbers the chart setup list uses as measures.
+The timeline shows the waveform with the beat grid on it and the tempo segments as bands. Each band has a label along the bottom, like `200.00 bpm · manual` (`· manual` only appears once the segment was edited by hand). The numbers along the top are bar numbers. The music starts at the trim start, or at the first tracked beat when that is earlier. The bar it starts in, the last bar line at or before that point, is measure 1, and measure 0 is one empty bar of lead-in before it. When the song starts with a pickup, the bar the pickup is in is measure 1. Bars before measure 0 are the silence the offset skips, so they are drawn faintly and have no number. Bar lines before 0 ms of the audio file are not drawn. These are the same numbers the chart setup list and the `for your chart` card use. The setting `music starts at measure` in the chart setup panel (step 5) can put the music at measure 0 instead.
 
 Clicking the waveform selects the tempo segment under the click (in a song with more than one segment, its band gets the pink accent) and puts the nearest tracked beat in the zoomed view. The `−` and `+` buttons next to the time zoom the timeline between `fit` and `2000 px/s`. Space plays and pauses while the waveform has focus.
 
@@ -263,9 +263,9 @@ Applying a half or double time suggestion splits the segment at both ends of the
 
 The `chart setup` panel under the notation suggestions lists what to type into a chart editor. It has three parts.
 
-- `music offset` gives two values, `with the wav from ffmpeg` and `with the original mp3` (the original's extension), with a note saying where measure 0 starts in the audio file.
+- `music offset` has the setting `music starts at measure` with the buttons `0` and `1`. The default is 1, and the choice is remembered in the browser. Under it are two values, `with the wav from ffmpeg` and `with the original mp3` (the original's extension), and a note saying where the music starts and which measure it is in, like `the music starts in measure 1, at 62.362 ms, and measure 0 is one empty bar of lead-in before it`, and where measure 0 starts, either `into the audio file` or `before the audio file starts`.
 - `audio file` shows the ffmpeg command that makes the wav, with a `copy command` button.
-- `bpm and time signature changes, in order` lists the first bpm and time signature and every change after them, like `m.24 · 150.00 bpm` or `m.37 · 3/4`. Measures count from 0, like the bar numbers on the timeline. A row marked `mid-measure` is not on a bar line, and its row says where inside the measure it goes, like `beat 3`, where `beat 1` is the bar line.
+- `bpm and time signature changes, in order` lists the first bpm and time signature and every change after them, like `m.24 · 150.00 bpm` or `m.37 · 3/4`. Measures are numbered the way the timeline numbers its bars, so measure 0 is the empty bar before the music, or the bar the music starts in when `music starts at measure` is 0. A row marked `mid-measure` is not on a bar line, and its row says where inside the measure it goes, like `beat 3`, where `beat 1` is the bar line.
 
 `copy list` copies the two offsets and one line per change. `more decimals` shows the bpm with 4 decimals instead of 2. Clicking a row moves the timeline and the zoomed view to that change and gives its label on the timeline the accent.
 
@@ -281,12 +281,14 @@ These steps use MikuMikuWorld, the editor the list was checked against.
 
    The panel shows the command with the song's name filled in and in quotes, like `ffmpeg -i "song.mp3" "song.wav"`, and `copy command` copies it. For a wav source the output is named `song-ffmpeg.wav`, so ffmpeg doesn't write over the original. ffmpeg skips the decoder padding at the start of an mp3 the same way the analysis does, so the wav lines up with the timeline.
 2. Load that wav as the song in the editor.
-3. Type the offset labelled `with the wav from ffmpeg` into the music offset field. Offsets are minus where measure 0 is in the audio, shown with 3 decimals, so a negative value is normal. A positive offset in MikuMikuWorld starts the song later.
+3. Type the offset labelled `with the wav from ffmpeg` into the music offset field. Offsets are minus where measure 0 starts in the audio, shown with 3 decimals. After a long silence measure 0 is inside the file and the offset is negative. When the silence before the music is shorter than a bar, measure 0 starts before the file and the offset is positive, which is normal. A positive offset in MikuMikuWorld starts the song later.
 4. Add each bpm and time signature change at the measure the list gives, in order. A row marked `mid-measure` is placed at the listed beat inside the measure.
 
-To use the original mp3 in the editor instead, type the second offset, `with the original mp3`. MikuMikuWorld plays the mp3's decoder padding, so that offset is the padding further negative, and the two offsets differ by exactly the padding. The panel works that out before rounding. For MisoilePunch♪, measure 0 is at 62.362 ms, so the offset is `-62.362` ms with the wav. The mp3 has 23.021 ms of decoder padding, so the offset is `-85.382` ms with the mp3. The padding is shown in the report column (`decoder padding`) and in the note under the offsets. The decoder compensation setting of the Sonolus export does not apply here, both offsets are always shown.
+To use the original mp3 in the editor instead, type the second offset, `with the original mp3`. MikuMikuWorld plays the mp3's decoder padding, so that offset is the padding further negative, and the two offsets differ by exactly the padding. The panel works that out before rounding. For MisoilePunch♪, the music starts on the bar line at 62.362 ms, which is measure 1, and measure 0 starts one bar earlier, at -826.515 ms, before the file. So the offset is `826.515` ms with the wav. The mp3 has 23.021 ms of decoder padding, so the offset is `803.494` ms with the mp3. The padding is shown in the report column (`decoder padding`) and in the note under the offsets.
 
-The tool never cuts the audio. The trim only marks where the music starts, so the offset is what tells an editor that plays the file from 0 ms where the first measure is.
+The offset is positive here because the silence before the music is shorter than a bar. With a longer silence it is negative. A click track with 8 s of silence at 145.99 bpm has its first downbeat at 7999.268 ms, which is measure 1. A bar is 1643.948 ms, so measure 0 starts at 6355.320 ms and the offset is `-6355.320` ms with the wav. The silence before measure 0 is skipped by the offset. If the editor, or your habit, wants the music at measure 0, press `0` next to `music starts at measure`. The bar the music starts in is then measure 0, with no lead-in bar, and the offset is minus where that bar starts: `-62.362` ms for MisoilePunch♪ with the wav, and `-7999.268` ms for the 8 s example. The decoder compensation setting of the Sonolus export does not apply here, both offsets are always shown.
+
+The tool never cuts the audio. The trim only marks where the music starts, so the offset is what tells an editor that plays the file from 0 ms where measure 0 is.
 
 ### Reopening, re-analyzing and deleting jobs
 
@@ -321,7 +323,7 @@ The export block in the source column downloads the JSON. `timing json` is the r
 - `time_signatures`: the meter as beat positions. Sonolus level data has no time signature, so these are for the chart editor. A bar that a tempo change or a meter split cuts short gets its own entry.
 - `first_downbeat_beat`: the beat the song's first downbeat lands on.
 
-Level time 0 is beat 0, and the bgm plays at level time + `bgmOffset` seconds, which is how the official Sonolus converters use it. Beat 0 is a bar line at or before the start of the audio, so the intro isn't cut and `bgmOffset` is 0 or negative before decoder compensation. Where these conventions come from is in `docs/decisions.md` (Sonolus export).
+Level time 0 is beat 0, and the bgm plays at level time + `bgmOffset` seconds, which is how the official Sonolus converters use it. Beat 0 is a bar line at or before the start of the audio, so the intro isn't cut and `bgmOffset` is 0 or negative before decoder compensation. This is a separate rule from measure 0 of the chart setup list, and the two can differ. Where these conventions come from is in `docs/decisions.md` (Sonolus export).
 
 Decoder compensation is how many ms later than ffmpeg the player's decoder plays the audio. It's 0 by default, which is right for a decoder that honours the gapless info in an mp3 or m4a. The other preset is the file's decoder padding, like `25.057 ms, 1105 padding samples` for an mp3 from lame at 44.1 kHz, for a decoder that plays the padding. Only `bgmOffset` changes, every beat stays where it is. A wav or flac has no padding, so only `0 ms` is offered.
 
