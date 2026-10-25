@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   audioUrl,
+  deleteJob,
   fetchBeats,
   fetchHealth,
   fetchJobStatus,
@@ -376,6 +377,26 @@ export function App() {
     await followJob(id, signal);
   }, [jobId, takeOver, resetResult, followJob]);
 
+  const removeJob = useCallback(
+    async (id: string): Promise<string | null> => {
+      try {
+        await deleteJob(id);
+      } catch (err) {
+        return offlineOr(err, (detail) => `delete failed — ${detail}`);
+      }
+      // the url also counts, a job still loading has its id there before jobId is set
+      if (id === jobId || id === jobIdFromSearch(window.location.search)) {
+        runAbort.current?.abort();
+        resetResult();
+        setUrlJob(null, false);
+        setRun(IDLE);
+      }
+      refreshJobs();
+      return null;
+    },
+    [jobId, resetResult, refreshJobs],
+  );
+
   let statusText = "";
   if (run.errorText !== null) statusText = run.errorText;
   else if (run.stage !== null) statusText = stageLabel(run.stage);
@@ -425,7 +446,13 @@ export function App() {
           {jobId !== null && report !== null && <ExportPanel jobId={jobId} source={report.source} disabled={run.busy} />}
 
           <h2 className="section-label section-label--spaced">recent</h2>
-          <RecentJobs jobs={jobs} currentId={jobId} error={jobsError} onOpen={(id) => openJob(id, true)} />
+          <RecentJobs
+            jobs={jobs}
+            currentId={jobId}
+            error={jobsError}
+            onOpen={(id) => openJob(id, true)}
+            onDelete={removeJob}
+          />
         </section>
 
         <section className="column" aria-labelledby="report-label">

@@ -108,6 +108,22 @@ export function reanalyzeJob(jobId: string, signal?: AbortSignal): Promise<Uploa
   });
 }
 
+// a 204 has no body, so not requestJson. 409 while the job is queued or running
+export async function deleteJob(jobId: string, signal?: AbortSignal): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
+      method: "DELETE",
+      signal,
+      headers: { accept: "application/json" },
+    });
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    throw offlineError();
+  }
+  if (!res.ok) throw errorFromResponse(res.status, await res.text());
+}
+
 export interface ExportFile {
   blob: Blob;
   filename: string;

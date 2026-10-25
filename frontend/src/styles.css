@@ -928,8 +928,14 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+.recent__line {
+  display: flex;
+  align-items: center;
+}
+
 .recent__row {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 2px;
   width: 100%;
@@ -981,6 +987,36 @@ body {
   font-size: 13px;
   color: var(--danger);
   overflow-wrap: anywhere;
+}
+
+/* delete sits beside the row button, a button can't nest in a button */
+.recent__line .recent__delete {
+  flex: none;
+  margin: 0 8px;
+  color: var(--ink-soft);
+}
+
+.recent__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 0 8px 10px;
+  font-size: 13px;
+}
+
+.recent__ask {
+  color: var(--ink);
+}
+
+.recent__confirm .btn {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+.recent__error--row {
+  margin: 0;
+  padding: 0 8px 10px;
 }
 
 /* reopen prompt */
