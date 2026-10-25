@@ -46,6 +46,8 @@ export interface JobSummary {
   status: JobState;
   // null when there's no report to count
   edits: number | null;
+  // the generated demo track, not a song
+  demo: boolean;
 }
 
 // one edit per request, same shapes as the patch bodies

@@ -1,4 +1,5 @@
 // helpers around job ids and the recent jobs list, plain functions so they test without a dom
+import type { JobSummary } from "./types/api";
 
 export const JOB_PARAM = "job";
 
@@ -29,6 +30,28 @@ export async function fileSha256(
   // audio files, a few tens of MB at most, so reading the whole thing is fine
   const digest = await subtle.digest("SHA-256", await file.arrayBuffer());
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export interface JobGroup {
+  sha256: string;
+  // the newest job of the file
+  latest: JobSummary;
+  // the rest, newest first
+  older: JobSummary[];
+}
+
+// one entry per file, uploading the same song again makes a new job each time
+// the server sends newest first, so a group sits where its newest job does
+export function groupJobs(jobs: JobSummary[]): JobGroup[] {
+  const groups = new Map<string, JobGroup>();
+  for (const job of jobs) {
+    // the demo track isn't a song the user uploaded
+    if (job.demo) continue;
+    const group = groups.get(job.sha256);
+    if (group === undefined) groups.set(job.sha256, { sha256: job.sha256, latest: job, older: [] });
+    else group.older.push(job);
+  }
+  return Array.from(groups.values());
 }
 
 function pad(n: number): string {

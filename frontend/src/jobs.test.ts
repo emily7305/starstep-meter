@@ -1,8 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fileSha256, formatEditCount, formatJobDate, JOB_PARAM, jobIdFromSearch, searchWithJob } from "./jobs";
+import {
+  fileSha256,
+  formatEditCount,
+  formatJobDate,
+  groupJobs,
+  JOB_PARAM,
+  jobIdFromSearch,
+  searchWithJob,
+} from "./jobs";
+import type { JobSummary } from "./types/api";
 
 const ID = "0123456789abcdef0123456789abcdef";
 const OTHER_ID = "fedcba9876543210fedcba9876543210";
+
+function job(jobId: string, sha256: string, overrides: Partial<JobSummary> = {}): JobSummary {
+  return {
+    job_id: jobId,
+    filename: "song.wav",
+    sha256,
+    size_bytes: 1000,
+    created_at: "2026-03-02T10:15:30+00:00",
+    reanalyzed_at: null,
+    status: "done",
+    edits: null,
+    demo: false,
+    ...overrides,
+  };
+}
 
 describe("JOB_PARAM", () => {
   it("is the query key the helpers read and write", () => {
@@ -170,5 +194,64 @@ describe("formatEditCount", () => {
   it("uses the plural from two up", () => {
     expect(formatEditCount(2)).toBe("2 edits");
     expect(formatEditCount(12)).toBe("12 edits");
+  });
+});
+
+describe("groupJobs", () => {
+  const A = "a".repeat(64);
+  const B = "b".repeat(64);
+  const ids = (jobs: JobSummary[]) => jobs.map((entry) => entry.job_id);
+  // job ids only, so a case reads as the order it expects
+  const shape = (jobs: JobSummary[]) =>
+    groupJobs(jobs).map((group) => ({ sha256: group.sha256, latest: group.latest.job_id, older: ids(group.older) }));
+
+  it("is empty for an empty list", () => {
+    expect(groupJobs([])).toEqual([]);
+  });
+
+  it("leaves a single job alone, with nothing older", () => {
+    const only = job("j1", A);
+    expect(groupJobs([only])).toEqual([{ sha256: A, latest: only, older: [] }]);
+  });
+
+  it("groups three jobs of one file and one of another, interleaved", () => {
+    expect(shape([job("j1", A), job("j2", B), job("j3", A), job("j4", A)])).toEqual([
+      { sha256: A, latest: "j1", older: ["j3", "j4"] },
+      { sha256: B, latest: "j2", older: [] },
+    ]);
+  });
+
+  it("puts a group where its newest job is", () => {
+    // b is newest, a only follows even though it has more jobs
+    expect(shape([job("j1", B), job("j2", A), job("j3", A), job("j4", A)])).toEqual([
+      { sha256: B, latest: "j1", older: [] },
+      { sha256: A, latest: "j2", older: ["j3", "j4"] },
+    ]);
+  });
+
+  it("keeps the server's order inside a group", () => {
+    // the ids aren't sorted, so a sort by id would show
+    expect(shape([job("j3", A), job("j1", A), job("j2", A)])).toEqual([
+      { sha256: A, latest: "j3", older: ["j1", "j2"] },
+    ]);
+  });
+
+  it("leaves demo jobs out, also when they share a hash with a song", () => {
+    const jobs = [job("j1", B, { demo: true }), job("j2", A), job("j3", A, { demo: true }), job("j4", A)];
+    expect(shape(jobs)).toEqual([{ sha256: A, latest: "j2", older: ["j4"] }]);
+  });
+
+  it("is empty when every job is a demo", () => {
+    expect(groupJobs([job("j1", A, { demo: true }), job("j2", B, { demo: true })])).toEqual([]);
+  });
+
+  it("returns the job objects themselves and doesn't touch the input", () => {
+    const first = job("j1", A);
+    const second = job("j2", A);
+    const input = [first, second];
+    const [group] = groupJobs(input);
+    expect(group?.latest).toBe(first);
+    expect(group?.older[0]).toBe(second);
+    expect(input).toEqual([first, second]);
   });
 });

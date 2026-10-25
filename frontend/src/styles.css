@@ -1946,3 +1946,61 @@ body {
 .tour__buttons .btn--link {
   margin-left: 0;
 }
+
+/* recent jobs, files with more than one analysis */
+
+/* btn sets the display face, the count wants the mono one */
+.recent__line .recent__toggle {
+  flex: none;
+  margin: 0 0 0 8px;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.recent__line .recent__toggle:last-child {
+  margin-right: 8px;
+}
+
+.recent__line .recent__toggle[aria-expanded="true"] {
+  color: var(--ink);
+}
+
+.recent__older {
+  margin: 0;
+  padding: 0 0 6px;
+  list-style: none;
+}
+
+.recent__older-item {
+  border-left: 2px solid transparent;
+}
+
+.recent__older-item[data-current="true"] {
+  border-left-color: var(--accent);
+}
+
+.recent__line--older {
+  padding: 4px 0;
+}
+
+/* indented under the file name of the row above */
+.recent__older-info {
+  flex: 1;
+  min-width: 0;
+  padding-left: 22px;
+}
+
+.recent__line .recent__open {
+  flex: none;
+  margin: 0 0 0 8px;
+}
+
+.recent__line--older .recent__open:last-child {
+  margin-right: 8px;
+}
+
+.recent__older .recent__confirm,
+.recent__older .recent__error--row {
+  padding-left: 22px;
+}
