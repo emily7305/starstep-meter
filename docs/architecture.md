@@ -112,7 +112,7 @@ Vite + React + TypeScript. In dev, Vite proxies `/api` to the backend, so there'
 
 `synth.py` generates click tracks with known onsets, padding, an optional noise floor, accented downbeats, tempo changes, jitter, offbeat clicks, sections where the clicks play another rhythm over the same tempo (dotted, triplet feel) and meter changes. It also makes drum tracks (kick, snare, hats) with half and double time feel sections on a steady pulse. WAVs are cached in `tests/fixtures/` (git-ignored), keyed on a hash of the generator source and the spec. Tests that need ffmpeg carry `@pytest.mark.ffmpeg` and are skipped when it's missing.
 
-`tests/real/<song>/` (git-ignored) holds the beats file and report of real songs, timing data only. `test_real_song.py` runs the tempo map on each and skips a song that isn't there, and runs the notation suggestions again from the band strengths in the beats file when it has them.
+`tests/real/<id>/` (git-ignored) holds the beats file and report of real songs, timing data only. `test_real_song.py` runs the tempo map on each and skips a song that isn't there, and runs the notation suggestions again from the band strengths in the beats file when it has them.
 
 ## scripts (`scripts/`)
 

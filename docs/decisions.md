@@ -48,7 +48,7 @@ Settled in milestone 2, see the next section.
 
 ## beat offset convention (milestone 2)
 
-Decided before writing the beat code. The main target is Sonolus.
+Decided before writing the beat code. The main target is a rhythm game platform with its own level format.
 
 `beat_offset_ms` is the time of the first downbeat, in milliseconds, measured on the ffmpeg-decoded timeline from the first sample of the decoded audio. It is not relative to `trim.start_ms`. It's the same timeline every other time in the report uses, so the waveform, the trim points and the grid all line up without conversions.
 
@@ -464,13 +464,13 @@ The 202.50 section started at 44511 ms, about 3.5 s before the change that's hea
 
 ## tempo follow-ups from five real songs (milestone 3c)
 
-`scripts/eval_local.py` ran on five real songs whose official charts each have one tempo. Three came out right in 3b, as one segment each: きゅうくらりん at 220.0094, I Wanna at 199.9984 and MisoilePunch♪ at 270.0038. ENDYMION came out as 8 segments, and YOUNITHM as one segment with a 95th percentile residual of 110.9 ms. The beats and reports of ENDYMION and YOUNITHM are in `tests/real/endymion/` and `tests/real/younithm/` (git-ignored), next to `tests/real/misoilepunch/`, and `tests/test_real_song.py` runs on all three.
+`scripts/eval_local.py` ran on five real songs whose official charts each have one tempo. Three came out right in 3b, as one segment each: real_e at 220.0094, real_f at 199.9984 and real_a at 270.0038. real_c came out as 8 segments, and real_b as one segment with a 95th percentile residual of 110.9 ms. The beats and reports of real_c and real_b are in `tests/real/real_c/` and `tests/real/real_b/` (git-ignored), next to `tests/real/real_a/`, and `tests/test_real_song.py` runs on all three.
 
 ### madmom's bias on real music
 
 `median_snap_move_ms` was 11.6 to 11.9 ms on all five songs (11.915, 11.919, 11.815, 11.587, 11.711). The beats are shifted by 11.8 ms before the snap, so snapped beats land on average within a few tenths of a ms of that shift, and the −11.8 ms measured on clicks in milestone 3 holds on real music too.
 
-### ENDYMION
+### real_c
 
 The pulse is a steady 220 (charted as 440 in 8ths, and as 220 in 16ths in places). 3b gave:
 
@@ -489,7 +489,7 @@ Now it gives 3 segments: 1143.4 → 114338.4 ms at 219.9965 bpm with the 6/5 sec
 
 The ratios are no longer a fixed list. A felt tempo is q/p of the notated one, where its beats land every p steps of 1/q of a notated beat, with q one of `ratio_subdivisions` (1, 2, 3, 4, 6) and p up to 6, within half and double time. That gives 1/2, 3/5, 2/3, 3/4, 4/5, 6/5, 4/3, 3/2 and 2. 1, 2, 3 and 4 alone give back the 3b list. The score is the same as in 3b, the share of the section's beats that land on the extended grid over the share that land on its own lines, with the extended grid's lines, halves, thirds and 1/q (sixths for 6/5).
 
-The score doesn't use every subdivision at once. Lines, halves, thirds, quarters and sixths together catch 59% of random beat times within 10 ms at 220 bpm and 69% at 270, so a modulation that drifts would score as well as a felt section. Lines, halves, thirds and 1/q catch 29 to 54%. ENDYMION's 6/5 section scores 0.81: madmom's beats there wobble about ±15 ms around a 227 ms pulse, so its own lines catch only 47% of them and the 220 grid's sixths 38%. That's the weakest merge so far, and it rests as much on the tempo being within 0.12% of 6/5 as on the phase.
+The score doesn't use every subdivision at once. Lines, halves, thirds, quarters and sixths together catch 59% of random beat times within 10 ms at 220 bpm and 69% at 270, so a modulation that drifts would score as well as a felt section. Lines, halves, thirds and 1/q catch 29 to 54%. real_c's 6/5 section scores 0.81: madmom's beats there wobble about ±15 ms around a 227 ms pulse, so its own lines catch only 47% of them and the 220 grid's sixths 38%. That's the weakest merge so far, and it rests as much on the tempo being within 0.12% of 6/5 as on the phase.
 
 A felt section next to a short first or last segment can fold now. The 264.32 section has the 17 beat intro on one side, shorter than itself, so 3b's rule (both neighbours longer) didn't apply. A short first or last segment within `short_bpm_ratio` of the other side's tempo is the song's own tempo cut short by the edge, so only the other side has to carry the felt section. In return the felt section has to be short enough to count as near the edge (see the edge limits below). The intro then goes into the long segment by the 3b short rule.
 
@@ -497,11 +497,11 @@ Runs of two or more short segments fold in when the segments on either side have
 
 A felt section at the very start or end folds in on its own (`edge_fold`) when it is under `edge_max_share` (10%) of the song or `edge_max_bars` (8 bars of 4/4 at the neighbour's tempo), whichever is longer, and scores at least `edge_fit_min` (0.9) against its one neighbour. That's stricter than the 0.8 in the middle, since nothing on the other side says the song comes back out of it. A modulation over the last 30% stays split.
 
-What's left is ENDYMION's outro, which the edge rule can't fold. The 292.75 section is a clean 4/3 (a score of 1.00 on the 220 grid's quarters), but it sits between the long 220 segment and the 267.87 one, and that is no ratio of it, so it isn't a felt section by the middle rule. The 267.87 segment has steady 224 ms gaps, 1.5% faster than 6/5, so over its 19 beats it drifts 64 ms off any small subdivision of 220. Its beats land on the 220 grid's subdivisions in 47% of cases, where random times would in 59%. Nothing in the beats says it's on the 220 grid. It's 6% of the song, and with the audio the weak edge rule could still take it if the outro is quiet (`weak_energy_db`), which the beats-only test can't check. "match previous" twice puts it on the 220 grid by hand.
+What's left is real_c's outro, which the edge rule can't fold. The 292.75 section is a clean 4/3 (a score of 1.00 on the 220 grid's quarters), but it sits between the long 220 segment and the 267.87 one, and that is no ratio of it, so it isn't a felt section by the middle rule. The 267.87 segment has steady 224 ms gaps, 1.5% faster than 6/5, so over its 19 beats it drifts 64 ms off any small subdivision of 220. Its beats land on the 220 grid's subdivisions in 47% of cases, where random times would in 59%. Nothing in the beats says it's on the 220 grid. It's 6% of the song, and with the audio the weak edge rule could still take it if the outro is quiet (`weak_energy_db`), which the beats-only test can't check. "match previous" twice puts it on the 220 grid by hand.
 
-### YOUNITHM
+### real_b
 
-One segment at 259.9956 was right, but 125 of 753 beats were outliers. madmom slides onto the off-beat four times. The residual ramps to half a beat over about 5 beats, stays there and ramps back:
+real_b is a steady 260, charted at 260 and 130. One segment at 259.9956 was right, but 125 of 753 beats were outliers. madmom slides onto the off-beat four times. The residual ramps to half a beat over about 5 beats, stays there and ramps back:
 
 | beats half a beat off (ms) | beats | with the ramps, beats over 15 ms off (ms) |
 | --- | --- | --- |
@@ -512,15 +512,15 @@ One segment at 259.9956 was right, but 125 of 753 beats were outliers. madmom sl
 
 These may be the parts charted at 130. That needs checking by ear.
 
-An off-beat run is `offbeat_min_beats` (8) or more beats in a row within `offbeat_band` (15% of a period) of half a beat off their segment's grid, with one beat that isn't allowed inside. Two bars, since a tracker that drifts a whole beat passes through the half in fewer. The run's beats are left out of the fit and measured against the half lines. The report lists the runs as `offbeat_runs` (schema 2.2), the timeline hatches them, and the segment panel lists the ones in the selected segment. For YOUNITHM that took the 95th percentile residual from 110.9 to 18.3 ms and the largest from 115.2 to 79.2 ms (a ramp beat), and the confidence from 0.786 to 0.886. The bpm moved from 259.9956 to 259.9963.
+An off-beat run is `offbeat_min_beats` (8) or more beats in a row within `offbeat_band` (15% of a period) of half a beat off their segment's grid, with one beat that isn't allowed inside. Two bars, since a tracker that drifts a whole beat passes through the half in fewer. The run's beats are left out of the fit and measured against the half lines. The report lists the runs as `offbeat_runs` (schema 2.2), the timeline hatches them, and the segment panel lists the ones in the selected segment. For real_b that took the 95th percentile residual from 110.9 to 18.3 ms and the largest from 115.2 to 79.2 ms (a ramp beat), and the confidence from 0.786 to 0.886. The bpm moved from 259.9956 to 259.9963.
 
 When the tracker sits on the off-beat long enough, segmentation splits that stretch off as its own segment at the same tempo, half a beat out of phase. `offbeat_fold` puts it back. A middle segment at both neighbours' tempo whose beats land on their half lines (scored like the ratio check, against `ratio_fit_min`) goes into the longer neighbour, and the off-beat pass then marks it. That only applies between two neighbours: a phase that moves half a beat and stays is a real change (the milestone 3 test with a half beat pause).
 
-The grid's phase comes from the onsets when the audio is there, not from where most tracked beats are. For each segment the pipeline reads the onset strength on the grid's lines and on its half lines. If the half lines' median is `offbeat_phase_ratio` (1.5) times the lines' or more, the grid moves half a beat (keeping its period) and the tracked beats become the off-beat run. The beats-only regression tests can't do this. For YOUNITHM they check that the beats outside the runs sit on the grid (median residual under 5 ms).
+The grid's phase comes from the onsets when the audio is there, not from where most tracked beats are. For each segment the pipeline reads the onset strength on the grid's lines and on its half lines. If the half lines' median is `offbeat_phase_ratio` (1.5) times the lines' or more, the grid moves half a beat (keeping its period) and the tracked beats become the off-beat run. The beats-only regression tests can't do this. For real_b they check that the beats outside the runs sit on the grid (median residual under 5 ms).
 
 ### manual bpm
 
-The 60–320 range was already only for detection. `set_bpm` takes up to 1000 bpm, so ×2, the ratio buttons and "set bpm" can set ENDYMION to 440. There are tests for it now, in the api and the frontend.
+The 60–320 range was already only for detection. `set_bpm` takes up to 1000 bpm, so ×2, the ratio buttons and "set bpm" can set real_c to 440. There are tests for it now, in the api and the frontend.
 
 ### thresholds added
 
@@ -535,11 +535,11 @@ The 60–320 range was already only for detection. `set_bpm` takes up to 1000 bp
 | `offbeat_min_beats` | 8 |
 | `offbeat_phase_ratio` | 1.5 |
 
-Each has a test in `tests/test_tempo_map.py` that flips its decision. The 3b results hold: MisoilePunch♪ is still one segment at 270.0038 with its two notes, 300 of 300 random change tracks are right with change points within 0.005 beats, and 0 of 500 steady tracks split. The beats of きゅうくらりん and I Wanna weren't part of this, so they need another eval run.
+Each has a test in `tests/test_tempo_map.py` that flips its decision. The 3b results hold: real_a is still one segment at 270.0038 with its two notes, 300 of 300 random change tracks are right with change points within 0.005 beats, and 0 of 500 steady tracks split. The beats of real_e and real_f weren't part of this, so they need another eval run.
 
 ### limits
 
-- ENDYMION's outro, above.
+- real_c's outro, above.
 - The 6/5 merge rests on the tempo ratio as much as on the phase, since madmom's beats in that section are too loose to show a lock to the sixths.
 - A short run at a different tempo between two segments on one grid now folds whatever its tempo, as long as it's made of two or more short segments. A real two-bar break at another tempo that comes back exactly on the grid would be folded too.
 
@@ -597,26 +597,26 @@ These numbers go into `beats.json` as `grid_features`, timing and band strengths
 
 ### half and double time feel
 
-A chart can write one pulse at two tempos (YOUNITHM switches between 260 and 130 on a half time feel, ENDYMION is charted at 440 in 8ths for most of it and 220 in 16ths in places), and that isn't in the beat times at all. It is in the drums. A plain backbeat has the kick on beats 1 and 3 and the snare on 2 and 4, so the snare comes round every two beats of the notated tempo. `backend/analysis/notation.py` reads the notated tempo off that:
+A chart can write one pulse at two tempos (real_b switches between 260 and 130 on a half time feel, real_c is charted at 440 in 8ths for most of it and 220 in 16ths in places), and that isn't in the beat times at all. It is in the drums. A plain backbeat has the kick on beats 1 and 3 and the snare on 2 and 4, so the snare comes round every two beats of the notated tempo. `backend/analysis/notation.py` reads the notated tempo off that:
 
 - Fold the snare band over four beats of the grid at half beat steps. A plain bar has two hits half a cycle apart. One hit per cycle is the backbeat at half the grid's tempo. Four, on every beat or every off-beat with nothing between them, is twice it. With the strongest position as the reference, a position under `single_ratio` (0.5) of it counts as empty and one over `present_ratio` (0.6) as a hit.
 - A backbeat swaps kick and snare, so half and double also need the kick band's strongest hit half a backbeat away from the snare's, at least `kick_min` (0.2) of the snare band's strength. Without that, clicks on every beat came out as double time: the off-beat click track got a "double" from 19.0 to 35.6 s with a score of 0.73.
 - Windows of 4 bars slide one bar at a time, with shorter ones hanging off both ends so the first and last bars get as many votes. Every bar takes the class most of its windows gave. A run of half or double bars becomes a suggestion when it's at least `min_span_bars` (8) bars of the faster of the two tempos, so 8 grid bars for half and 4 for double. Then each edge moves to where the bars, read on their own at the run's phase, change between that class and not. That's needed because the windows blur an edge. The first version moved edges by any bar whose own profile looked like the run's, and plain bars read at a double run's phase only look at the near-empty positions, so edges spilled up to 2 bars into the plain part.
 - The score is how clear the contrast is (the empty positions against the hits, so 0.65 when they're at 35%), times the kick's share where the feel puts it, averaged over the run. On the test drums the kick leaks about 0.35 into the snare band, so clean sections score 0.56 to 0.65.
 
-It's absolute, the snare's period against the grid, not relative to the rest of the song. Relative would have called ENDYMION's 220 parts half time, at 110. The risk is a song whose drums don't follow the plain backbeat, which would get suggestions where the chart keeps the grid's tempo. MisoilePunch♪ is the check for that.
+It's absolute, the snare's period against the grid, not relative to the rest of the song. Relative would have called real_c's 220 parts half time, at 110. The risk is a song whose drums don't follow the plain backbeat, which would get suggestions where the chart keeps the grid's tempo. real_a is the check for that.
 
-Only bars in 4/4 regions are read, a backbeat in 3/4 is a different pattern. A bar that touches a ratio merged section is left out, and a run can't cross one, so MisoilePunch♪'s 3/4 feel section at 44.5 to 58.7 s can't get a suggestion. Off-beat runs are read like any other bars, since the grid is on the real beats there.
+Only bars in 4/4 regions are read, a backbeat in 3/4 is a different pattern. A bar that touches a ratio merged section is left out, and a run can't cross one, so real_a's 3/4 feel section at 44.5 to 58.7 s can't get a suggestion. Off-beat runs are read like any other bars, since the grid is on the real beats there.
 
 The test drums (`DrumTrackSpec` in `tests/synth.py`) are a kick sweeping 120 to 50 Hz, a snare (190 Hz body and noise from 300 Hz to 9 kHz) and hats on every half beat. With the hats as loud on the off-beat as on the beat, madmom followed a double time section to twice the tempo and stayed there for the rest of the track, which put the tempo map at 130 then 260. With the off-beat hats at 0.12 against 0.4 on the beat it stays on the pulse at 120, 130 and 150 bpm.
 
-Measured on the test drums with the grid known: half and double sections at 130, 150, 220 and 260 bpm come out on the bar lines of the sections (within 1 ms of the generator's), and steady patterns at 100, 130, 174 and 270 bpm get none. Through the pipeline with madmom at 130 and 150 bpm, the same. A stand-in for YOUNITHM (drums laid out on its measure map at 260, the tracker held on the grid) gives half at 97 → 37020, 81328 → 99789 and 155174 → the end, which is the measure map. That says the test in `tests/test_real_song.py` checks what it should, not that the real song works.
+Measured on the test drums with the grid known: half and double sections at 130, 150, 220 and 260 bpm come out on the bar lines of the sections (within 1 ms of the generator's), and steady patterns at 100, 130, 174 and 270 bpm get none. Through the pipeline with madmom at 130 and 150 bpm, the same. A stand-in for real_b (drums laid out on its measure map at 260, the tracker held on the grid) gives half at 97 → 37020, 81328 → 99789 and 155174 → the end, which is the measure map. That says the test in `tests/test_real_song.py` checks what it should, not that the real song works.
 
 ### folding an edge
 
-The ENDYMION row in the attached `eval_local.csv`, which ran with the audio, still has the outro as two segments (292.75 then 267.87). So the weak edge rule from 3c didn't fold it either, the outro isn't quiet enough.
+The real_c row in the attached `eval_local.csv`, which ran with the audio, still has the outro as two segments (292.75 then 267.87). So the weak edge rule from 3c didn't fold it either, the outro isn't quiet enough.
 
-`fold_suggestions` looks at the first and last stretch of the song, one or more segments, within the tempo map's edge limit (10% of the song or 8 bars of the neighbour, whichever is longer) and shorter than the neighbour. It carries the neighbour's grid through the stretch and compares the median band strength on the carried lines and half lines with the median on the stretch's own. The score is carried / (carried + own), 0.5 when both grids catch the onsets equally, and a fold is suggested from 0.5. On clicks at 220 with the tracked beats drifting off at 267.87 for the last 5.5 s (like ENDYMION's outro), it's 1.0. A real change to 267.87 over the last 5% scores 0.0, and over the last 30% it's past the edge limit and isn't looked at. ENDYMION itself needs its features in `tests/real/` to say.
+`fold_suggestions` looks at the first and last stretch of the song, one or more segments, within the tempo map's edge limit (10% of the song or 8 bars of the neighbour, whichever is longer) and shorter than the neighbour. It carries the neighbour's grid through the stretch and compares the median band strength on the carried lines and half lines with the median on the stretch's own. The score is carried / (carried + own), 0.5 when both grids catch the onsets equally, and a fold is suggested from 0.5. On clicks at 220 with the tracked beats drifting off at 267.87 for the last 5.5 s (like real_c's outro), it's 1.0. A real change to 267.87 over the last 5% scores 0.0, and over the last 30% it's past the edge limit and isn't looked at. real_c itself needs its features in `tests/real/` to say.
 
 ### applying and dismissing
 
@@ -633,40 +633,40 @@ Dismissing only logs the status. A re-analysis keeps every applied and dismissed
 
 ## tuning on real songs (milestone 4b)
 
-The three songs were analyzed again with milestone 4, and their `beats.json` (with `grid_features`) and `report.json` are in `tests/real/`. All three got no notation suggestions in the app. The real-song tests now rebuild what the pipeline does from `beats.json` alone: the tempo map from the snapped beats, the meter with the accents read from the stored band strengths, and the suggestions on that map. Not on the report's own map, since MisoilePunch♪'s report holds a hand split of its felt section, and the band strengths were never measured on that grid. The rebuilt maps match the reports the app wrote (same anchors, same meters).
+The three songs were analyzed again with milestone 4, and their `beats.json` (with `grid_features`) and `report.json` are in `tests/real/`. All three got no notation suggestions in the app. The real-song tests now rebuild what the pipeline does from `beats.json` alone: the tempo map from the snapped beats, the meter with the accents read from the stored band strengths, and the suggestions on that map. Not on the report's own map, since real_a's report holds a hand split of its felt section, and the band strengths were never measured on that grid. The rebuilt maps match the reports the app wrote (same anchors, same meters).
 
 Before and after, per song:
 
 | song | should be | milestone 4 | 4b |
 | --- | --- | --- | --- |
-| MisoilePunch♪ | 270, 4/4 all through, no suggestions | 270.0038, 4/4 then 3/4 over the last 4.2 s, none | 4/4 all through, none |
-| YOUNITHM | 260, 4/4, half on measures 1–21, 69–79, 139 to the end | 259.9963, 4/4, none | the same, still none |
-| ENDYMION | fold for 114338 ms to the end, half or double only where the chart switches between 440 and 220 | 219.9965 then 292.75 and 267.87, 4/4 with a restart at 94706 ms, none | the same map and meter, fold from 114338.4 ms to the end at 219.9965 bpm, score 0.54 |
+| real_a | 270, 4/4 all through, no suggestions | 270.0038, 4/4 then 3/4 over the last 4.2 s, none | 4/4 all through, none |
+| real_b | 260, 4/4, half on measures 1–21, 69–79, 139 to the end | 259.9963, 4/4, none | the same, still none |
+| real_c | fold for 114338 ms to the end, half or double only where the chart switches between 440 and 220 | 219.9965 then 292.75 and 267.87, 4/4 with a restart at 94706 ms, none | the same map and meter, fold from 114338.4 ms to the end at 219.9965 bpm, score 0.54 |
 
-### the 3/4 at the end of MisoilePunch♪
+### the 3/4 at the end of real_a
 
 That was the accent rule reading the fade-out. madmom's downbeats are 4/4 to the end, but over the last 13 beats the band strengths are 0.00 to 0.05 against a median of about 1, and "the first beat is 1.3 times every other beat in its bar" holds on noise at that level, for 5 bars of 3. An accent bar now also needs its first beat at `accent_min_level` (0.25) of the segment's median beat strength or more. Accented clicks are 1.6 to 1.8 of it, so nothing synthetic moved.
 
-### the restart at 94.7 s in ENDYMION
+### the restart at 94.7 s in real_c
 
 madmom lost a beat between 88 and 95 s (24 tracked beats over 25 grid beats, which the tempo map already folds as a run of short segments). It counts bar positions per tracked beat, so its downbeats come back one grid beat later and stay there to the outro, and the meter restarts its bars there. That looked like madmom miscounting, so I checked the accents per position in the bar. Before the stumble the strong beats are the grid beats 0 and 2 of each bar (1.13 and 1.15 against 1.09 and 1.10), after it they're 1 and 3 (1.12 and 1.13 against 1.01 and 1.06). The strong-beat pattern itself moved by a beat, so the song has an odd bar in there and madmom's new phase follows it. The differences are 5 to 10%, but they agree with madmom, so the restart stays.
 
-### ENDYMION's fold
+### real_c's fold
 
-The outro was a candidate (both outro segments together are 6.3% of the song, its neighbour is longer), and it scored 0.48, just under 0.5. Per segment the evidence is clear. In the 292.75 part, madmom's beats sit on every third quarter of the 220 grid (a 4/3 feel), and the carried grid catches 1.36 against 1.05 on its own grid, 0.57. The 267.87 part is a fade with no distinct attacks left, 0.365 against 0.367, a draw. Pooling every position into one median let the fade, which has twice the positions, outweigh the part with the evidence. Now each segment of the stretch is scored on its own and weighted by its level times its length, so a quiet fade counts for little and a loud real change still decides. ENDYMION comes out at 0.54. The synthetic cases didn't move: a drifting outro on clicks is still 1.0, a real change near the end 0.0, and an outro whose loud part sits on its own grid stays under 0.5 however long its fade.
+The outro was a candidate (both outro segments together are 6.3% of the song, its neighbour is longer), and it scored 0.48, just under 0.5. Per segment the evidence is clear. In the 292.75 part, madmom's beats sit on every third quarter of the 220 grid (a 4/3 feel), and the carried grid catches 1.36 against 1.05 on its own grid, 0.57. The 267.87 part is a fade with no distinct attacks left, 0.365 against 0.367, a draw. Pooling every position into one median let the fade, which has twice the positions, outweigh the part with the evidence. Now each segment of the stretch is scored on its own and weighted by its level times its length, so a quiet fade counts for little and a loud real change still decides. real_c comes out at 0.54. The synthetic cases didn't move: a drifting outro on clicks is still 1.0, a real change near the end 0.0, and an outro whose loud part sits on its own grid stays under 0.5 however long its fade.
 
 ### half and double on these songs: stopped, nothing changed
 
-I looked for why YOUNITHM gets no half suggestions before touching any threshold, and the answer is that the feature has nothing to give, not that a threshold is too tight.
+I looked for why real_b gets no half suggestions before touching any threshold, and the answer is that the feature has nothing to give, not that a threshold is too tight.
 
 The detector reads a plain backbeat: the snare band folded over four beats has its hits half a cycle apart, and half or double time moves them. In the drum sections of all three songs that fold is flat. The depth of the pattern, (max − min) / mean of the 8 step profile, is 0.15 to 0.31 in the snare band, against 1.0 to 5.5 on the test drums. Normalizing each bar on its own first gives 0.17 to 0.31. The kick band is flat the same way. It isn't the kick leaking in: a least squares fit of the snare band on the kick band gives a share of 2.3 to 6, the two rise and fall together because the whole mix does, and what's left after taking it out still has no backbeat shape. In these songs the attacks are about as strong on every 8th, and at half beat resolution in three wide bands there's no 2-and-4 to find. Every window comes out unknown, before the kick check and after it.
 
-YOUNITHM's stretches charted at 130 aren't a half-time backbeat either. They're the stretches without drums: the kick band drops from 0.08–0.16 to 0.00–0.04, and nothing much plays between the 260 beats (the beats are 1.34 to 2.7 times the half beats over 8 bar windows, against 0.9 to 1.3 in the 260 parts). The edges of all three stretches are exactly where the drums stop and start. A rule for that would find them, but:
+real_b's stretches charted at 130 aren't a half-time backbeat either. They're the stretches without drums: the kick band drops from 0.08–0.16 to 0.00–0.04, and nothing much plays between the 260 beats (the beats are 1.34 to 2.7 times the half beats over 8 bar windows, against 0.9 to 1.3 in the 260 parts). The edges of all three stretches are exactly where the drums stop and start. A rule for that would find them, but:
 
-- MisoilePunch♪ has stretches without drums too (bars 0–7 and 21–33), charted at 270. Its intro's beats are 1.43 times its half beats, more than YOUNITHM's 1.35 at 15–30 s, so no ratio separates the two songs. Only the length would, MisoilePunch♪'s are 8 and 13 bars and YOUNITHM's 20 and more, and that's two songs' worth of margin.
+- real_a has stretches without drums too (bars 0–7 and 21–33), charted at 270. Its intro's beats are 1.43 times its half beats, more than real_b's 1.35 at 15–30 s, so no ratio separates the two songs. Only the length would, real_a's are 8 and 13 bars and real_b's 20 and more, and that's two songs' worth of margin.
 - A click track is exactly that shape, no kick and nothing between the beats, so every one would get a half suggestion.
 
-So the detector stays as it was, and the milestone 4 synthetic results all still hold. A missed suggestion is cheaper than a wrong one, and MisoilePunch♪ stays at none. The YOUNITHM measure map test is marked as an expected failure with the reason, strict, so it shows up the day something finds those stretches. Two things that might, both for later and both needing more labelled songs: telling drum sections from drumless ones and treating a long drumless stretch as a candidate only when the chart history says so, or a feature that needs the audio again (percussive separation before the bands, narrower bands for the snare's body and noise), which needs another schema change and another analysis of the songs to test.
+So the detector stays as it was, and the milestone 4 synthetic results all still hold. A missed suggestion is cheaper than a wrong one, and real_a stays at none. The real_b measure map test is marked as an expected failure with the reason, strict, so it shows up the day something finds those stretches. Two things that might, both for later and both needing more labelled songs: telling drum sections from drumless ones and treating a long drumless stretch as a candidate only when the chart history says so, or a feature that needs the audio again (percussive separation before the bands, narrower bands for the snare's body and noise), which needs another schema change and another analysis of the songs to test.
 
 ### thresholds added
 
@@ -674,7 +674,7 @@ So the detector stays as it was, and the milestone 4 synthetic results all still
 | --- | --- |
 | `MeterConfig.accent_min_level` | 0.25 |
 
-Its test in `tests/test_meter.py` flips the MisoilePunch♪ case on a beat list, and `tests/test_notation.py` has the fold weighting on hand-made band strengths shaped like ENDYMION's outro, with `fold_min_score` flipping it.
+Its test in `tests/test_meter.py` flips the real_a case on a beat list, and `tests/test_notation.py` has the fold weighting on hand-made band strengths shaped like real_c's outro, with `fold_min_score` flipping it.
 
 ## edit log, one entry per change (milestone 5)
 
@@ -694,34 +694,30 @@ The frontend's edit list shows a several-value entry as one row with a line per 
 
 ## export (milestone 5)
 
-`GET /api/jobs/{id}/export` returns the plain timing export, `{"kind": "timing", "exported_at", "report"}`, with `"beats"` (the beats file) only for `?beats=true`. It's a wrapper and not the report with a `beats` key added, because the report's schema forbids unknown keys and the export should validate against a schema too. `?preset=sonolus` gives the Sonolus values instead, see the next section.
+`GET /api/jobs/{id}/export` returns the plain timing export, `{"kind": "timing", "exported_at", "report"}`, with `"beats"` (the beats file) only for `?beats=true`. It's a wrapper and not the report with a `beats` key added, because the report's schema forbids unknown keys and the export should validate against a schema too. `?preset=` gave a platform-specific level export instead, see the next section.
 
-Every export is checked against the committed JSON Schema in `shared/schema/` (`timing_export.schema.json` or `sonolus_export.schema.json`) with jsonschema before it goes out, not against the pydantic models. So a schema file that went stale shows up as a failed export (a 500 that names where it doesn't match) instead of a file a consumer can't read. The two schemas are generated from `backend/schema/export_models.py` like the others, the sync test covers them, and the frontend has their TypeScript types.
+Every export is checked against the committed JSON Schema in `shared/schema/` (`timing_export.schema.json` or the level export's schema file) with jsonschema before it goes out, not against the pydantic models. So a schema file that went stale shows up as a failed export (a 500 that names where it doesn't match) instead of a file a consumer can't read. The two schemas are generated from `backend/schema/export_models.py` like the others, the sync test covers them, and the frontend has their TypeScript types.
 
-`backend/analysis/export.py` builds both as plain functions, and `python -m backend.analysis.export report.json [--beats beats.json]` or `--sonolus [--decoder-compensation-ms MS | --decoder-padding]` does the same from the command line. Exports hold timing numbers only, never audio.
+`backend/analysis/export.py` builds both as plain functions, and `python -m backend.analysis.export report.json [--beats beats.json]` does the same from the command line for the timing export, and an extra option gave the level export, with the decoder compensation in ms or the source's decoder padding. Exports hold timing numbers only, never audio.
 
-Since schema 2.0 there's no `beat_offset_ms`, so every offset in an export comes from the segment anchors, the first downbeat being `tempo_map[0].anchor_ms`. The plain export carries the report as it is, no compensation. Decoder compensation is a Sonolus preset setting.
+Since schema 2.0 there's no `beat_offset_ms`, so every offset in an export comes from the segment anchors, the first downbeat being `tempo_map[0].anchor_ms`. The plain export carries the report as it is, no compensation. Decoder compensation is a setting of the level export.
 
-Changed in milestone 7: the Sonolus preset is gone, the timing export is the only one.
+Changed in milestone 7: the platform-specific level export is gone, the timing export is the only one.
 
-## Sonolus export (milestone 5)
+## platform level export (milestone 5)
 
-Removed in milestone 7, see "Sonolus export removed (milestone 7)". Kept here as what was decided at the time.
+Removed in milestone 7, see "platform level export removed (milestone 7)". Kept here as what was decided at the time.
 
-What was checked, on 2026-10-25, before writing any of it:
+What was checked, on 2026-10-25, before writing any of it: the platform's own level data type and documentation, which have an audio offset in seconds and tempo change entities with a beat and a bpm, and no time signature. The sign of the offset came from converters published for the platform: the audio offset is the audio position at level time 0, beat 0, so the audio plays at level time + offset, and a positive value starts the audio that far in.
 
-- `@sonolus/core` 7.15.4 on npm (the old `sonolus-core` package says it moved there). `LevelData` is `{bgmOffset: number, entities: LevelDataEntity[]}`, an entity is `{name?, archetype, data: [{name, value} | {name, ref}]}`. The engine archetype names are `#BPM_CHANGE` and `#TIMESCALE_CHANGE`, the data names `#BEAT`, `#BPM` and `#TIMESCALE`. There's no time signature archetype.
-- The Sonolus wiki (github.com/Sonolus/wiki, `level-specs/resources/level-data.md` and the engine play data page): the same type, and "`#BPM_CHANGE` ... must also provide data named `#BEAT` and `#BPM`". It doesn't say which way `bgmOffset` goes.
-- The sign comes from the converters in the engines by the Sonolus developer. In `sonolus-taiko-engine`, `lib/src/osu/convert.ts` puts beat 0 on the first osu timing point, whose time is seconds from the start of the audio, and sets `offset` (which becomes `bgmOffset`) to that time when it's 0 or negative. When it's positive it adds a lead-in tempo so beat 0 is at audio time 0 instead. `lib/src/tja/convert.ts` does the same with TJA's OFFSET. So `bgmOffset` is the bgm position in seconds at level time 0, which is beat 0, and the bgm is at level time + bgmOffset. `sonolus-pjsekai-engine`'s sample level (`shared/src/level/data/append.json`) has `"bgmOffset": 9`, so a positive value is a normal one, it starts the bgm 9 s in.
+How the values are built (the level export module):
 
-How the values are built (`backend/analysis/sonolus.py`):
-
-- Beat 0 is the latest bar line of the first tempo segment at or before the start of the audio, so beat 0 is a bar line and nothing before the first downbeat (a pickup, an intro) is skipped. `bgmOffset` is that bar line's time in seconds, 0 or negative. For the 120 bpm click track with its first downbeat at 136.78 ms that's −1.86322 s, and the first downbeat is beat 4.
-- Each later tempo segment gets a `#BPM_CHANGE` on its first grid line, with the same quarter period rule the bar lines use, at the beat the tempo before it has reached by then. When a segment's grid doesn't carry on from the one before, that beat isn't whole (23.2 in a test). It's left exact, because rounding it would move every grid line after it. A sliver of a segment with no grid line of its own gets no change.
+- Beat 0 is the latest bar line of the first tempo segment at or before the start of the audio, so beat 0 is a bar line and nothing before the first downbeat (a pickup, an intro) is skipped. The audio offset is that bar line's time in seconds, 0 or negative. For the 120 bpm click track with its first downbeat at 136.78 ms that's −1.86322 s, and the first downbeat is beat 4.
+- Each later tempo segment gets a tempo change on its first grid line, with the same quarter period rule the bar lines use, at the beat the tempo before it has reached by then. When a segment's grid doesn't carry on from the one before, that beat isn't whole (23.2 in a test). It's left exact, because rounding it would move every grid line after it. A sliver of a segment with no grid line of its own gets no change.
 - Time signatures come from the bar lines (`bars.py`, the same rule the timeline draws with), turned into beats. A bar cut short by a tempo change or a meter split gets its own entry, written in the bar's own denominator where it fits (half a 4/4 bar is 2/4). A cut bar that isn't a whole number of 64ths only happens next to a change on a fractional beat. It gets the nearest 64ths and the next entry restarts on its exact beat. These aren't level data, they're for the chart editor.
-- The output has `level_data` in Sonolus' own shape (the `#BPM_CHANGE` entities and `bgmOffset`, ready to sit next to an engine's own entities), the same changes as `bpm_changes` with their times on the report's timeline for checking, the time signatures, and `first_downbeat_beat`.
+- The output has `level_data` in the platform's own shape (the tempo change entities and the audio offset, ready to sit next to a level's other entities), the same changes as `bpm_changes` with their times on the report's timeline for checking, the time signatures, and `first_downbeat_beat`.
 
-Decoder compensation is how much later than ffmpeg's timeline the player's decoder plays the audio, 0 ms by default. The presets are 0 (a decoder that honours the gapless info, ffmpeg's timeline) and the source's decoder padding in ms, `decoder_padding_samples / sample_rate` (25.057 ms for a lame mp3 at 44.1 kHz), for a decoder that plays the padding. It only moves `bgmOffset`, by +compensation / 1000. The beats stay where they are, so switching presets never moves a note. With the padding preset and beat 0 right at the start of the audio, `bgmOffset` comes out a little positive, which skips only the padding.
+Decoder compensation is how much later than ffmpeg's timeline the player's decoder plays the audio, 0 ms by default. The presets are 0 (a decoder that honours the gapless info, ffmpeg's timeline) and the source's decoder padding in ms, `decoder_padding_samples / sample_rate` (25.057 ms for a lame mp3 at 44.1 kHz), for a decoder that plays the padding. It only moves the audio offset, by +compensation / 1000. The beats stay where they are, so switching presets never moves a note. With the padding preset and beat 0 right at the start of the audio, the audio offset comes out a little positive, which skips only the padding.
 
 Measured on mp3 click tracks (lame 192k) through the app, against a decoder that ignores the gapless header (ffmpeg with `-flags2 +skip_manual`, its lag measured by cross-correlation): the level time of the first downbeat as that decoder plays it, minus its beat's time.
 
@@ -731,9 +727,9 @@ Measured on mp3 click tracks (lame 192k) through the app, against a decoder that
 | 174 bpm, 48 kHz, first click 612.5 ms | +23.76 ms | +0.74 ms |
 | 150 bpm, 44.1 kHz, first click 1234.5 ms | +25.80 ms | +0.74 ms |
 
-The 0.73 ms left is onset snap landing that far before a click's first sample (see "onset snap"). `tests/test_export.py` checks the 120 bpm case. What the real Sonolus app's decoder does with an mp3 isn't known from here, which is what the click-track test level in the README is for.
+The 0.73 ms left is onset snap landing that far before a click's first sample (see "onset snap"). A test checked the 120 bpm case until the export was removed. What the platform's own app does with an mp3 wasn't known from here, which is what a click-track test level was for.
 
-`scripts/make_sonolus_test_level.py` turns a Sonolus export into level data with a tap note on every grid beat from the first downbeat. Its default note is the pjsekai engine's `NormalTapNote` with `lane` 0 and `size` 1.5, as in that engine's sample level, and it can be changed for another engine. It gzips the output, since the wiki says level data has to be.
+A script turned the level export into a test level with a note on every grid beat from the first downbeat.
 
 ## click track (milestone 5)
 
@@ -778,7 +774,7 @@ librosa's snapped beats go in the beats file (`cross_check_beats`), so the check
 confidence = residual_share * (1 - w + w * agreement), w = 0.5
 ```
 
-- `residual_share` is the share of the tracked beats within 10 ms of the grid, the measure the segment confidence was since milestone 2. A beat in a felt section counts as min(1, fit) of its section instead of 1 or 0: madmom fills the gaps of a 3-3-2 bar with guesses, and the section's fit (how well the grid caught it against its own tempo) is the honest number for those beats. An off-beat run and the beats ramping into and out of it are left out. The grid is on the real beats there, the tracker followed the off-beat. A ramp is the beats next to a run that sit more than 10 ms off both the line and the half line, at most 8 either side (YOUNITHM's are 3 to 7). A span whose beats are all left out takes its segment's share.
+- `residual_share` is the share of the tracked beats within 10 ms of the grid, the measure the segment confidence was since milestone 2. A beat in a felt section counts as min(1, fit) of its section instead of 1 or 0: madmom fills the gaps of a 3-3-2 bar with guesses, and the section's fit (how well the grid caught it against its own tempo) is the honest number for those beats. An off-beat run and the beats ramping into and out of it are left out. The grid is on the real beats there, the tracker followed the off-beat. A ramp is the beats next to a run that sit more than 10 ms off both the line and the half line, at most 8 either side (real_b's are 3 to 7). A span whose beats are all left out takes its segment's share.
 - `agreement` is the share of compared beats with the other tracker's beat within `max_disagreement_ms`. Without a cross-check, or with nothing compared in the span, the confidence is the residual share.
 - w = 0.5 means both trackers disagreeing everywhere keeps half the residual share. librosa is the weaker tracker and can be the one that's wrong.
 
@@ -792,23 +788,23 @@ A span is `low` under 0.5, and the timeline shades those under auto segments. Me
 | clicks 174 bpm, 48 beats jittered +-20 ms | 0.5, 0.6, 0.63 | 1.0 | none |
 | clicks 270 bpm, dotted and triplet feel sections | 1.0 | 1.0 | none |
 | clicks 260 bpm, off-beat section | 1.0 | 1.0 | none |
-| MisoilePunch♪, felt sections at 3/4 and 2/3 | 1.0 | lowest 0.56 | the fade-out from 128.9 s |
-| YOUNITHM, four off-beat runs | not low | lowest 0.77 | the fade-out from 170.0 s |
-| ENDYMION, 6/5 felt section (fit 0.81) | about 0.8 | | the intro to 5.5 s (beats about 11 ms late), 88.4 to 92.8 s (madmom lost a beat), and 92.8 to 97.2 s sits at exactly 0.5 |
+| real_a, felt sections at 3/4 and 2/3 | 1.0 | lowest 0.56 | the fade-out from 128.9 s |
+| real_b, four off-beat runs | not low | lowest 0.77 | the fade-out from 170.0 s |
+| real_c, 6/5 felt section (fit 0.81) | about 0.8 | | the intro to 5.5 s (beats about 11 ms late), 88.4 to 92.8 s (madmom lost a beat), and 92.8 to 97.2 s sits at exactly 0.5 |
 
 The real songs ran on their beats files without the audio, so without the cross-check (their files are from before it). The cross-check on clicks agreed within 0.01 ms everywhere, including the messy sections, since both trackers snapped to the same jittered clicks. Mess shows up in the residuals, and the cross-check is for a tracker that took the wrong attacks. Nothing synthetic makes the two trackers disagree through the pipeline yet, the beat list tests do it by hand. ±20 ms jitter at 174 bpm isn't shaded. That's a sloppy performance on a right grid, which is what the 0.5 is set to let through, and the second lowest real-song span (0.56) is too close to raise it.
 
 ## chart setup list (milestone 6)
 
-The chart setup panel under the suggestions lists what to type into a chart editor, MikuMikuWorld being the one checked: the music offset, which audio file to load, and every bpm and time signature change by measure and beat (`frontend/src/chartSetup.ts`). It's worked out from the same bar lines the timeline draws (`tempoGrid` in `tempoMap.ts`), so the measure numbers can't drift from the bar labels, and a test checks every row against the label of its bar line.
+The chart setup panel under the suggestions lists what to type into a chart editor, one editor being the one checked: the music offset, which audio file to load, and every bpm and time signature change by measure and beat (`frontend/src/chartSetup.ts`). It's worked out from the same bar lines the timeline draws (`tempoGrid` in `tempoMap.ts`), so the measure numbers can't drift from the bar labels, and a test checks every row against the label of its bar line.
 
-Bar 0 moved. It was the first downbeat, with any bar before it numbered negative. Now it's the first bar line at or after 0 ms of the audio file, which is where the timeline's lines start, so the labels run 0, 1, 2 from the left. With a lead-in shorter than a bar (the usual case) bar 0 is still the first downbeat. With a longer intro, the first downbeat gets a later number and the intro's bars are chartable. The Sonolus export is unchanged, its beat 0 is the bar line at or before the start and its `first_downbeat_beat` says where the downbeat is.
+Bar 0 moved. It was the first downbeat, with any bar before it numbered negative. Now it's the first bar line at or after 0 ms of the audio file, which is where the timeline's lines start, so the labels run 0, 1, 2 from the left. With a lead-in shorter than a bar (the usual case) bar 0 is still the first downbeat. With a longer intro, the first downbeat gets a later number and the intro's bars are chartable. The level export is unchanged, its beat 0 is the bar line at or before the start and its `first_downbeat_beat` says where the downbeat is.
 
-The offset. MikuMikuWorld's offset field moves the song later when it's positive, checked in the app. So the offset is minus where measure 0 is in the audio, and since measure 0 is at or after 0 ms it's 0 or negative. Negative offsets work in MikuMikuWorld (checked by ear, below). Its source couldn't be read from the cloud session, the repository wasn't reachable, so the sign and the negative values rest on that hands-on check. The plan if negative offsets hadn't worked was the bar line at or before the start as measure 0, with a positive offset.
+The offset. The chart editor it was checked in moves the song later for a positive offset (checked in the app). So the offset is minus where measure 0 is in the audio, and since measure 0 is at or after 0 ms it's 0 or negative. Negative offsets work in that editor (checked by ear, below). Its source couldn't be read from the cloud session, the repository wasn't reachable, so the sign and the negative values rest on that hands-on check. The plan if negative offsets hadn't worked was the bar line at or before the start as measure 0, with a positive offset.
 
-Decoder padding. MikuMikuWorld doesn't skip an mp3's decoder padding, so with the original mp3 the music plays that much later and the offset is the padding further negative. The panel shows both, labelled: the offset for a wav converted with ffmpeg (recommended, ffmpeg skips the padding the way the analysis does) and the one for the original file. Checked by ear on MisoilePunch♪: measure 0 at 62.362 ms, so −62.362 ms with the wav and −62.362 − 23.021 = −85.383 ms with the mp3 (1105 samples at 48 kHz), and −85 to −92 ms sounded right with the mp3. The panel says −85.382 ms, the exact sum of −62.3615 and −23.0208. Values are shown with 3 decimals and an ascii minus, so they can be pasted into the field. The export panel's decoder compensation setting doesn't apply here, both are always shown.
+Decoder padding. That editor doesn't skip an mp3's decoder padding, so with the original mp3 the music plays that much later and the offset is the padding further negative. The panel shows both, labelled: the offset for a wav converted with ffmpeg (recommended, ffmpeg skips the padding the way the analysis does) and the one for the original file. Checked by ear on real_a: measure 0 at 62.362 ms, so −62.362 ms with the wav and −62.362 − 23.021 = −85.383 ms with the mp3 (1105 samples at 48 kHz), and −85 to −92 ms sounded right with the mp3. The panel says −85.382 ms, the exact sum of −62.3615 and −23.0208. Values are shown with 3 decimals and an ascii minus, so they can be pasted into the field. The export panel's decoder compensation setting doesn't apply here, both are always shown.
 
-Beat positions. A chart editor counts beats, measure lengths come from the time signatures and a bpm change sits at a beat inside a measure. So the beat position of every bar line and change is counted along the tempo map from bar 0, the way the Sonolus export counts from its beat 0. A bar that a tempo change or a meter split cuts short gets its own time signature (half a 4/4 bar is 2/4), and a change that isn't on a bar line shows its beat, like "beat 3" or "beat 3 + 1/5" (1/2 to 1/16, else three decimals), marked mid-measure.
+Beat positions. A chart editor counts beats, measure lengths come from the time signatures and a bpm change sits at a beat inside a measure. So the beat position of every bar line and change is counted along the tempo map from bar 0, the way the level export counted from its beat 0. A bar that a tempo change or a meter split cuts short gets its own time signature (half a 4/4 bar is 2/4), and a change that isn't on a bar line shows its beat, like "beat 3" or "beat 3 + 1/5" (1/2 to 1/16, else three decimals), marked mid-measure.
 
 What broke: two segments are fitted on their own, so the beat where one hands over to the next is rarely whole. On a 120 → 150 click track it was 0.77 ms off the first segment's line, which made the bar before the change 4.0015 beats, and that came out as a time signature of 64/64 followed by 4/4 again. A bar length or a change within 2 ms of whole beats (at the tempo there) is now taken as whole. 2 ms is a guess, well under the 10 ms the confidence calls on the grid, and a real fractional change (0.2 of a beat in the test) is far outside it.
 
@@ -822,11 +818,11 @@ The zoomed view drew from wavesurfer's decode, which is 8 kHz by default, so at 
 
 The playhead is now drawn behind the rendered position by `outputLatency + baseLatency`, whichever of the two the browser reports, read again on every frame since it changes with the device. Only the drawing: the music and the clicks are started on the context clock as before, and the click scheduler reads the rendered position (`songTime`), so the latency doesn't eat its lookahead. Pausing stops where the audio stopped, so the playhead jumps forward by the latency on pause, which is where the last sound heard was. The transport says what was used, like `playhead −42.0 ms output latency`, or that the browser reports no output latency and the playhead isn't compensated. Headless Chromium on the cloud VM reported 42 ms. On Bluetooth the reported number may still be off, untested.
 
-## Sonolus decoder compensation (milestone 6)
+## level export decoder compensation (milestone 6)
 
-Removed in milestone 7, see "Sonolus export removed (milestone 7)". Kept here as what was decided at the time.
+Removed in milestone 7, see "platform level export removed (milestone 7)". Kept here as what was decided at the time.
 
-Still open. There's no test-level result from the real Sonolus app yet (the check in the README, "Checking the offset in Sonolus"), so the Sonolus preset's default stays 0 ms. MikuMikuWorld not skipping mp3 padding says nothing about Sonolus' decoder.
+Still open. There was no test-level result from the platform's own app (the check the README described then), so the level export's default stays 0 ms. The chart editor it was checked in not skipping mp3 padding says nothing about the platform's decoder.
 
 ## cross-check on the real songs (milestone 6b)
 
@@ -834,28 +830,28 @@ The three songs were analyzed again with milestone 6, so their beats files carry
 
 | song | segment | disagreement | flagged at 20 ms |
 | --- | --- | --- | --- |
-| MisoilePunch♪ | 270.0038 (one segment) | 7.13 ms | no |
-| YOUNITHM | 259.9963 (one segment) | 4.16 ms | no |
-| ENDYMION | 219.9965 | 6.99 ms | no |
-| ENDYMION | 292.75 (outro, a 4/3 feel) | 3.17 ms | no |
-| ENDYMION | 267.87 (the fade after it) | 20.75 ms | yes |
+| real_a | 270.0038 (one segment) | 7.13 ms | no |
+| real_b | 259.9963 (one segment) | 4.16 ms | no |
+| real_c | 219.9965 | 6.99 ms | no |
+| real_c | 292.75 (outro, a 4/3 feel) | 3.17 ms | no |
+| real_c | 267.87 (the fade after it) | 20.75 ms | yes |
 
 Click tracks give 0.01 ms. The segments that are right sit 4 to 7 ms apart, and the one flagged is the 267.87 stretch that the chart has at 220, the one the fold suggestion is for. So 20 ms stays: it has about three times the spread of the right segments as margin and catches the wrong one.
 
-With the cross-check in, ENDYMION gets more low confidence spans: 79.7 to 97.2 s around where madmom lost a beat (agreement down to 0), and 105.9 to 110.3 s, where librosa sits exactly on the half lines and madmom on the lines. The onsets there are even (a median band strength of 1.09 on the lines against 1.14 on the half lines), steady eighths where the phase can't be read from the audio, so the warning is fair and it stays. MisoilePunch♪'s felt sections and YOUNITHM's off-beat runs still aren't shaded.
+With the cross-check in, real_c gets more low confidence spans: 79.7 to 97.2 s around where madmom lost a beat (agreement down to 0), and 105.9 to 110.3 s, where librosa sits exactly on the half lines and madmom on the lines. The onsets there are even (a median band strength of 1.09 on the lines against 1.14 on the half lines), steady eighths where the phase can't be read from the audio, so the warning is fair and it stays. real_a's felt sections and real_b's off-beat runs still aren't shaded.
 
-## grid timing at the start of MisoilePunch♪ (milestone 6b)
+## grid timing at the start of real_a (milestone 6b)
 
 The question: the zoomed view at the first downbeat shows "tracked 944.068 ms · grid +7.170 ms", and with the mp3 about −92 ms sounded right against the panel's −85.382 ms. Is the grid systematically late? Checked stage by stage on the beats file:
 
 - The fit: the residuals of madmom's snapped beats have a median of +0.9 ms over the song, and per 30 s stretch between −1.0 and +2.5 ms. The line goes through the middle of the beats, it doesn't drift. The +7.17 ms at the first downbeat is that one beat's residual (the first 16 residuals are spread from −16 to +8.5 ms).
 - The anchor: the fitted line at the first downbeat's index, nothing moves it after the fit except whole beats.
-- The bias shift and the snap: madmom's beats move by a median of 11.67 ms from tracker to snapped, against the 11.8 ms shift. But that turned out to say less than it seemed. On these songs the snap moves 80% of the beats by under ±2 ms after the shift (10th to 90th percentile −1.8 to +1.5 ms on MisoilePunch♪, −2.6 to +2.4 on YOUNITHM), where on clicks it moved them several ms onto the attack. In a full mix there's a flux peak at least half the window's biggest almost everywhere, so the nearest one is right next to where the beat started. So on real music the grid sits where madmom's 10 ms frames plus the 11.8 ms measured on clicks put it, and the "median snap move close to 11.8 ms" check from milestone 3c can't confirm the bias, it's circular when the snap barely moves anything.
-- The second tracker: librosa's snapped beats sit a median of +6.4 ms after madmom's on MisoilePunch♪ (+7.7 ms after the grid), spread from +3 to +10 ms, and +0.07 ms on YOUNITHM and ENDYMION.
+- The bias shift and the snap: madmom's beats move by a median of 11.67 ms from tracker to snapped, against the 11.8 ms shift. But that turned out to say less than it seemed. On these songs the snap moves 80% of the beats by under ±2 ms after the shift (10th to 90th percentile −1.8 to +1.5 ms on real_a, −2.6 to +2.4 on real_b), where on clicks it moved them several ms onto the attack. In a full mix there's a flux peak at least half the window's biggest almost everywhere, so the nearest one is right next to where the beat started. So on real music the grid sits where madmom's 10 ms frames plus the 11.8 ms measured on clicks put it, and the "median snap move close to 11.8 ms" check from milestone 3c can't confirm the bias, it's circular when the snap barely moves anything.
+- The second tracker: librosa's snapped beats sit a median of +6.4 ms after madmom's on real_a (+7.7 ms after the grid), spread from +3 to +10 ms, and +0.07 ms on real_b and real_c.
 
-So the grid isn't late. If anything it's about 7 ms early on MisoilePunch♪: librosa and the by-ear −92 ms both put the beat later than the grid, by 7.7 ms and about 6.6 ms. On the other two songs the trackers agree. That looks like madmom's bias on this song's attacks being about 7 ms off the clicks', not something in the anchor or the fit. Nothing is changed for it, because the beats file can't say which attack is the beat (it has no audio), and a fix tuned on one song by ear would move every other song by the same amount. The offsets for MisoilePunch♪ stay −62.362 ms with the wav and −85.382 ms with the mp3, before and after. What would settle it: the audio of a few songs to see what the snap finds in a mix, and a per-song check of where the two trackers' beats sit against each other (`cross_check_beats` against `time_ms`, the way it was measured here). Until then, nudging the anchor by hand on the song with the click track is the way to correct it.
+So the grid isn't late. If anything it's about 7 ms early on real_a: librosa and the by-ear −92 ms both put the beat later than the grid, by 7.7 ms and about 6.6 ms. On the other two songs the trackers agree. That looks like madmom's bias on this song's attacks being about 7 ms off the clicks', not something in the anchor or the fit. Nothing is changed for it, because the beats file can't say which attack is the beat (it has no audio), and a fix tuned on one song by ear would move every other song by the same amount. The offsets for real_a stay −62.362 ms with the wav and −85.382 ms with the mp3, before and after. What would settle it: the audio of a few songs to see what the snap finds in a mix, and a per-song check of where the two trackers' beats sit against each other (`cross_check_beats` against `time_ms`, the way it was measured here). Until then, nudging the anchor by hand on the song with the click track is the way to correct it.
 
-Milestone 7 adds a second song charted by ear, and it leans the same way. On MisoilePunch♪ the beat sits about 7 ms later than the grid (−92 ms by ear against −85.382 ms on the panel, with the mp3). On SHIKI - Lapis it's about 17 ms: the tool's grid beat at the first downbeat is about 8101.7 ms on the mp3 timeline and the chart puts it at 8118.8 ms. Two songs, both later by ear, by different amounts. That isn't enough to move a bias that was measured on 2480 click beats, and a by-ear offset also carries where the person charting hears the beat. Nothing is changed. `scripts/measure_bias_local.py` measures madmom's raw beats against the strongest nearby onsets on a folder of songs, timing numbers only, so a later session can see whether −11.8 ms holds on real music with the audio in hand.
+Milestone 7 adds a second song charted by ear, and it leans the same way. On real_a the beat sits about 7 ms later than the grid (−92 ms by ear against −85.382 ms on the panel, with the mp3). On real_d it's about 17 ms: the tool's grid beat at the first downbeat is about 8101.7 ms on the mp3 timeline and the chart puts it at 8118.8 ms. Two songs, both later by ear, by different amounts. That isn't enough to move a bias that was measured on 2480 click beats, and a by-ear offset also carries where the person charting hears the beat. Nothing is changed. `scripts/measure_bias_local.py` measures madmom's raw beats against the strongest nearby onsets on a folder of songs, timing numbers only, so a later session can see whether −11.8 ms holds on real music with the audio in hand.
 
 ## meter change one bar late (milestone 6b)
 
@@ -871,19 +867,19 @@ Right after an analysis, a block above the timeline says what a chart editor nee
 
 ## where the chart starts (milestone 6c)
 
-Measure 0 used to be the first bar line in the audio, the first region's bars counted back from the music to 0 ms. On a song with a long silent start (SHIKI - Lapis, about 8 s at 145.99 bpm) that gave four or five empty measures before the music, and the offset didn't skip the silence.
+Measure 0 used to be the first bar line in the audio, the first region's bars counted back from the music to 0 ms. On a song with a long silent start (real_d, about 8 s at 145.99 bpm) that gave four or five empty measures before the music, and the offset didn't skip the silence.
 
 Now the chart starts at the music. The music starts at the trim start, or at the first tracked beat when that's earlier (madmom's beats can sit a hair before the trim). The bar it starts in is the last bar line at or before that point, with a quarter beat of slack, since the trim and the snap land a little before an attack that's right on a bar line. A pickup has its own sound, so the trim finds it, and its bar is the one before the first downbeat. That bar is measure 1 and measure 0 is one empty bar of lead-in before it. "music starts at measure" in the chart setup panel can set it to 0 instead, stored per browser.
 
-The offset is minus where measure 0 starts. With less than a bar of silence measure 0 starts before the file, and the offset is positive (in MikuMikuWorld a positive offset starts the song later). The wav and mp3 pair, the exact padding between them and the 3 decimals stay. Measured: a click track with 8 s of silence at 145.99 bpm, first downbeat at 7999.268 ms, gives measure 1 there and −6355.320 ms with the wav (a bar is 1643.948 ms), −6380.376 ms with the mp3 (25.057 ms of padding at 44.1 kHz), and −7999.268 ms with the setting at 0. MisoilePunch♪ moves by one bar, measure 1 on the bar line at 62.362 ms and measure 0 at −826.515 ms, so the offsets go from −62.362 and −85.382 ms to 826.515 and 803.494 ms.
+The offset is minus where measure 0 starts. With less than a bar of silence measure 0 starts before the file, and the offset is positive (the chart editor it was checked in moves the song later for a positive offset, checked in the app). The wav and mp3 pair, the exact padding between them and the 3 decimals stay. Measured: a click track with 8 s of silence at 145.99 bpm, first downbeat at 7999.268 ms, gives measure 1 there and −6355.320 ms with the wav (a bar is 1643.948 ms), −6380.376 ms with the mp3 (25.057 ms of padding at 44.1 kHz), and −7999.268 ms with the setting at 0. real_a moves by one bar, measure 1 on the bar line at 62.362 ms and measure 0 at −826.515 ms, so the offsets go from −62.362 and −85.382 ms to 826.515 and 803.494 ms.
 
-The timeline numbers its bars from the same chart start (`tempoGrid` takes it), so its labels, the chart setup list and the plain answer use one numbering, and the tests check the list against the labels. Bars before measure 0 have no number and are drawn at 30% of their usual strength. Lines before 0 ms aren't drawn, but measure 0 and 1 can be there, worked out from the first region's bars the way the Sonolus export works out its beat 0.
+The timeline numbers its bars from the same chart start (`tempoGrid` takes it), so its labels, the chart setup list and the plain answer use one numbering, and the tests check the list against the labels. Bars before measure 0 have no number and are drawn at 30% of their usual strength. Lines before 0 ms aren't drawn, but measure 0 and 1 can be there, worked out from the first region's bars the way the level export worked out its beat 0.
 
-The Sonolus export keeps its own beat 0, the bar line at or before the start of the audio. Sharing the chart start would have moved every exported `bgmOffset` and beat, and the Sonolus offset is still waiting on its check in the real app, so changing what it means now would only muddy that check. It's a separate rule on purpose, in `backend/analysis/sonolus.py`.
+The level export keeps its own beat 0, the bar line at or before the start of the audio. Sharing the chart start would have moved every exported audio offset and beat, and the export's offset is still waiting on its check in the real app, so changing what it means now would only muddy that check. It's a separate rule on purpose, in the level export module.
 
-## Lapis: the bar at m.38 and the first downbeat (milestone 7)
+## real_d: the bar at m.38 and the first downbeat (milestone 7)
 
-SHIKI - Lapis is a constant 146 bpm in 4/4 with about 8 s of silence before the music. The owner's chart, made by ear in MikuMikuWorld with the mp3, has measure 1 on the first downbeat and an offset of −6475 ms, so the first downbeat is at 6475 + 4 × 60000 / 146 = 8118.836 ms on the mp3 timeline, and 8095.8 ms on the tool's (1105 samples of padding at 48 kHz, 23.021 ms). The analysis gave 291.99 bpm (madmom tracked 146, the octave check doubled it), a meter map that restarted its 4/4 bars at 63148.9 ms, and an anchor at 8489.5 ms.
+real_d is a constant 146 bpm in 4/4 with about 8 s of silence before the music. The owner's chart, made by ear in a chart editor with the mp3, has measure 1 on the first downbeat and an offset of −6475 ms, so the first downbeat is at 6475 + 4 × 60000 / 146 = 8118.836 ms on the mp3 timeline, and 8095.8 ms on the tool's (1105 samples of padding at 48 kHz, 23.021 ms). The analysis gave 291.99 bpm (madmom tracked 146, the octave check doubled it), a meter map that restarted its 4/4 bars at 63148.9 ms, and an anchor at 8489.5 ms.
 
 What broke, read off the beats file one stage at a time:
 
@@ -892,28 +888,28 @@ What broke, read off the beats file one stage at a time:
 
 The fixes:
 
-- The octave check now records which rough segments it counted again (`TrackedBeats.recounted`), and once the tempo map is built, those positions are counted again on the grid indices from the same first downbeat (`count_on_grid` in `backend/analysis/octave.py`). An extra or dropped beat no longer moves the bars after it. The beats file gets the positions counted this way. The tracker's own positions are left as they are, since madmom's DBN decided each of those downbeats, and ENDYMION's restart at 94.7 s is one of them (milestone 4b).
-- The meter step takes the beat the music starts on as beat 1 unless the tracker's pickup holds up. When the first tracked beat is at the start of the first segment and madmom's first downbeat comes after it, the bars move onto the first beat if its accent is at least `accent_ratio` (1.3) times the accent on madmom's downbeat, and madmom's lattice isn't clearly stronger (the same 1.3) over the rest of the run. A real pickup leads into a louder downbeat. On Lapis the first beat reads 1.70 against 0.63, and over the song the two lattices are 1.28 and 1.24 (medians), so the bars move back by two grid beats. The meter's confidence stays what it was, it says how well the bar length holds.
+- The octave check now records which rough segments it counted again (`TrackedBeats.recounted`), and once the tempo map is built, those positions are counted again on the grid indices from the same first downbeat (`count_on_grid` in `backend/analysis/octave.py`). An extra or dropped beat no longer moves the bars after it. The beats file gets the positions counted this way. The tracker's own positions are left as they are, since madmom's DBN decided each of those downbeats, and real_c's restart at 94.7 s is one of them (milestone 4b).
+- The meter step takes the beat the music starts on as beat 1 unless the tracker's pickup holds up. When the first tracked beat is at the start of the first segment and madmom's first downbeat comes after it, the bars move onto the first beat if its accent is at least `accent_ratio` (1.3) times the accent on madmom's downbeat, and madmom's lattice isn't clearly stronger (the same 1.3) over the rest of the run. A real pickup leads into a louder downbeat. On real_d the first beat reads 1.70 against 0.63, and over the song the two lattices are 1.28 and 1.24 (medians), so the bars move back by two grid beats. The meter's confidence stays what it was, it says how well the bar length holds.
 
 The band strengths at the start show why that's the right beat. The strong positions follow a 3-3-3-3-2-2 pattern in 16ths of 146, which starts on the first beat and repeats every 146 bar. Folded over a 146 bar across the whole song, the strengths are flat at the beat level (the mid band reads 0.66 to 0.71 on all four beats), so nothing later in the song could have told the phase apart.
 
-Now Lapis comes out as one 4/4 region with the anchor on the first tracked beat, 8078.498 ms. With `music starts at measure` at its default of 1 that's measure 1 at 291.99 bpm and with the bpm halved. The mp3 offset is −7279.573 ms at 291.99 and −6457.627 ms at 145.99, against −6475.000 ms in the chart. The 17 ms left is the beat sitting later by ear than on the grid, the open bias question in "grid timing at the start of MisoilePunch♪". `tests/test_real_song.py` checks the meter, the anchor and both offsets from the stored beats file, the mp3 offset at 146 within 20 ms of the chart's (a beat off would be 411 ms) and within 1 ms of what the grid gives.
+Now real_d comes out as one 4/4 region with the anchor on the first tracked beat, 8078.498 ms. With `music starts at measure` at its default of 1 that's measure 1 at 291.99 bpm and with the bpm halved. The mp3 offset is −7279.573 ms at 291.99 and −6457.627 ms at 145.99, against −6475.000 ms in the chart. The 17 ms left is the beat sitting later by ear than on the grid, the open bias question in "grid timing at the start of real_a". `tests/test_real_song.py` checks the meter, the anchor and both offsets from the stored beats file, the mp3 offset at 146 within 20 ms of the chart's (a beat off would be 411 ms) and within 1 ms of what the grid gives.
 
 Limits:
 
 - The music-start rule rests on one song. An intro whose one-beat pickup is as loud as the bar it leads into would get its pickup as beat 1. `music starts at measure`, the anchor buttons and `split meter here` are there for that.
-- MisoilePunch♪, YOUNITHM and ENDYMION weren't attached in this session, so their real-song tests skipped. MisoilePunch♪'s music starts on madmom's downbeat (measure 1 at 62.362 ms), which the rule leaves alone. Whether madmom read a pickup at the start of the other two can't be checked from here. Their tests need running with their folders in place.
+- real_a, real_b and real_c weren't attached in this session, so their real-song tests skipped. real_a's music starts on madmom's downbeat (measure 1 at 62.362 ms), which the rule leaves alone. Whether madmom read a pickup at the start of the other two can't be checked from here. Their tests need running with their folders in place.
 - A beats file from before schema 2.5 still has the per-beat count. The real-song tests count it again on the grid when the whole song was doubled or halved. With `mixed`, the file doesn't say which stretches were, so those are left as they are.
 
-### the octave on Lapis
+### the octave on real_d
 
-291.99 is twice the chart's 146. The octave check doubles when the onsets halfway between the tracked beats reach 0.8 of the weaker beats. On Lapis the hats are on every off-beat 8th. In the high band the off-beats read 0.88 to 0.98 against 0.30 to 0.55 on the beats, and in the mid band, which holds the snare body and most attacks, they read 0.31 to 0.43 against 0.54 to 0.76. Summed, the two come out even, so the midpoints pass. A check that weighed the mid band over the hats would choose 146 here, and that's a reasonable reading of this song. It isn't changed: the same rule picked the octave on the other real songs, which can't be checked again from here, and 291.99 is a plain 2x that `÷2` turns into the chart's tempo with measure 1 where it was.
+291.99 is twice the chart's 146. The octave check doubles when the onsets halfway between the tracked beats reach 0.8 of the weaker beats. On real_d the hats are on every off-beat 8th. In the high band the off-beats read 0.88 to 0.98 against 0.30 to 0.55 on the beats, and in the mid band, which holds the snare body and most attacks, they read 0.31 to 0.43 against 0.54 to 0.76. Summed, the two come out even, so the midpoints pass. A check that weighed the mid band over the hats would choose 146 here, and that's a reasonable reading of this song. It isn't changed: the same rule picked the octave on the other real songs, which can't be checked again from here, and 291.99 is a plain 2x that `÷2` turns into the chart's tempo with measure 1 where it was.
 
-## Sonolus export removed (milestone 7)
+## platform level export removed (milestone 7)
 
-The Sonolus preset, its decoder compensation setting, `--sonolus` on the export CLI, `scripts/make_sonolus_test_level.py` and `shared/schema/sonolus_export.schema.json` are gone. The charts this tool is used for are set up in MikuMikuWorld, which takes the offset and the bpm and time signature changes from the chart setup list, and the Sonolus offset never got its check in the real app, so the preset was a second set of numbers nobody could vouch for. Its own beat 0, the bar line at or before the start of the audio, went with it, so there's one numbering left, the chart setup list's.
+The platform-specific level export preset, its decoder compensation setting, its option on the export CLI, a script that made a test level and the level export's schema file are gone. The charts this tool is used for are set up in a chart editor, which takes the offset and the bpm and time signature changes from the chart setup list, and the platform's offset never got its check in the real app, so the preset was a second set of numbers nobody could vouch for. Its own beat 0, the bar line at or before the start of the audio, went with it, so there's one numbering left, the chart setup list's.
 
-What stays: `source.codec` and `source.decoder_padding_samples` in the report, the decoder padding row in the report column, and both offsets (with the wav from ffmpeg and with the original file) in the chart setup list and the `for your chart` card. The plain timing export is unchanged. An old `?preset=sonolus` link gets the timing export, FastAPI ignores query parameters a route doesn't declare.
+What stays: `source.codec` and `source.decoder_padding_samples` in the report, the decoder padding row in the report column, and both offsets (with the wav from ffmpeg and with the original file) in the chart setup list and the `for your chart` card. The plain timing export is unchanged. An old `?preset=` link gets the timing export, FastAPI ignores query parameters a route doesn't declare.
 
 ## swing and gallop (milestone 7)
 

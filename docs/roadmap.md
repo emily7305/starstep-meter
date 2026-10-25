@@ -18,7 +18,7 @@ Milestone 3 runs on your own machine, and adds tempo maps to the beat tracking o
 
 ### Milestone 3b
 
-Dotted and triplet feel sections (a tempo at a simple ratio of the notated one) are kept on the notated grid as notes on their segment, and the `match` edit joins a segment to its neighbour's grid. The residual tests were changed to cope with beats that sit off the grid for a few beats at a time, which took the first real song, MisoilePunch♪, from 9 segments to one. The health check now imports madmom instead of only finding it, and a failed re-analysis keeps the last good report on screen.
+Dotted and triplet feel sections (a tempo at a simple ratio of the notated one) are kept on the notated grid as notes on their segment, and the `match` edit joins a segment to its neighbour's grid. The residual tests were changed to cope with beats that sit off the grid for a few beats at a time, which took the first real song, real_a, from 9 segments to one. The health check now imports madmom instead of only finding it, and a failed re-analysis keeps the last good report on screen.
 
 ### Milestone 3c
 
@@ -30,15 +30,15 @@ Milestone 4 adds meter and notation suggestions. The analysis infers the meter (
 
 ### Milestone 4b
 
-The three real songs were analyzed again with the meter and the band strengths. The accent rule stopped reading the fade-out of MisoilePunch♪ as a 3/4 stretch, and the fold score weighs each segment of an edge stretch by its level and length, which made ENDYMION's outro a fold suggestion. The half and double time detector found nothing on the real songs, because their drums show no plain backbeat in the bands it reads, and it was left as it was (see `decisions.md`, "half and double on these songs").
+The three real songs were analyzed again with the meter and the band strengths. The accent rule stopped reading the fade-out of real_a as a 3/4 stretch, and the fold score weighs each segment of an edge stretch by its level and length, which made real_c's outro a fold suggestion. The half and double time detector found nothing on the real songs, because their drums show no plain backbeat in the bands it reads, and it was left as it was (see `decisions.md`, "half and double on these songs").
 
 ### Milestone 5
 
-Milestone 5 adds export and a way to check the grid by ear. The timing JSON downloads from the browser, with the beats file if asked for, and is checked against the JSON Schema in `shared/schema/` before it goes out. A Sonolus preset gives the values a Sonolus level needs (the bgm offset in seconds, the bpm changes and the time signatures), with a decoder compensation setting for a player that decodes the audio differently from ffmpeg. A click track plays a click on every beat and an accented one on every bar line, on the same audio clock as the song. Every manual change is one entry in the edit log. Old jobs are deleted after 14 days without a change, one job can be deleted by hand, and a job still waiting in the queue when the server stops runs when it starts again.
+Milestone 5 adds export and a way to check the grid by ear. The timing JSON downloads from the browser, with the beats file if asked for, and is checked against the JSON Schema in `shared/schema/` before it goes out. A platform-specific level export gives the values a level on that platform needs (the audio offset in seconds, the bpm changes and the time signatures), with a decoder compensation setting for a player that decodes the audio differently from ffmpeg. A click track plays a click on every beat and an accented one on every bar line, on the same audio clock as the song. Every manual change is one entry in the edit log. Old jobs are deleted after 14 days without a change, one job can be deleted by hand, and a job still waiting in the queue when the server stops runs when it starts again.
 
 ### Milestone 6
 
-Milestone 6 adds a second opinion on the beats, a confidence for the tempo map, and a list for setting up a chart. librosa's beat tracker runs as a cross-check next to madmom and flags the tempo segments where the two disagree by more than a configurable number of ms (felt sections and off-beat runs are left out, since the grid deliberately doesn't follow the tracker there). Every tempo segment and every stretch of 16 grid beats gets a confidence from the fit residuals and that agreement, and the low ones are shaded on the timeline. A chart setup panel lists the music offset and every bpm and time signature change by measure, for typing into a chart editor (MikuMikuWorld was the one checked). The zoomed view draws the wav at its own sample rate, and the playhead is drawn behind the sound by the output latency the browser reports. Jobs can be deleted from the recent list.
+Milestone 6 adds a second opinion on the beats, a confidence for the tempo map, and a list for setting up a chart. librosa's beat tracker runs as a cross-check next to madmom and flags the tempo segments where the two disagree by more than a configurable number of ms (felt sections and off-beat runs are left out, since the grid deliberately doesn't follow the tracker there). Every tempo segment and every stretch of 16 grid beats gets a confidence from the fit residuals and that agreement, and the low ones are shaded on the timeline. A chart setup panel lists the music offset and every bpm and time signature change by measure, for typing into a chart editor (it was checked in one editor). The zoomed view draws the wav at its own sample rate, and the playhead is drawn behind the sound by the output latency the browser reports. Jobs can be deleted from the recent list.
 
 What broke on the way, and what was changed:
 
@@ -47,15 +47,15 @@ What broke on the way, and what was changed:
 - Two segments are fitted on their own, so the beat where one hands over to the next is rarely whole. On a 120 to 150 bpm click track it was 0.77 ms off the first segment's line, which made the bar before the change 4.0015 beats and came out as a time signature of 64/64. A bar length or a change within 2 ms of whole beats is now taken as whole.
 - The zoomed view drew from wavesurfer's 8 kHz decode, which left 320 samples at 40 ms wide. It now reads the decoded wav itself.
 - The playhead is drawn behind the rendered position by the output latency and base latency the browser reports. Only the drawing moves.
-- Decoder padding: MikuMikuWorld plays an mp3's decoder padding, so the chart setup list shows an offset for the wav converted with ffmpeg and one for the original file.
-- The Sonolus decoder compensation default is still 0 ms. It waits on the test level in the README ("Checking the offset in Sonolus"), and there is no result from the real app yet.
+- Decoder padding: the chart editor it was checked in plays an mp3's decoder padding, so the chart setup list shows an offset for the wav converted with ffmpeg and one for the original file.
+- The level export's decoder compensation default is still 0 ms. It waited on a test level checked in the platform's own app, which never got a result before the export was removed in milestone 7.
 
 ### Milestone 6b
 
 Milestone 6b checked the cross-check and the timing on real songs, fixed one bug, and rewrote the README for someone opening the repository for the first time.
 
-- The three real songs were analyzed again, so their beats files carry librosa's beats and `tests/test_real_song.py` runs the cross-check on them. The segments that are right sit 4 to 7 ms apart (MisoilePunch♪ 7.13 ms, YOUNITHM 4.16 ms, ENDYMION 6.99 ms), and the one flagged is the 267.87 bpm stretch of ENDYMION's outro at 20.75 ms, which the chart has at 220. Click tracks give 0.01 ms. The 20 ms limit stays.
-- The start of MisoilePunch♪ looked late in the zoomed view (`tracked 944.068 ms · grid +7.170 ms`), and about −92 ms sounded right with the mp3 against the panel's −85.382 ms. Checked stage by stage, the fit and the anchor are not late. The grid is about 7 ms early on this song, where librosa's beats sit 7.7 ms after it, and on the other two songs the trackers agree. It looks like madmom's bias on this song's attacks, and the onset snap barely moves beats on full mixes, so it can't correct for it. Nothing was changed, because a correction tuned on one song by ear would move every other song. Nudging the anchor by hand is the way to correct it.
+- The three real songs were analyzed again, so their beats files carry librosa's beats and `tests/test_real_song.py` runs the cross-check on them. The segments that are right sit 4 to 7 ms apart (real_a 7.13 ms, real_b 4.16 ms, real_c 6.99 ms), and the one flagged is the 267.87 bpm stretch of real_c's outro at 20.75 ms, which the chart has at 220. Click tracks give 0.01 ms. The 20 ms limit stays.
+- The start of real_a looked late in the zoomed view (`tracked 944.068 ms · grid +7.170 ms`), and about −92 ms sounded right with the mp3 against the panel's −85.382 ms. Checked stage by stage, the fit and the anchor are not late. The grid is about 7 ms early on this song, where librosa's beats sit 7.7 ms after it, and on the other two songs the trackers agree. It looks like madmom's bias on this song's attacks, and the onset snap barely moves beats on full mixes, so it can't correct for it. Nothing was changed, because a correction tuned on one song by ear would move every other song. Nudging the anchor by hand is the way to correct it.
 - A meter change came out one bar late. On a click track with a 7/4 change at beat 144, the 7/4 started at beat 151, with or without a tempo change before it. The accent runs were at fault: the first 7 beat bar starts on an accented beat and the three beats after it are plain, so it also reads as one more bar of 4/4, and when two accent runs claim the same bar the longer one keeps it. A run whose last bar is where a run of another length starts now gives that bar up first. Both tracks put the 7/4 on beat 144 within 0.7 ms.
 - The two offsets in the chart setup list differ by exactly the decoder padding. Both were already worked out from unrounded values, and the panel now says so, with a test that checks the difference to 1e-9 ms.
 - The `for your chart` card above the timeline gives the plain answer right after an analysis: the bpm, the offsets and the time signature, each with a `?` explanation, a line when they change, and a warning when a stretch came out with low confidence. Its numbers come from the chart setup list.
@@ -63,7 +63,7 @@ Milestone 6b checked the cross-check and the timing on real songs, fixed one bug
 
 ### Milestone 6c
 
-Milestone 6c moved where the chart starts. Measure 0 had been the first bar line in the audio, which on a song with a long silent start (SHIKI - Lapis, about 8 s at 145.99 bpm) left four or five empty measures before the music and an offset that didn't skip the silence. Now the music starts at the trim start, or at the first tracked beat when that is earlier. The bar it starts in is measure 1, and measure 0 is one empty bar before it, so the offset is minus where measure 0 starts and is positive when the silence is shorter than a bar. The setting `music starts at measure` in the chart setup panel can put the music at measure 0 instead, and is remembered per browser. The timeline, the chart setup list and the `for your chart` card use the same numbering, and bars before measure 0 are drawn faintly with no number. The Sonolus export keeps its own beat 0. MisoilePunch♪ moved by one bar, from offsets of `-62.362` and `-85.382` ms to `826.515` and `803.494` ms. The reasons are in `docs/decisions.md` (where the chart starts).
+Milestone 6c moved where the chart starts. Measure 0 had been the first bar line in the audio, which on a song with a long silent start (real_d, about 8 s at 145.99 bpm) left four or five empty measures before the music and an offset that didn't skip the silence. Now the music starts at the trim start, or at the first tracked beat when that is earlier. The bar it starts in is measure 1, and measure 0 is one empty bar before it, so the offset is minus where measure 0 starts and is positive when the silence is shorter than a bar. The setting `music starts at measure` in the chart setup panel can put the music at measure 0 instead, and is remembered per browser. The timeline, the chart setup list and the `for your chart` card use the same numbering, and bars before measure 0 are drawn faintly with no number. The level export keeps its own beat 0. real_a moved by one bar, from offsets of `-62.362` and `-85.382` ms to `826.515` and `803.494` ms. The reasons are in `docs/decisions.md` (where the chart starts).
 
 ### Milestone 7
 
@@ -71,10 +71,10 @@ Milestone 7 is about using the tool. The timeline can be driven with the mouse: 
 
 Analysis changes:
 
-- SHIKI - Lapis had an odd bar at measure 38 and its first downbeat a beat late. The octave check's doubled beats were counted per tracked beat, so one extra beat in a quiet bar moved every downbeat after it, and madmom took the song's first beat for a pickup. Bar positions the octave check counts are now counted on the grid, and the first beat is beat 1 unless the tracker's pickup holds up in the accents. Lapis is 4/4 all the way through with measure 1 on its first beat.
+- real_d had an odd bar at measure 38 and its first downbeat a beat late. The octave check's doubled beats were counted per tracked beat, so one extra beat in a quiet bar moved every downbeat after it, and madmom took the song's first beat for a pickup. Bar positions the octave check counts are now counted on the grid, and the first beat is beat 1 unless the tracker's pickup holds up in the accents. real_d is 4/4 all the way through with measure 1 on its first beat.
 - Swing and gallop sections are found from where the onsets sit between the grid lines, with the note division a chart editor needs there, as suggestions in the list and a line in the chart setup panel (schema 2.5).
 - Re-analysis moves the job to the top of the recent list with the time it finished, and a test checks that it runs every stage again and replaces every auto result.
-- The Sonolus export is removed. The timing JSON is the one export.
+- The platform-specific level export is removed. The timing JSON is the one export.
 - `scripts/measure_bias_local.py` measures madmom's raw beats against the strongest nearby onsets on a folder of songs, for checking the 11.8 ms bias on real music.
 
 ## Manual checks
@@ -83,7 +83,7 @@ These are the checks that were written down for each version, in order. The expe
 
 Two things changed in the UI after most of these were written. Bar numbers on the timeline start at 0 on the first bar line in the audio, not on the first downbeat. That is the same line for the click tracks below whose lead-in is shorter than one bar. The milestone 1 track has a 2 s lead-in, which is a full bar at 120 bpm, so there bar 0 can be earlier than the first downbeat. And the `for your chart` card now sits above the timeline with the bpm and the offsets, so a check that reads a number from the report column can also read it there.
 
-Milestone 7 removed the Sonolus export. The steps below that use the `sonolus` preset, its decoder compensation or `scripts/make_sonolus_test_level.py` no longer apply, and the export block has only `include beats.json` and `export json`.
+Milestone 7 removed the platform-specific level export. The steps below that use its preset, its decoder compensation or a script that made a test level no longer apply, and the export block has only `include beats.json` and `export json`.
 
 A third change came with milestone 6c. The bar the music starts in is now measure 1 and measure 0 is one empty bar before it. For the tracks below, whose music starts in the first bar, every measure or bar number read from the timeline or the chart setup list is one higher than the checks say, and the offsets are minus where measure 0 starts, which is positive when the silence before the music is shorter than a bar.
 
@@ -152,7 +152,7 @@ Next the MP3 check. Convert the file and upload that as well:
 ffmpeg -i click-137.wav -b:a 192k click-137.mp3
 ```
 
-The decoder padding row shows 1105 samples (25.057 ms), and the beat offset stays about 136.8 ms, because ffmpeg honours the LAME gapless header. A player that ignores that header would play this MP3 about 25 ms late. That correction was left for export later and is not part of the anchor. It is now in the chart setup list (the second offset) and in the decoder compensation of the Sonolus export, see the milestone 5 and 6 checks.
+The decoder padding row shows 1105 samples (25.057 ms), and the beat offset stays about 136.8 ms, because ffmpeg honours the LAME gapless header. A player that ignores that header would play this MP3 about 25 ms late. That correction was left for export later and is not part of the anchor. It is now in the chart setup list (the second offset) and in the decoder compensation of the level export, see the milestone 5 and 6 checks.
 
 For the Japanese title check, copy the WAV to a Japanese name and upload it:
 
@@ -279,7 +279,7 @@ In the UI, upload `drums-check.wav` and wait for the job to finish.
 4. Press "dismiss" on the other one. The edits list logs its status.
 5. Press "re-analyze". Neither suggestion comes back.
 
-The suggestions are tuned on these synthetic drums only, so run `scripts/eval_local.py` on your songs again and compare the `notation_suggestions` column with the charts. To let `tests/test_real_song.py` check MisoilePunch♪ (4/4 and no suggestions), YOUNITHM (half at the measures charted at 130, an expected failure for now) and ENDYMION (a fold for its outro), analyze each one again and copy its `beats.json` and `report.json` into `tests/real/<song>/` as before. The same folders now also feed the confidence and cross-check tests, which use `cross_check_beats` from the beats file when it has them.
+The suggestions are tuned on these synthetic drums only, so run `scripts/eval_local.py` on your songs again and compare the `notation_suggestions` column with the charts. To let `tests/test_real_song.py` check real_a (4/4 and no suggestions), real_b (half at the measures charted at 130, an expected failure for now) and real_c (a fold for its outro), analyze each one again and copy its `beats.json` and `report.json` into `tests/real/<id>/` as before. The same folders now also feed the confidence and cross-check tests, which use `cross_check_beats` from the beats file when it has them.
 
 Don't commit the generated audio.
 
@@ -300,14 +300,14 @@ Start the backend and the frontend as described in Running, upload `click-137.mp
 2. With the click track on, press → five times quickly with the timeline focused. The clicks move 5 ms later and the flam is clear. Press ← five times to come back. That's two edits, and the edits list shows each as one row.
 3. Click "split here" on a beat in the zoomed view, then ×2 on the second segment. The clicks double from that beat on, and the accents follow the bar lines. The edits list has one row per change. The ×2 row has a line for the bpm and one for the confidence, the split already made both halves manual.
 4. In the export block, pick "timing json" and press "export json". A file named `click-137.timing.json` downloads, and the report in it has the same tempo map and edits as the report column. Tick "include beats.json" and export again. The file now has a `beats` section.
-5. Pick "sonolus" and the 25.057 ms preset (its button reads `25.057 ms, 1105 padding samples`) and export. `bgmOffset` is −1.838163 and `first_downbeat_beat` 4, the same as before the split, and `bpm_changes` has 120 bpm at beat 0 and 240 bpm at the beat of the split.
+5. Pick the platform level export and the 25.057 ms preset (its button reads `25.057 ms, 1105 padding samples`) and export. The level's audio offset is −1.838163 and `first_downbeat_beat` 4, the same as before the split, and `bpm_changes` has 120 bpm at beat 0 and 240 bpm at the beat of the split.
 6. Re-analyze. The manual segments stay, the click track follows them, and the edits list is unchanged.
 
 Then a real song. Play it with the click track on from a few bars in. If the accents drift off the downbeats, the tempo map is off there, and the timeline shows where.
 
 Don't commit the generated audio.
 
-The check of the Sonolus preset in the real app made two test levels with `scripts/make_sonolus_test_level.py` from the exports of step 5. It never got a result, and the preset was removed in milestone 7.
+The check of the level export in the platform's own app made two test levels with a script from the exports of step 5. It never got a result, and the preset was removed in milestone 7.
 
 ### Milestone 6 check
 
@@ -319,7 +319,7 @@ Since milestone 6c the first downbeat is measure 1 and measure 0 is one bar of 2
 
 1. The `for your chart` card above the timeline reads 120.00 for the bpm, both offsets and 4/4, with no line about changes and no warning.
 2. In the `chart setup` panel, the `music offset` item shows the same two offsets. `audio file` shows `ffmpeg -i "click-137.mp3" "click-137.wav"`, and `copy command` copies it. The list has two rows, `m.0 · 4/4` and `m.0 · 120.00 bpm`.
-3. Run the command, load `click-137.wav` in MikuMikuWorld, type the first offset into the music offset field, and listen whether the editor's first measure and beats land on the clicks of the song. With the original mp3 and the second offset it should sound the same.
+3. Run the command, load `click-137.wav` in the chart editor, type the first offset into the music offset field, and listen whether the editor's first measure and beats land on the clicks of the song. With the original mp3 and the second offset it should sound the same.
 4. Under the play time, a line like `playhead −42.0 ms output latency` shows the latency the browser reports. Press `click track` and play. Check the playhead against a click on wired output.
 5. Zoom the zoomed view to 40 ms. The attack is drawn from the wav at its own sample rate, 44.1 kHz here.
 6. Press `delete` on this job in the `recent` list. It asks `delete this job and its files?`. Press `cancel`, and nothing changes. Press `delete` and then `delete` again, and the job is gone from the list and its folder from `data/jobs/`.
@@ -338,7 +338,7 @@ The script prints the tempo change at 48500.000 ms and the meter change at 67700
 
 Then the plain answer. On `late-check.wav` the `for your chart` card reads `bpm at the start` with 120.00, and a line `this song changes speed once and changes time signature once.` with a `see every change` link that jumps to the chart setup list. Press `more decimals` and the bpm shows 4 decimals. Press `copy` and paste somewhere: the text has the same lines as the card.
 
-Finally the offsets. For a real mp3 with decoder padding, the two offsets differ by the padding to the last digit worked out before rounding. MisoilePunch♪ is the example: `-62.362` ms with the wav and `-85.382` ms with the mp3, with 23.021 ms of padding. A 0.001 ms difference from subtracting the rounded numbers is expected.
+Finally the offsets. For a real mp3 with decoder padding, the two offsets differ by the padding to the last digit worked out before rounding. real_a is the example: `-62.362` ms with the wav and `-85.382` ms with the mp3, with 23.021 ms of padding. A 0.001 ms difference from subtracting the rounded numbers is expected.
 
 Don't commit the generated audio.
 
@@ -379,6 +379,6 @@ Start the backend and the frontend as described in Running.
     ```
 
     The script prints the swing from about 14150.7 to 27301.4 ms and the gallop from about 27301.4 to 40452.1 ms. Analyze it. The suggestions list has a `swing 2.00:1` row with `1/12` and a `gallop, 8th-16th-16th` row with `1/16`, each starting within a bar of those times, and the chart setup panel has a line for each, like `m.9 to m.16 · swing 2.00:1 · 1/12`. Press `÷2` on the segment: the swing row reads `1/24` and the gallop `1/32`.
-11. Lapis: analyze `SHIKI - Lapis.mp3`. The meter is 4/4 all the way through, with no `m.38 · 1/4` row in the chart setup list. The offset with the mp3 is about `-7279.6` ms at 291.99 bpm. Press `÷2`: about `-6457.6` ms, with measure 1 on the first beat, 17 ms from the chart's -6475 ms by ear.
+11. real_d: analyze the mp3 of real_d. The meter is 4/4 all the way through, with no `m.38 · 1/4` row in the chart setup list. The offset with the mp3 is about `-7279.6` ms at 291.99 bpm. Press `÷2`: about `-6457.6` ms, with measure 1 on the first beat, 17 ms from the chart's -6475 ms by ear.
 
 Don't commit the generated audio.

@@ -21,27 +21,29 @@ For a step-by-step install from a machine with nothing on it, see `docs/setup-gu
 
 ## Status
 
+The real songs the tool was checked on are referred to by neutral ids (`real_a`, `real_b` and so on). Which id is which song is written only in `tests/real/SONGS.local.md`, which is git-ignored and exists only on the owner's machine.
+
 What works:
 
 - On generated click tracks the bpm comes out within 0.0002 of the true value and the first downbeat within about 1 ms, through wav, mp3, m4a and ogg, at 44.1 and 48 kHz. The test tolerances are 0.01 bpm and 5 ms.
 - Tempo changes on click tracks are found with the right bpm and change point. Dotted and triplet feel sections and stretches where the tracker followed the off-beat are kept on the notated grid instead of being split off.
-- The three real songs checked so far come out at their charted tempos (MisoilePunch♪ at 270, YOUNITHM at 260, ENDYMION at 220) as one long segment each. ENDYMION's outro is split off as two short ones.
-- The cross-check against librosa flags only one stretch on those three songs, the 267.87 bpm part of ENDYMION's outro, which the chart has at 220.
-- SHIKI - Lapis comes out at 291.99 bpm (twice the chart's 146) in 4/4 all the way through, with measure 1 on the first beat. Its offset with the mp3 is -6457.627 ms at 145.99 bpm, against -6475 ms in a chart made by ear. It used to get an odd bar at measure 38 and a first downbeat one beat late, see `docs/decisions.md` (Lapis).
+- The three real songs checked so far come out at their charted tempos (real_a at 270, real_b at 260, real_c at 220) as one long segment each. real_c's outro is split off as two short ones.
+- The cross-check against librosa flags only one stretch on those three songs, the 267.87 bpm part of real_c's outro, which the chart has at 220.
+- real_d comes out at 291.99 bpm (twice the chart's 146) in 4/4 all the way through, with measure 1 on the first beat. Its offset with the mp3 is -6457.627 ms at 145.99 bpm, against -6475 ms in a chart made by ear. It used to get an odd bar at measure 38 and a first downbeat one beat late, see `docs/decisions.md` (real_d).
 - Swing (long-short 8ths around 2:1) and gallops (8th-16th-16th and 16th-16th-8th, straight or on triplets) are found on generated click and drum tracks from 100 to 292 bpm, on the right bar lines, and straight 8ths, 16ths and triplets give none.
 
 Known to be imperfect:
 
 - The thresholds are tuned on generated click and drum tracks and on three real songs. On other music, check the bands, the bar lines and the suggestions, and fix them by hand where they are wrong.
-- The half and double time suggestions found nothing on the three real songs. Their drums show no plain backbeat in the three frequency bands the detector reads, so there is nothing for it to find, and the stretches YOUNITHM charts at half tempo are the stretches without drums. A missed suggestion was judged cheaper than a wrong one, so the detector was left as it was. Half and double time are set with the bpm buttons.
+- The half and double time suggestions found nothing on the three real songs. Their drums show no plain backbeat in the three frequency bands the detector reads, so there is nothing for it to find, and the stretches real_b charts at half tempo are the stretches without drums. A missed suggestion was judged cheaper than a wrong one, so the detector was left as it was. Half and double time are set with the bpm buttons.
 - The onset snap barely refines madmom's beats on full mixes. On the real songs it moves 80% of the beats by no more than about 2.6 ms after the bias shift. So on real music the timing rests on madmom's own beats plus the 11.8 ms bias that was measured on click tracks.
-- That bias is not the same on every song. On MisoilePunch♪ the grid sits about 7 ms earlier than librosa's beats and than what sounded right by ear, and on Lapis about 17 ms earlier than the chart made by ear. Nothing is changed for it, because a correction tuned on two songs would move every other song. Nudging the anchor by hand with the click track on is the way to correct it, and `scripts/measure_bias_local.py` measures the bias on your own songs.
+- That bias is not the same on every song. On real_a the grid sits about 7 ms earlier than librosa's beats and than what sounded right by ear, and on real_d about 17 ms earlier than the chart made by ear. Nothing is changed for it, because a correction tuned on two songs would move every other song. Nudging the anchor by hand with the click track on is the way to correct it, and `scripts/measure_bias_local.py` measures the bias on your own songs.
 - When madmom reads the first beat of a song as a pickup, the analysis takes that beat as beat 1 if it is clearly louder than the downbeat madmom picked. That rule rests on one song. A real pickup as loud as the bar it leads into gets made beat 1, and `music starts at measure`, the anchor buttons and `split meter here` fix that.
 - Swing and gallop have only run on generated tracks. Real songs, with more going on between the beats, may read as neither. The `subdivisions` column of `scripts/eval_local.py` shows what it finds on your songs.
 - Sections are not detected.
 - The librosa fallback holds one tempo, so it can't follow tempo changes or felt sections, its downbeat is a guess, and its confidence is halved.
 - The denominator of an inferred meter is always 4. Seven beats of the grid are 7/4, and whether a chart writes that as 7/8 at twice the bpm is a notation choice the audio can't make.
-- ENDYMION's outro is left as two short segments. A fold suggestion offers to put it on the neighbouring grid.
+- real_c's outro is left as two short segments. A fold suggestion offers to put it on the neighbouring grid.
 
 ## Install on Windows
 
@@ -220,7 +222,7 @@ On the first visit a tour of five steps points at the drop area, the card, the t
 The `for your chart` card at the top is the short version of the whole analysis, in words that don't need the technical panels. It is worked out from the chart setup list further down, so its numbers can't differ from that list.
 
 - `bpm` is the tempo of the song. When the speed changes, it reads `bpm at the start` and gives the first one.
-- `offset` is the number to type into a chart editor's music offset field. It is minus the place where measure 0 starts in the song. Measure 0 is one empty bar before the bar the music starts in, so the offset is negative after a long silence at the start and positive when the silence is shorter than a bar. There are two, side by side: `if you load the wav made with ffmpeg`, and, only when the original file has decoder padding, `if you load the original mp3` (or m4a, or whichever the original is). Step 6 explains the difference.
+- `offset` is the number to type into a chart editor's music offset field. With the default setting (`a positive offset starts the song` set to `later`, see step 5) it is minus the place where measure 0 starts in the song. Measure 0 is one empty bar before the bar the music starts in, so the offset is negative after a long silence at the start and positive when the silence is shorter than a bar. There are two, side by side: `if you load the wav made with ffmpeg`, and, only when the original file has decoder padding, `if you load the original mp3` (or m4a, or whichever the original is). Step 6 explains the difference.
 - `time signature` is the one at the start, like `4/4`.
 - Each of the three has a `?` button that opens a one line explanation.
 - When the bpm or the time signature changes, a line says so, like `this song changes speed 3 times and changes time signature once`, with a `see every change` link to the chart setup list.
@@ -276,7 +278,7 @@ The same list has a row for each stretch where the notes between the beats are u
 
 The `chart setup` panel, across the page under the zoomed view and the segment panel, lists what to type into a chart editor. It has three parts.
 
-- `music offset` has the setting `music starts at measure` with the buttons `0` and `1`. The default is 1, and the choice is remembered in the browser. Under it are two values, `with the wav from ffmpeg` and `with the original mp3` (the original's extension), and a note saying where the music starts and which measure it is in, like `the music starts in measure 1, at 62.362 ms, and measure 0 is one empty bar of lead-in before it`, and where measure 0 starts, either `into the audio file` or `before the audio file starts`. The longer reasons are in the tooltips of these notes.
+- `music offset` has the setting `music starts at measure` with the buttons `0` and `1`. The default is 1, and the choice is remembered in the browser. Under it is a second setting, `a positive offset starts the song`, with the buttons `later` and `earlier`. The default is `later`, which is how the chart editor the list was checked in works, and the choice is remembered in the browser. `earlier` flips the sign of both offsets in the chart setup list, in its copied text and in the `for your chart` card. Under the settings are two values, `with the wav from ffmpeg` and `with the original mp3` (the original's extension), and a note saying where the music starts and which measure it is in, like `the music starts in measure 1, at 62.362 ms, and measure 0 is one empty bar of lead-in before it`, and where measure 0 starts, either `into the audio file` or `before the audio file starts`. The longer reasons are in the tooltips of these notes.
 - `audio file` shows the ffmpeg command that makes the wav, with a `copy command` button.
 - `bpm and time signature changes, in order` lists the first bpm and time signature and every change after them, like `m.24 · 150.00 bpm` or `m.37 · 3/4`. Measures are numbered the way the timeline numbers its bars, so measure 0 is the empty bar before the music, or the bar the music starts in when `music starts at measure` is 0. A row marked `mid-measure` is not on a bar line, and its row says where inside the measure it goes, like `beat 3`, where `beat 1` is the bar line. When the song has swing or gallop stretches, a line for each follows, like `m.9 to m.16 · swing 2.00:1 · 1/12`, the division to set the grid to in those measures.
 
@@ -284,7 +286,7 @@ The `chart setup` panel, across the page under the zoomed view and the segment p
 
 ### 6. Set up the chart in an editor
 
-These steps use MikuMikuWorld, the editor the list was checked against.
+These steps were checked in one chart editor. Other editors have the same fields under other names; check once which way yours moves the song for a positive offset and set `a positive offset starts the song` to match.
 
 1. Convert the song to a wav with ffmpeg:
 
@@ -294,12 +296,12 @@ These steps use MikuMikuWorld, the editor the list was checked against.
 
    The panel shows the command with the song's name filled in and in quotes, like `ffmpeg -i "song.mp3" "song.wav"`, and `copy command` copies it. For a wav source the output is named `song-ffmpeg.wav`, so ffmpeg doesn't write over the original. ffmpeg skips the decoder padding at the start of an mp3 the same way the analysis does, so the wav lines up with the timeline.
 2. Load that wav as the song in the editor.
-3. Type the offset labelled `with the wav from ffmpeg` into the music offset field. Offsets are minus where measure 0 starts in the audio, shown with 3 decimals. After a long silence measure 0 is inside the file and the offset is negative. When the silence before the music is shorter than a bar, measure 0 starts before the file and the offset is positive, which is normal. A positive offset in MikuMikuWorld starts the song later.
+3. Type the offset labelled `with the wav from ffmpeg` into the music offset field. With the default `later`, offsets are minus where measure 0 starts in the audio, shown with 3 decimals. After a long silence measure 0 is inside the file and the offset is negative. When the silence before the music is shorter than a bar, measure 0 starts before the file and the offset is positive, which is normal. If your editor moves the song earlier for a positive offset, press `earlier` and the signs flip.
 4. Add each bpm and time signature change at the measure the list gives, in order. A row marked `mid-measure` is placed at the listed beat inside the measure.
 
-To use the original mp3 in the editor instead, type the second offset, `with the original mp3`. MikuMikuWorld plays the mp3's decoder padding, so that offset is the padding further negative, and the two offsets differ by exactly the padding. The panel works that out before rounding. For MisoilePunch♪, the music starts on the bar line at 62.362 ms, which is measure 1, and measure 0 starts one bar earlier, at -826.515 ms, before the file. So the offset is `826.515` ms with the wav. The mp3 has 23.021 ms of decoder padding, so the offset is `803.494` ms with the mp3. The padding is shown in the report column (`decoder padding`) and in the note under the offsets.
+To use the original mp3 in the editor instead, type the second offset, `with the original mp3`. The chart editor the list was checked in plays the mp3's decoder padding, so with `later` that offset is the padding further negative, and the two offsets differ by exactly the padding. The panel works that out before rounding. For real_a, a constant 270 bpm song, the music starts on the bar line at 62.362 ms, which is measure 1, and measure 0 starts one bar earlier, at -826.515 ms, before the file. So the offset is `826.515` ms with the wav. The mp3 has 23.021 ms of decoder padding, so the offset is `803.494` ms with the mp3. The padding is shown in the report column (`decoder padding`) and in the note under the offsets.
 
-The offset is positive here because the silence before the music is shorter than a bar. With a longer silence it is negative. A click track with 8 s of silence at 145.99 bpm has its first downbeat at 7999.268 ms, which is measure 1. A bar is 1643.948 ms, so measure 0 starts at 6355.320 ms and the offset is `-6355.320` ms with the wav. The silence before measure 0 is skipped by the offset. If the editor, or your habit, wants the music at measure 0, press `0` next to `music starts at measure`. The bar the music starts in is then measure 0, with no lead-in bar, and the offset is minus where that bar starts: `-62.362` ms for MisoilePunch♪ with the wav, and `-7999.268` ms for the 8 s example. Both offsets are always shown.
+The offset is positive here because the silence before the music is shorter than a bar. With a longer silence it is negative. A click track with 8 s of silence at 145.99 bpm has its first downbeat at 7999.268 ms, which is measure 1. A bar is 1643.948 ms, so measure 0 starts at 6355.320 ms and the offset is `-6355.320` ms with the wav. The silence before measure 0 is skipped by the offset. If the editor, or your habit, wants the music at measure 0, press `0` next to `music starts at measure`. The bar the music starts in is then measure 0, with no lead-in bar, and the offset is minus where that bar starts: `-62.362` ms for real_a with the wav, and `-7999.268` ms for the 8 s example. Both offsets are always shown. The signs in these examples are the ones for `later`.
 
 The tool never cuts the audio. The trim only marks where the music starts, so the offset is what tells an editor that plays the file from 0 ms where measure 0 is.
 
@@ -335,7 +337,7 @@ python -m backend.analysis.export data/jobs/<job id>/report.json --beats data/jo
 
 It prints the timing export with the beats file in it to stdout. Leave out `--beats` for the report alone.
 
-There used to be a Sonolus preset here as well. It was removed in milestone 7, before its offset had been checked in the real app. The decoder padding it compensated for is still in the report, and both offsets in the chart setup list and the `for your chart` card account for it.
+There used to be a platform-specific level export here as well. It was removed in milestone 7, before its offset had been checked in the real app. The decoder padding it compensated for is still in the report, and both offsets in the chart setup list and the `for your chart` card account for it.
 
 ## Real songs: eval_local.py
 
@@ -378,7 +380,7 @@ A song that fails gets a row with only `file` and `error` filled in, and the run
 
 ## Real songs: measure_bias_local.py
 
-madmom's beats are shifted 11.8 ms later before the onset snap. That bias was measured on click tracks, and on full mixes the snap barely moves the beats, so the analysis can't tell whether it holds on real music (see "grid timing at the start of MisoilePunch♪" in `docs/decisions.md`). `scripts/measure_bias_local.py` measures it on a folder of your own songs:
+madmom's beats are shifted 11.8 ms later before the onset snap. That bias was measured on click tracks, and on full mixes the snap barely moves the beats, so the analysis can't tell whether it holds on real music (see "grid timing at the start of real_a" in `docs/decisions.md`). `scripts/measure_bias_local.py` measures it on a folder of your own songs:
 
 ```powershell
 python scripts\measure_bias_local.py C:\path\to\songs --recursive --out results\bias.csv
@@ -407,7 +409,7 @@ python -m backend.schema.export_schema --check
 
 Tests that need ffmpeg are skipped, not failed, when it is missing, and the madmom tests are skipped when madmom isn't installed. The tempo map tests run on synthetic beat lists and click tracks with known change points and felt rhythm sections. The meter and notation tests run on click tracks with meter changes and on generated drum tracks with half and double time sections. `tests/test_cross_check.py` and `tests/test_confidence.py` run on beat lists, and the confidence tests also on click tracks with a messy section, felt sections and an off-beat section. `tests/test_swing.py` runs the swing and gallop detector on click tracks with softer ticks between the beats and on drum tracks with swung or galloping hats, at 100 to 292 bpm, plus one click track through the whole pipeline. `tests/test_reanalysis.py` checks on a click track with a tempo change that a re-analysis runs every stage again and replaces every auto result while a manual segment and the edit log stay, and that the job moves up the recent list. Test audio is generated in code and cached in `tests/fixtures/`, which is git-ignored.
 
-`tests/test_real_song.py` checks the tempo map on real songs' `beats.json` and `report.json`, one folder per song under `tests/real/` (for example `tests/real/endymion/`). That folder is git-ignored, it holds timing data only, and a song's tests skip when its folder is missing. The test also runs the notation suggestions again from `beats.json`, and skips that part for a song whose beats file has no band strengths (`grid_features`). It checks the confidence on the real songs too: no low confidence on MisoilePunch♪'s felt sections or on YOUNITHM's off-beat runs, and low confidence only where the trackers struggled. The cross-check is included when `beats.json` has `cross_check_beats`: it must flag only ENDYMION's outro, and that test skips for a song whose beats file has none. Without `cross_check_beats` the confidence is worked out from the residuals alone. For `tests/real/lapis/` it checks one 4/4 region all through, the anchor on the first beat, and the mp3 offset at 145.99 bpm within 20 ms of the chart's -6475 ms. A beats file written before schema 2.5 of a song the octave check doubled or halved has its bar positions counted per tracked beat, and the test counts them again on the grid the way the pipeline does now. To refresh a song, analyze it again and copy `beats.json` and `report.json` from `data/jobs/<job id>/` into `tests/real/<song>/`.
+`tests/test_real_song.py` checks the tempo map on real songs' `beats.json` and `report.json`, one folder per song under `tests/real/` (for example `tests/real/real_c/`). That folder is git-ignored, it holds timing data only, and a song's tests skip when its folder is missing. The test also runs the notation suggestions again from `beats.json`, and skips that part for a song whose beats file has no band strengths (`grid_features`). It checks the confidence on the real songs too: no low confidence on real_a's felt sections or on real_b's off-beat runs, and low confidence only where the trackers struggled. The cross-check is included when `beats.json` has `cross_check_beats`: it must flag only real_c's outro, and that test skips for a song whose beats file has none. Without `cross_check_beats` the confidence is worked out from the residuals alone. For `tests/real/real_d/` it checks one 4/4 region all through, the anchor on the first beat, and the mp3 offset at 145.99 bpm within 20 ms of the chart's -6475 ms. A beats file written before schema 2.5 of a song the octave check doubled or halved has its bar positions counted per tracked beat, and the test counts them again on the grid the way the pipeline does now. To refresh a song, analyze it again and copy `beats.json` and `report.json` from `data/jobs/<job id>/` into `tests/real/<id>/`.
 
 Frontend checks run from `frontend`:
 
@@ -418,7 +420,7 @@ npm run check:types
 npm run build
 ```
 
-`npm run typecheck` runs the TypeScript check on its own. The frontend tests cover the beat-to-pixel mapping, the tempo map grid with the bar lines from the meter map, the edit queue, the suggestion helpers, the job url helpers, job deletion, the edit log rows, the export options, the chart setup list (Lapis's offsets included), the plain answer card, the wav reader, the playhead latency, the click track and player on a fake audio context, the timeline's edge scrolling, wheel and zoom maths, the swing and gallop divisions at another bpm, the dropped file check, and the tour's placement and storage.
+`npm run typecheck` runs the TypeScript check on its own. The frontend tests cover the beat-to-pixel mapping, the tempo map grid with the bar lines from the meter map, the edit queue, the suggestion helpers, the job url helpers, job deletion, the edit log rows, the export options, the chart setup list (real_d's offsets included), the plain answer card, the wav reader, the playhead latency, the click track and player on a fake audio context, the timeline's edge scrolling, wheel and zoom maths, the swing and gallop divisions at another bpm, the dropped file check, and the tour's placement and storage.
 
 When you change `backend/schema/models.py` or `backend/schema/export_models.py`:
 

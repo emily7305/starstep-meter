@@ -80,7 +80,7 @@ Nothing in the timing report or the beats file changed shape, so `schema_version
 
 - The edit log has one entry per manual change. `field` is the deepest path that holds everything the change touched. With one changed value, `old` and `new` are that value, as before. With several, they're objects keyed by each value's path under `field`, and an empty `field` is the report itself. So the first edit of an auto segment is one `tempo_map/<i>` entry holding the value, `confidence` and `source`, and applying a suggestion is one entry at `""` holding `tempo_map` and `notation_suggestions/<i>/status`. Entries written before keep the old one-per-field form, the log is append-only. Why there's no bump is in `docs/decisions.md` (edit log, one entry per change).
 - A new tempo edit, `split_out`, splits at both ends of a ratio merged section as one edit and is logged like a split.
-- Two new schemas for the exports, generated from `backend/schema/export_models.py` like the others: `shared/schema/timing_export.schema.json` (`kind: "timing"`, `exported_at`, the `report`, and the `beats` file only when it's asked for) and `shared/schema/sonolus_export.schema.json` (`kind: "sonolus"`, the level data with `bgmOffset` and the `#BPM_CHANGE` entities, the bpm changes with their times, the time signatures and the decoder compensation that went into `bgmOffset`). The frontend gets `src/types/timingExport.ts` and `src/types/sonolusExport.ts` from them.
+- Two new schemas for the exports, generated from `backend/schema/export_models.py` like the others: `shared/schema/timing_export.schema.json` (`kind: "timing"`, `exported_at`, the `report`, and the `beats` file only when it's asked for) and the level export's schema file (a platform-specific `kind`, the level data with the level's audio offset and its tempo change entities, the bpm changes with their times, the time signatures and the decoder compensation that went into the audio offset). The frontend gets `src/types/timingExport.ts` and the level export's TypeScript types from them.
 
 ## 2.4
 
@@ -94,15 +94,15 @@ Milestone 6, confidence and the cross-check. Additive, but 2.3 readers reject th
 
 2.3 reports and beats files are upgraded when they're read by changing the version only: no spans, no cross-check and no second tracker's beats, and the segment confidences stay what they were. Older files go through the earlier steps first.
 
-## 2.4, milestone 7: the Sonolus export is removed (no version change)
+## 2.4, milestone 7: the platform level export is removed (no version change)
 
-The Sonolus preset is gone, and with it `shared/schema/sonolus_export.schema.json` and `frontend/src/types/sonolusExport.ts`. `GET /api/jobs/{id}/export` only gives the timing export, and `?preset=` and `?decoder_compensation_ms=` are ignored, so an old link gets the timing export instead of an error. The timing report and the beats file didn't change, `source.decoder_padding_samples` stays, the chart setup list's second offset needs it.
+The platform-specific level export is gone, and with it the level export's schema file and its TypeScript types. `GET /api/jobs/{id}/export` only gives the timing export, and `?preset=` and `?decoder_compensation_ms=` are ignored, so an old link gets the timing export instead of an error. The timing report and the beats file didn't change, `source.decoder_padding_samples` stays, the chart setup list's second offset needs it.
 
 ## 2.5
 
 Milestone 7, swing and gallop. Additive, but 2.4 readers reject the new field, so the version moves.
 
 - The report gains `subdivision_sections`, a list of `{start_ms, end_ms, kind, ratio, division, grid_bpm, score}`: stretches where the notes between the beats are uneven. `kind` is `swing` (long-short 8ths), `gallop` (8th-16th-16th) or `reverse_gallop` (16th-16th-8th), the gallops on a straight or a triplet base. `ratio` is the long note over the short one (2 for a 2:1 swing). `division` is the note division a chart editor needs for them at `grid_bpm`, the tempo segment's bpm they were read on: 12 for 1/12, so twice that with the bpm halved. Suggestions only, nothing applies them. Analysis output like `offbeat_runs`, edits don't change it and a re-analysis replaces it. How they're found is in `docs/decisions.md` (swing and gallop).
-- `BeatsFile` has no new fields, its `schema_version` moves with the report's. From 2.5 on, the bar positions of a stretch the octave check doubled or halved are counted on the grid, not per tracked beat (`docs/decisions.md`, Lapis). A 2.4 file keeps what it had.
+- `BeatsFile` has no new fields, its `schema_version` moves with the report's. From 2.5 on, the bar positions of a stretch the octave check doubled or halved are counted on the grid, not per tracked beat (`docs/decisions.md`, real_d). A 2.4 file keeps what it had.
 
 2.4 reports and beats files are upgraded when they're read by changing the version only, with no subdivision sections. Older files go through the earlier steps first.
