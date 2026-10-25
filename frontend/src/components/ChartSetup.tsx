@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { type ChartSetup as Setup, type FeelLine, FIRST_MEASURES, formatBeat, formatOffset, midMeasure, setupText } from "../chartSetup";
+import {
+  type ChartSetup as Setup,
+  type FeelLine,
+  FIRST_MEASURES,
+  formatBeat,
+  formatOffset,
+  midMeasure,
+  OFFSET_SIGNS,
+  type OffsetSign,
+  setupText,
+} from "../chartSetup";
 import { formatFineMs } from "../format";
 
 interface Props {
@@ -11,6 +21,7 @@ interface Props {
   selected: number | null;
   onSelect: (row: number) => void;
   onFirstMeasure: (measure: number) => void;
+  onOffsetSign: (sign: OffsetSign) => void;
   // swing and gallop, the division the editor's grid needs there
   feelLines: FeelLine[];
 }
@@ -18,9 +29,15 @@ interface Props {
 const MORE_DECIMALS = 4;
 
 // the long reasons go in the tooltips, the panel keeps one line each
-const OFFSET_WHY =
-  "the tool doesn't cut the audio, the offset skips whatever comes before measure 0. in mikumikuworld a positive offset starts the song later, so the offset is minus where measure 0 is, and positive when measure 0 starts before the file";
-const PADDING_WHY = "mikumikuworld plays an mp3's decoder padding (checked by ear), so with the original file everything is that much later. worked out before rounding";
+export function offsetWhy(sign: OffsetSign): string {
+  const cut = "the tool doesn't cut the audio, the offset skips whatever comes before measure 0.";
+  return sign === "later"
+    ? `${cut} with a positive offset starting the song later, the offset is minus where measure 0 is, so it's positive when measure 0 starts before the file`
+    : `${cut} with a positive offset starting the song earlier, the offset is where measure 0 is, so it's negative when measure 0 starts before the file`;
+}
+const PADDING_WHY =
+  "an editor that plays an mp3's decoder padding (the one this was checked against does, by ear) has everything that much later with the original file. worked out before rounding";
+const SIGN_WHY = "which way the chart editor's offset field moves the song. remembered in this browser";
 
 // song.mp3 -> song.wav, and a wav source gets a name of its own so ffmpeg doesn't write over it
 export function wavName(filename: string): string {
@@ -44,7 +61,7 @@ export async function copyToClipboard(text: string): Promise<string> {
 }
 
 
-export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, selected, onSelect, onFirstMeasure, feelLines }: Props) {
+export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, selected, onSelect, onFirstMeasure, onOffsetSign, feelLines }: Props) {
   const [copyState, setCopyState] = useState<string | null>(null);
   const [commandState, setCommandState] = useState<string | null>(null);
   const command = ffmpegCommand(filename);
@@ -98,13 +115,28 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
               </button>
             ))}
           </div>
+          <div className="setup__first" role="group" aria-label="which way a positive offset moves the song">
+            <span className="setup__note">a positive offset starts the song</span>
+            {OFFSET_SIGNS.map((sign) => (
+              <button
+                key={sign}
+                type="button"
+                className="btn btn--chip"
+                aria-pressed={setup.offsetSign === sign}
+                title={SIGN_WHY}
+                onClick={() => onOffsetSign(sign)}
+              >
+                {sign}
+              </button>
+            ))}
+          </div>
           <dl className="setup__offsets">
             <dt>with the wav from ffmpeg</dt>
             <dd className="mono">{formatOffset(setup.wavOffsetMs)}</dd>
             <dt>with the original {setup.kind}</dt>
             <dd className="mono">{formatOffset(setup.originalOffsetMs)}</dd>
           </dl>
-          <p className="setup__note" title={OFFSET_WHY}>
+          <p className="setup__note" title={offsetWhy(setup.offsetSign)}>
             the music starts in measure {setup.firstMeasure}, at <span className="mono">{formatFineMs(setup.firstMeasureMs)}</span>
             {setup.firstMeasure > 0 ? ", and measure 0 is one empty bar of lead-in before it" : ""}. measure 0 starts{" "}
             <span className="mono">{formatFineMs(Math.abs(setup.measureZeroMs))}</span>

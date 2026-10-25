@@ -2,7 +2,7 @@
 // setup list so the numbers can't differ from it. written for someone who doesn't read music,
 // so no anchors, segments or grids in the words here
 
-import { type ChartSetup, chartSetup, formatOffset } from "./chartSetup";
+import { type ChartSetup, chartSetup, DEFAULT_OFFSET_SIGN, formatOffset, type OffsetSign } from "./chartSetup";
 import { type ChartStart, chartStartOf, meterOrDefault, segmentAt, tempoGrid } from "./tempoMap";
 import type { TimingReport } from "./types/timingReport";
 
@@ -30,10 +30,14 @@ export const HELP = {
 } as const;
 
 // the same grid and chart start the timeline numbers its bars with
-export function setupFor(report: TimingReport, start: ChartStart = chartStartOf(report.trim.start_ms, null)): ChartSetup | null {
+export function setupFor(
+  report: TimingReport,
+  start: ChartStart = chartStartOf(report.trim.start_ms, null),
+  offsetSign: OffsetSign = DEFAULT_OFFSET_SIGN,
+): ChartSetup | null {
   const meter = meterOrDefault(report.meter_map, report.tempo_map);
   const grid = tempoGrid(report.tempo_map, meter, report.source.duration_ms, null, start);
-  return chartSetup(grid, report.tempo_map, meter, report.source);
+  return chartSetup(grid, report.tempo_map, meter, report.source, offsetSign);
 }
 
 export function quickAnswer(report: TimingReport, setup: ChartSetup | null = setupFor(report)): QuickAnswer | null {

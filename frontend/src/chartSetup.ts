@@ -1,4 +1,4 @@
-// what to type into a chart editor (MikuMikuWorld is the one checked): the music offset, then
+// what to type into a chart editor: the music offset, then
 // every bpm and time signature change by measure and beat. measures are the timeline's bar
 // numbers, built from the same bar lines (tempoMap.ts), so the two can't drift apart.
 //
@@ -31,10 +31,11 @@ export interface ChartSetup {
   // the measure the music starts in, and where that is
   firstMeasure: number;
   firstMeasureMs: number;
-  // the editor's offset, positive starts the song later, so it's minus where measure 0 is
+  // the editor's offset with the sign the setting says. with "later", minus where measure 0 is
   wavOffsetMs: number;
-  // with the original file in an editor that plays its decoder padding (mikumikuworld does for mp3)
+  // with the original file in an editor that plays its decoder padding (the one checked does for mp3)
   originalOffsetMs: number;
+  offsetSign: OffsetSign;
   paddingMs: number;
   // the original file's extension, mp3, ogg...
   kind: string;
@@ -117,7 +118,13 @@ function measuresOf(grid: TempoGrid): Measure[] {
   return [...before, ...listed.map((b) => ({ timeMs: b.timeMs, region: b.region }))];
 }
 
-export function chartSetup(grid: TempoGrid, map: TempoSegment[], meter: MeterSegment[], source: AudioSource): ChartSetup | null {
+export function chartSetup(
+  grid: TempoGrid,
+  map: TempoSegment[],
+  meter: MeterSegment[],
+  source: AudioSource,
+  offsetSign: OffsetSign = DEFAULT_OFFSET_SIGN,
+): ChartSetup | null {
   const measures = measuresOf(grid);
   const zero = measures[0];
   if (zero === undefined || map.length === 0) return null;
@@ -157,12 +164,16 @@ export function chartSetup(grid: TempoGrid, map: TempoSegment[], meter: MeterSeg
   // by position, a time signature before a bpm change at the same spot since it sets the measure
   rows.sort((a, b) => a.measure - b.measure || a.beat - b.beat || (a.kind === b.kind ? 0 : a.kind === "signature" ? -1 : 1));
   const paddingMs = decoderPaddingMs(source);
+  // the song has to start measureZeroMs earlier for measure 0 to land on the chart's 0, and later
+  // still by the padding an editor plays before an mp3's first sample
+  const flip = offsetSign === "later" ? -1 : 1;
   return {
     measureZeroMs: zero.timeMs,
     firstMeasure: grid.firstMeasure,
     firstMeasureMs: (measures[grid.firstMeasure] ?? zero).timeMs,
-    wavOffsetMs: -zero.timeMs,
-    originalOffsetMs: -(zero.timeMs + paddingMs),
+    wavOffsetMs: flip * zero.timeMs,
+    originalOffsetMs: flip * (zero.timeMs + paddingMs),
+    offsetSign,
     paddingMs,
     kind: originalKind(source.filename),
     rows,
@@ -288,6 +299,34 @@ export function chartStartFor(report: TimingReport, beats: BeatsFile | null, fir
 
 export const FIRST_MEASURES = [0, 1] as const;
 const FIRST_MEASURE_KEY = "starstep.firstMeasure";
+
+// editors differ in which way a positive offset moves the song, so it's a setting. "later" is
+// the default, the editor this was checked against works that way
+export type OffsetSign = "later" | "earlier";
+export const OFFSET_SIGNS: readonly OffsetSign[] = ["later", "earlier"];
+export const DEFAULT_OFFSET_SIGN: OffsetSign = "later";
+const OFFSET_SIGN_KEY = "starstep.offsetSign";
+
+export function offsetSignText(sign: OffsetSign): string {
+  return `positive starts the song ${sign}`;
+}
+
+export function storedOffsetSign(): OffsetSign {
+  try {
+    const raw = localStorage.getItem(OFFSET_SIGN_KEY);
+    return raw === "later" || raw === "earlier" ? raw : DEFAULT_OFFSET_SIGN;
+  } catch {
+    return DEFAULT_OFFSET_SIGN;
+  }
+}
+
+export function storeOffsetSign(sign: OffsetSign): void {
+  try {
+    localStorage.setItem(OFFSET_SIGN_KEY, sign);
+  } catch {
+    // it just won't be remembered
+  }
+}
 
 // per browser, an editor's habit doesn't change between songs. storage can be off, then it's the default
 export function storedFirstMeasure(): number {

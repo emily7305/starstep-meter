@@ -13,7 +13,7 @@ import {
   reanalyzeJob,
   uploadAudio,
 } from "./api";
-import { chartStartFor, storedFirstMeasure, storeFirstMeasure } from "./chartSetup";
+import { chartStartFor, storedFirstMeasure, storedOffsetSign, storeFirstMeasure, storeOffsetSign } from "./chartSetup";
 import { ExportPanel } from "./components/ExportPanel";
 import { Footer } from "./components/Footer";
 import { HealthReadout, type Health } from "./components/HealthReadout";
@@ -105,6 +105,7 @@ export function App() {
   const [report, setReport] = useState<TimingReport | null>(null);
   const [beats, setBeats] = useState<BeatsFile | null>(null);
   const [firstMeasure, setFirstMeasure] = useState(storedFirstMeasure);
+  const [offsetSign, setOffsetSign] = useState(storedOffsetSign);
   const chartStart = useMemo(
     () => (report !== null ? chartStartFor(report, beats, firstMeasure) : null),
     [report, beats, firstMeasure],
@@ -525,7 +526,7 @@ export function App() {
         </main>
       ) : (
         <>
-          {chartStart !== null && <QuickAnswer report={report} start={chartStart} />}
+          {chartStart !== null && <QuickAnswer report={report} start={chartStart} offsetSign={offsetSign} />}
 
           <Timeline
             audioUrl={jobId === null ? null : audioUrl(jobId)}
@@ -543,6 +544,11 @@ export function App() {
             onFirstMeasure={(measure) => {
               setFirstMeasure(measure);
               storeFirstMeasure(measure);
+            }}
+            offsetSign={offsetSign}
+            onOffsetSign={(sign) => {
+              setOffsetSign(sign);
+              storeOffsetSign(sign);
             }}
           />
 

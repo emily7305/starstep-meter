@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changeLabels, chartSetup, formatBeat, formatOffset, rowText, setupText, type ChartRow } from "./chartSetup";
+import { changeLabels, chartSetup, formatBeat, formatOffset, type OffsetSign, rowText, setupText, type ChartRow } from "./chartSetup";
 import { wavName } from "./components/ChartSetup";
 import { type ChartStart, chartStartOf, mapLines, tempoGrid } from "./tempoMap";
 import type { AudioSource, MeterSegment, TempoSegment } from "./types/timingReport";
@@ -22,9 +22,9 @@ const MP3: AudioSource = {
 };
 
 // the app's rule: the music starts at the trim start, which is the first segment's start
-function setupOf(map: TempoSegment[], meters: MeterSegment[], source = MP3, start?: ChartStart) {
+function setupOf(map: TempoSegment[], meters: MeterSegment[], source = MP3, start?: ChartStart, sign: OffsetSign = "later") {
   const grid = tempoGrid(map, meters, source.duration_ms, null, start ?? chartStartOf(map[0]?.start_ms ?? 0, null));
-  const setup = chartSetup(grid, map, meters, source);
+  const setup = chartSetup(grid, map, meters, source, sign);
   if (setup === null) throw new Error("no setup");
   return { grid, setup };
 }
@@ -65,7 +65,7 @@ describe("chartSetup", () => {
 
     // less than a bar of silence, so measure 0 starts 1500 ms before the file and the song starts later
     expect(formatOffset(setup.wavOffsetMs)).toBe("1500.000 ms");
-    // 1105 samples at 48 khz, mikumikuworld plays the mp3's padding
+    // 1105 samples at 48 khz, an editor that plays the mp3's padding needs that much more
     expect(setup.paddingMs).toBeCloseTo(23.021, 3);
     expect(formatOffset(setup.originalOffsetMs)).toBe("1476.979 ms");
   });
@@ -90,7 +90,7 @@ describe("chartSetup", () => {
   });
 
   it("skips a long silent start at a tempo that isn't round", () => {
-    // like SHIKI - Lapis, about 8 s of silence at 145.99 bpm
+    // like real_d, about 8 s of silence at 145.99 bpm
     const bar = (4 * 60000) / 145.99;
     const map = [seg(8123.4, 59000, 145.99, 8123.4)];
     const { setup } = setupOf(map, [], MP3, chartStartOf(8123.4, 8122.7));
@@ -144,7 +144,7 @@ describe("chartSetup", () => {
   });
 
   it("rounds the mp3 offset only for display, the two differ by exactly the padding", () => {
-    // MisoilePunch: 270.0038 bpm, first downbeat at 951.238, the music from 119.521. measure 1 is
+    // real_a: 270.0038 bpm, first downbeat at 951.238, the music from 119.521. measure 1 is
     // the bar line at 62.3615, measure 0 a bar before that, and 1105 samples of padding at 48 khz
     const map = [seg(119.521, 134213.979, 270.0038, 951.238)];
     const { setup } = setupOf(map, [meter(119.521, 134213.979, 4)], { ...MP3, duration_ms: 137024 });
@@ -154,6 +154,47 @@ describe("chartSetup", () => {
     // a bar later than milestone 6b's -62.362 and -85.382
     expect(formatOffset(setup.wavOffsetMs)).toBe("826.515 ms");
     expect(formatOffset(setup.originalOffsetMs)).toBe("803.494 ms");
+  });
+
+  // real_a with the owner's +7 ms anchor nudge from its edit log, checked by ear in a chart editor
+  // with the mp3: about +790 ms with the music at measure 1 (the 2-beat pickup at measure 1.5), and
+  // about -92 ms with it at measure 0. the panel showed +819.514 / +796.494 and -69.362 / -92.382,
+  // the last digit is the rounding of an anchor the report keeps to 3 decimals
+  describe("real_a with its anchor nudged", () => {
+    const map = [seg(119.521, 134213.979, 270.0038, 951.238 + 7)];
+    const meters = [meter(119.521, 134213.979, 4)];
+    const source = { ...MP3, duration_ms: 137024 };
+
+    it("puts the music at measure 1 with the pickup halfway into it", () => {
+      const { grid, setup } = setupOf(map, meters, source, chartStartOf(119.521, 490.779, 1));
+      expect(setup.firstMeasure).toBe(1);
+      expect(setup.firstMeasureMs).toBeCloseTo(69.362, 2);
+      expect(setup.wavOffsetMs).toBeCloseTo(819.514, 2);
+      expect(setup.originalOffsetMs).toBeCloseTo(796.494, 2);
+      // the first tracked beat, two beats of 270 into measure 1
+      const bar = grid.regions[0]?.barMs ?? 0;
+      expect(1 + (490.779 - setup.firstMeasureMs) / bar).toBeCloseTo(1.5, 1);
+    });
+
+    it("puts it at measure 0 with the setting at 0", () => {
+      const { setup } = setupOf(map, meters, source, chartStartOf(119.521, 490.779, 0));
+      expect(setup.firstMeasure).toBe(0);
+      expect(setup.wavOffsetMs).toBeCloseTo(-69.362, 2);
+      expect(setup.originalOffsetMs).toBeCloseTo(-92.382, 2);
+    });
+  });
+
+  it("flips the offsets for an editor where a positive offset starts the song earlier", () => {
+    const later = setupOf(MAP, METER).setup;
+    const earlier = setupOf(MAP, METER, MP3, undefined, "earlier").setup;
+
+    expect(earlier.offsetSign).toBe("earlier");
+    expect(earlier.wavOffsetMs).toBe(-later.wavOffsetMs);
+    expect(earlier.originalOffsetMs).toBe(-later.originalOffsetMs);
+    expect(earlier.measureZeroMs).toBe(later.measureZeroMs);
+    // measure 0 at -1500 ms, so the song starts 1500 ms early in that convention
+    expect(formatOffset(earlier.wavOffsetMs)).toBe("-1500.000 ms");
+    expect(setupText(earlier, 2).split("\n")[0]).toBe("offset with the wav from ffmpeg: -1500.000 ms");
   });
 
   it("shows a change that isn't on beat 1 with its beat, as mid-measure", () => {
@@ -255,7 +296,7 @@ describe("chartSetup", () => {
 describe("wavName", () => {
   it("names the converted wav after the song without writing over a wav", () => {
     expect(wavName("song.mp3")).toBe("song.wav");
-    expect(wavName("【音源】YOUNITHM.mp3")).toBe("【音源】YOUNITHM.wav");
+    expect(wavName("【音源】テスト曲.mp3")).toBe("【音源】テスト曲.wav");
     expect(wavName("click.WAV")).toBe("click-ffmpeg.wav");
   });
 });
@@ -270,23 +311,23 @@ describe("formatBeat", () => {
   });
 });
 
-// SHIKI - Lapis as the analysis gives it now: 291.99 bpm (twice the chart's 146) with the anchor on
+// real_d as the analysis gives it now: 291.99 bpm (twice the chart's 146) with the anchor on
 // the first beat at 8078.498 ms, the trim at 8068.5 ms and the mp3's 1105 samples at 48 khz. the
 // owner's chart, by ear at 146: -6475 ms with the mp3, measure 1 on the first downbeat. the grid sits
-// about 17 ms earlier than that, see docs/decisions.md (Lapis)
-describe("chartSetup on Lapis", () => {
-  const LAPIS: AudioSource = { ...MP3, filename: "SHIKI - Lapis.mp3", duration_ms: 135407.167 };
+// about 17 ms earlier than that, see docs/decisions.md (real_d)
+describe("chartSetup on real_d", () => {
+  const REAL_D: AudioSource = { ...MP3, filename: "real_d.mp3", duration_ms: 135407.167 };
   const map = (bpm: number) => [seg(8068.5, 133707.917, bpm, 8078.498)];
   const start = chartStartOf(8068.5, 8081.493);
 
   it("puts measure 1 on the first beat at 291.99", () => {
-    const { setup } = setupOf(map(291.9899), [meter(8068.5, 133707.917, 4)], LAPIS, start);
+    const { setup } = setupOf(map(291.9899), [meter(8068.5, 133707.917, 4)], REAL_D, start);
     expect(setup.firstMeasureMs).toBeCloseTo(8078.498, 3);
     expect(setup.originalOffsetMs).toBeCloseTo(-7279.573, 2);
   });
 
   it("keeps measure 1 there with the bpm halved, within the bias of the chart's offset", () => {
-    const { setup } = setupOf(map(145.99495), [meter(8068.5, 133707.917, 4)], LAPIS, start);
+    const { setup } = setupOf(map(145.99495), [meter(8068.5, 133707.917, 4)], REAL_D, start);
     expect(setup.firstMeasureMs).toBeCloseTo(8078.498, 3);
     expect(setup.originalOffsetMs).toBeCloseTo(-6457.627, 2);
     expect(Math.abs(setup.originalOffsetMs - -6475)).toBeLessThan(20);

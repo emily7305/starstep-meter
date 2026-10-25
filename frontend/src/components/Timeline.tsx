@@ -1,7 +1,7 @@
 import { type KeyboardEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { BeatGridPlugin } from "../beatGridPlugin";
-import { changeLabels, chartSetup, chartStartFor, feelLines } from "../chartSetup";
+import { changeLabels, chartSetup, chartStartFor, feelLines, type OffsetSign } from "../chartSetup";
 import { ClickScheduler, clickSamples } from "../clickTrack";
 import { ClockPlayer } from "../clockPlayer";
 import { formatDeltaMs, formatFineMs, formatMs } from "../format";
@@ -54,6 +54,8 @@ interface Props {
   // the measure the music starts in, 1 leaves measure 0 as a bar of lead-in
   firstMeasure: number;
   onFirstMeasure: (measure: number) => void;
+  offsetSign: OffsetSign;
+  onOffsetSign: (sign: OffsetSign) => void;
 }
 
 type AudioState =
@@ -84,7 +86,7 @@ function nearest(values: number[], target: number): number | null {
 
 export function Timeline(props: Props) {
   const { audioUrl, report, beats, draft, selected, saveState, editable, onSelect, onNudge, onEdit, onRetry } = props;
-  const { firstMeasure, onFirstMeasure } = props;
+  const { firstMeasure, onFirstMeasure, offsetSign, onOffsetSign } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
@@ -148,8 +150,8 @@ export function Timeline(props: Props) {
   );
   const source = report?.source ?? null;
   const setup = useMemo(
-    () => (grid !== null && tempoMap !== null && source !== null ? chartSetup(grid, tempoMap, meterMap, source) : null),
-    [grid, tempoMap, meterMap, source],
+    () => (grid !== null && tempoMap !== null && source !== null ? chartSetup(grid, tempoMap, meterMap, source, offsetSign) : null),
+    [grid, tempoMap, meterMap, source, offsetSign],
   );
   const changes = useMemo(
     () =>
@@ -675,6 +677,7 @@ export function Timeline(props: Props) {
               selected={setupRow}
               onSelect={goToChange}
               onFirstMeasure={onFirstMeasure}
+              onOffsetSign={onOffsetSign}
               feelLines={feelRows}
             />
           )}

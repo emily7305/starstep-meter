@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { formatOffset } from "../chartSetup";
+import { formatOffset, type OffsetSign } from "../chartSetup";
 import {
   bpmLabel,
   changesLine,
@@ -18,6 +18,7 @@ import { copyToClipboard } from "./ChartSetup";
 interface Props {
   report: TimingReport;
   start: ChartStart;
+  offsetSign: OffsetSign;
 }
 
 type HelpKey = keyof typeof HELP;
@@ -41,8 +42,8 @@ function HelpButton({ topic, open, onToggle }: { topic: HelpKey; open: boolean; 
 
 // the basics first, in plain words: what a chart editor needs typed in. everything technical
 // stays in the panels under it
-export function QuickAnswer({ report, start }: Props) {
-  const answer = useMemo(() => quickAnswer(report, setupFor(report, start)), [report, start]);
+export function QuickAnswer({ report, start, offsetSign }: Props) {
+  const answer = useMemo(() => quickAnswer(report, setupFor(report, start, offsetSign)), [report, start, offsetSign]);
   const [decimals, setDecimals] = useState(2);
   const [help, setHelp] = useState<HelpKey | null>(null);
   const [copyState, setCopyState] = useState<string | null>(null);
