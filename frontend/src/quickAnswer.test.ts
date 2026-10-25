@@ -42,7 +42,7 @@ function span(start: number, end: number, low: boolean): ConfidenceSpan {
   return { start_ms: start, end_ms: end, confidence: low ? 0.3 : 1, residual_share: low ? 0.3 : 1, agreement: null, low };
 }
 
-// MisoilePunch's map from its report, one tempo, 4/4 all through
+// real_a's map from its report, one tempo, 4/4 all through
 const STEADY = report([seg(119.521, 134213.979, 270.0038, 951.238)], [meter(119.521, 134213.979, 4)]);
 // 120 bpm, 150 from bar 8, 7/4 four bars later
 const CHANGING = report(

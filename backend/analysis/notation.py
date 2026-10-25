@@ -340,7 +340,7 @@ def fold_suggestions(
         other = segments[n]
         start, end = segments[run[0]].start_ms, segments[run[-1]].end_ms
         # each segment of the stretch on its own, weighted by how loud and how long it is. pooled
-        # into one median, ENDYMION's quiet fade (both grids even) outweighed the loud 4/3 part
+        # into one median, real_c's quiet fade (both grids even) outweighed the loud 4/3 part
         # where the carried grid catches 30% more, and the outro scored 0.48
         scores, weights = [], []
         for i in run:

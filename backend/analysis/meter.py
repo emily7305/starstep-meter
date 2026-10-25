@@ -45,7 +45,7 @@ class MeterConfig:
     accent_min_bars: int = 4
     accent_min_beats: int = 3
     # the accented beat also has to carry at least this share of the segment's median beat strength.
-    # MisoilePunch's fade-out had 0.03 against 0.02 for its last 13 beats, which passed the
+    # real_a's fade-out had 0.03 against 0.02 for its last 13 beats, which passed the
     # ratio and came out as 3/4 over the last 4 s
     accent_min_level: float = 0.25
 
@@ -242,7 +242,7 @@ def _merge_short(runs: list[_Run], seg: _Segment, min_bars: int, default: int) -
 def _music_start_shift(first: _Run, k_music: int, stop: int, acc: np.ndarray, k_lo: int, config: MeterConfig) -> int:
     """Beats the first run's bars move so the beat the music starts on is beat 1, 0 to leave them.
 
-    madmom can take the first beat of a song for a pickup and put beat 1 a beat later (Lapis,
+    madmom can take the first beat of a song for a pickup and put beat 1 a beat later (real_d,
     where the intro opens on the downbeat). A real pickup leads into a downbeat that's louder than
     it, so the bars only move when the first beat is clearly louder than the downbeat the tracker
     picked, and the downbeats they'd get over the run aren't clearly weaker than the tracker's.

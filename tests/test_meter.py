@@ -121,7 +121,7 @@ def test_accents_every_two_bars_dont_make_eight_four():
 @pytest.mark.parametrize("min_level, numerators", [(MeterConfig().accent_min_level, [4]), (0.0, [4, 3])], ids=["default", "no-floor"])
 def test_a_fade_out_is_too_quiet_for_accent_bars(min_level, numerators):
     # the last 16 beats fade to almost nothing with every 3rd one a little louder, like the end of
-    # MisoilePunch. at that level it's noise, not 3/4
+    # real_a. at that level it's noise, not 3/4
     times = _beats(270.0, 96)
 
     def accents(at_ms):
@@ -165,7 +165,7 @@ def _opening(times, first, downbeat, rest=1.0, every_tracked=None):
 @pytest.mark.parametrize(
     "first, downbeat, every_tracked, ratio, moved",
     [
-        # Lapis opens on the downbeat, its first beat reads 2.7 times the one madmom picked
+        # real_d opens on the downbeat, its first beat reads 2.7 times the one madmom picked
         (1.7, 0.63, None, MeterConfig().accent_ratio, True),
         # a real pickup leads into a louder downbeat
         (0.8, 1.6, None, MeterConfig().accent_ratio, False),

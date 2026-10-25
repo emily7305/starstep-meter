@@ -88,7 +88,7 @@ def _matches(found, track):
 SECTIONS = [
     pytest.param(DrumTrackSpec(bpm=130, sections=((16, 8, "half"), (32, 8, "double"))), id="130-half-then-double"),
     pytest.param(DrumTrackSpec(bpm=150, sections=((12, 8, "double"), (28, 10, "half"))), id="150-double-then-half"),
-    # charted at twice the pulse for most of it, like ENDYMION
+    # charted at twice the pulse for most of it, like real_c
     pytest.param(DrumTrackSpec(bpm=220, sections=((0, 10, "double"), (18, 22, "double"))), id="220-mostly-double"),
     pytest.param(DrumTrackSpec(bpm=260, bars=64, sections=((0, 20, "half"), (40, 10, "half"))), id="260-half-at-the-start"),
 ]
@@ -203,7 +203,7 @@ def _with_beats(monkeypatch, tmp_path, spec, times):
 @pytest.mark.ffmpeg
 def test_an_outro_the_tracker_lost_gets_a_fold_suggestion(monkeypatch, tmp_path):
     # the clicks stay at 220 to the end, the beats drift off at about 267.9 for the last 5.5 s,
-    # like ENDYMION's outro. that's no ratio of 220, so the tempo map keeps it apart
+    # like real_c's outro. that's no ratio of 220, so the tempo map keeps it apart
     track = click_track(FOLD_SPEC)
     k = 296
     drift = track.onsets_ms[k] + np.arange(1, 40) * 60000.0 / 267.87
@@ -222,7 +222,7 @@ def test_an_outro_the_tracker_lost_gets_a_fold_suggestion(monkeypatch, tmp_path)
 
 def _outro_features(segments, carried_level, fade_level):
     # the body at 1, the first outro segment louder on the carried 220 grid than off it, the
-    # second a fade where every position reads the same, like ENDYMION's last 7.7 s
+    # second a fade where every position reads the same, like real_c's last 7.7 s
     main, loud, fade = segments
     positions = np.unique(np.concatenate([
         half_lines(main.anchor_ms, main.period_ms, main.start_ms, fade.end_ms),

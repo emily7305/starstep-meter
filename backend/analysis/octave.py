@@ -178,7 +178,7 @@ def count_on_grid(positions: np.ndarray, recounted: np.ndarray, tempo: TempoMapR
 
     A doubled or halved stretch keeps only the tracker's first downbeat, every position after it
     was counted per tracked beat. So a beat the tracker added or dropped moved every downbeat
-    after it by a beat, and the meter took that for an odd bar (Lapis at 63 s, one extra beat in
+    after it by a beat, and the meter took that for an odd bar (real_d at 63 s, one extra beat in
     a quiet bar). Counted on the grid indices from the same first downbeat, they stay on one
     lattice. The tracker's own positions are left as they are.
     """

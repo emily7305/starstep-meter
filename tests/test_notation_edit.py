@@ -8,7 +8,7 @@ from backend.analysis.meter_edit import MeterEditError, keep_manual_meter, merge
 from backend.analysis.notation_edit import SuggestionError, apply_suggestion, keep_decided
 from backend.schema.models import MeterSegment, NotationSuggestion, RatioMergedSection, TempoSegment
 
-# YOUNITHM's grid, 4 decimals as the report has it
+# real_b's grid, 4 decimals as the report has it
 BPM = 259.9963
 ANCHOR = 97.229
 PERIOD = 60000.0 / BPM
@@ -103,7 +103,7 @@ def test_a_decided_suggestion_cant_be_applied_again():
 
 
 def test_applying_a_fold_puts_the_outro_on_its_neighbours_grid():
-    # ENDYMION's map, 3 segments with the outro at 292.75 and 267.87
+    # real_c's map, 3 segments with the outro at 292.75 and 267.87
     main = _tempo(start=1143.354, end=114338.412, bpm=219.9965, anchor=1143.354)
     outro = [
         _tempo(start=114338.412, end=116775.817, bpm=292.7542, anchor=114338.412),

@@ -3,7 +3,7 @@ import { carriesFiles, isAudioName } from "./fileDrop";
 
 describe("isAudioName", () => {
   it("takes the extensions the server takes, in any case", () => {
-    for (const name of ["a.mp3", "b.WAV", "c.flac", "d.ogg", "e.m4a", "SHIKI - Lapis.mp3"]) expect(isAudioName(name)).toBe(true);
+    for (const name of ["a.mp3", "b.WAV", "c.flac", "d.ogg", "e.m4a", "a song - title.mp3"]) expect(isAudioName(name)).toBe(true);
   });
 
   it("turns down anything else", () => {

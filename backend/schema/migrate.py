@@ -27,7 +27,7 @@ def upgrade_beats(data: Any) -> Any:
     # 2.3 -> 2.4: cross_check_beats defaults to empty, the cross-check needs the audio again
     data = _version_step(data, "2.3", "2.4")
     # 2.4 -> 2.5: nothing new. a doubled or halved song's positions stay counted per beat, the
-    # file doesn't say which stretches were, see docs/decisions.md (Lapis)
+    # file doesn't say which stretches were, see docs/decisions.md (real_d)
     return _version_step(data, "2.4", "2.5")
 
 

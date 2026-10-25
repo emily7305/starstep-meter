@@ -181,7 +181,7 @@ def test_a_felt_range_is_left_as_tracked_when_its_octave_change_lands_off_every_
 
 def test_counted_positions_stay_on_the_grid_past_an_extra_beat():
     # a doubled stretch counts its positions per tracked beat from the first downbeat, so one beat
-    # the tracker added in a quiet bar moved every downbeat after it (Lapis at 63 s)
+    # the tracker added in a quiet bar moved every downbeat after it (real_d at 63 s)
     period = 60000.0 / 291.99
     times = 8000.0 + np.arange(160) * period
     times = np.sort(np.append(times, times[100] + 0.45 * period))
