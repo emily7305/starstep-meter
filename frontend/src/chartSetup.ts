@@ -261,10 +261,9 @@ const FIRST_MEASURE_KEY = "starstep.firstMeasure";
 // per browser, an editor's habit doesn't change between songs. storage can be off, then it's the default
 export function storedFirstMeasure(): number {
   try {
-    const value = Number(localStorage.getItem(FIRST_MEASURE_KEY));
-    return localStorage.getItem(FIRST_MEASURE_KEY) !== null && (FIRST_MEASURES as readonly number[]).includes(value)
-      ? value
-      : DEFAULT_FIRST_MEASURE;
+    const raw = localStorage.getItem(FIRST_MEASURE_KEY);
+    const value = Number(raw);
+    return raw !== null && (FIRST_MEASURES as readonly number[]).includes(value) ? value : DEFAULT_FIRST_MEASURE;
   } catch {
     return DEFAULT_FIRST_MEASURE;
   }
