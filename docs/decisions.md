@@ -955,3 +955,21 @@ Limits:
 - One envelope over all bins. A swung hat over a straight 8th guitar has a note on the half, and comes out as neither.
 - 16th swing (long-short inside each 8th) and quintuplet or other tuplet feels aren't looked for.
 - `present` and `absent` are tuned on clicks and generated drums. A busy mix has more between the beats and a higher floor, which pushes contrasts down.
+
+## the page, milestone 7
+
+Screenshots at 1920×1080 and 1366×768, before and after an analysis, were taken before anything changed. What they showed and what changed:
+
+- Before an upload, the page was a 380 px empty timeline band that said `no audio loaded`, and under it a 1100 px column pair in the middle of the screen with the picker and an empty report. Now the drop zone is where the timeline goes and fills the screen down to the footer, with three short steps in it, and the recent list sits beside it. The empty report column isn't shown before there's a report.
+- After an analysis, the source and report columns were 1100 px wide in the middle with empty sides at 1920, and the meter panel left an empty half under the zoomed view. The columns now run the whole width (source, recent, report), the suggestions sit next to the meter panel, and the card shows both offsets side by side, which took it from about 190 px tall to about 120.
+- Text: 11 px labels went to 12, and sentences (notes, hints, status lines) to 14. `--ink-faint` (#a796a9) is 2.5:1 on the background, so text moved to a new `--ink-muted` (#75607a, 5.0:1 on `--bg`, 4.5:1 on `--bg-sunk`). The faint colour stays for hairlines, the waveform and disabled controls. The accent is 4.1:1 as text, so links and the `manual` tags use `--accent-text` (#c2185e, 5.2:1), and the button pink is unchanged. The canvas labels on the timeline went from 10 to 12 px with taller boxes.
+- The suggestion rows sit in a narrower column at 1366, where their four columns ran into each other. A container query puts each row on two lines under 560 px.
+- The chart setup notes were paragraphs. Each is one sentence now, and the reasons moved into their tooltips.
+
+Navigation. wavesurfer's drag-to-seek only nudged the view by 30 px when a pointer event came in near an edge, so a drag that stopped moving stopped scrolling, the "moves a bit and stops" from the report. The drag is handled in `Timeline.tsx` now with wavesurfer's own off: past a 3 px threshold the pointer is captured, and a frame loop scrolls while it is within 64 px of an edge or past it, at up to 2400 px/s, growing with the square of how deep into that zone it is (`timelineNav.edgeScrollSpeed`). The playhead follows the pointer, kept inside the view so wavesurfer's own scroll-to-playhead never jumps. 2400 px/s is 24 s of song a second at 100 px/s, tuned by hand. Checked in Chromium at 1366×768 and 87 px/s: holding at the right edge for 1.5 s scrolled 3000 px and took the playhead from 37.8 to 72.5 s, and moving back into the middle stopped it.
+
+The zoom is now any px/s rather than the six fixed steps, so Ctrl with the wheel can zoom smoothly around the mouse (about 15% a notch, the time under the mouse stays put). The buttons halve and double. At fit the plain wheel is left to the page, there's nothing to scroll sideways and taking it would trap the page scroll over a third of the screen.
+
+Dropping a song only picks it, it doesn't start the analysis, so a song that was analyzed before still offers its earlier job first, the same as the file dialog.
+
+The tour shows on the first visit and is remembered in the browser (`starstep.tourSeen`). Before a song is open only the drop zone exists, so the four later steps show in the middle of the dimmed page with their text, and point at their parts when the tour is opened again from `?` with a song open.

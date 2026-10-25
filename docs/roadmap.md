@@ -65,6 +65,18 @@ Milestone 6b checked the cross-check and the timing on real songs, fixed one bug
 
 Milestone 6c moved where the chart starts. Measure 0 had been the first bar line in the audio, which on a song with a long silent start (SHIKI - Lapis, about 8 s at 145.99 bpm) left four or five empty measures before the music and an offset that didn't skip the silence. Now the music starts at the trim start, or at the first tracked beat when that is earlier. The bar it starts in is measure 1, and measure 0 is one empty bar before it, so the offset is minus where measure 0 starts and is positive when the silence is shorter than a bar. The setting `music starts at measure` in the chart setup panel can put the music at measure 0 instead, and is remembered per browser. The timeline, the chart setup list and the `for your chart` card use the same numbering, and bars before measure 0 are drawn faintly with no number. The Sonolus export keeps its own beat 0. MisoilePunch♪ moved by one bar, from offsets of `-62.362` and `-85.382` ms to `826.515` and `803.494` ms. The reasons are in `docs/decisions.md` (where the chart starts).
 
+### Milestone 7
+
+Milestone 7 is about using the tool. The timeline can be driven with the mouse: a drag held near either edge keeps scrolling, faster the closer it is, the wheel scrolls sideways and Ctrl with the wheel zooms around the mouse, and a thin overview strip shows the whole song with the visible part outlined. Both views are labelled, the big one `whole song` and the small one `zoomed view around the playhead` with its width. Before a song is open the page is one large drop area with a `choose a song` button, and a song can be dropped anywhere on the page. The layout uses the whole width at 1920 and 1366 pixels, nothing is smaller than 12 px, sentences are 14 px, and small secondary text moved to a darker colour that passes 4.5:1. A first-visit tour of five steps can be opened again from `?` in the header, every control has a tooltip, and a footer says who made it and under which license.
+
+Analysis changes:
+
+- SHIKI - Lapis had an odd bar at measure 38 and its first downbeat a beat late. The octave check's doubled beats were counted per tracked beat, so one extra beat in a quiet bar moved every downbeat after it, and madmom took the song's first beat for a pickup. Bar positions the octave check counts are now counted on the grid, and the first beat is beat 1 unless the tracker's pickup holds up in the accents. Lapis is 4/4 all the way through with measure 1 on its first beat.
+- Swing and gallop sections are found from where the onsets sit between the grid lines, with the note division a chart editor needs there, as suggestions in the list and a line in the chart setup panel (schema 2.5).
+- Re-analysis moves the job to the top of the recent list with the time it finished, and a test checks that it runs every stage again and replaces every auto result.
+- The Sonolus export is removed. The timing JSON is the one export.
+- `scripts/measure_bias_local.py` measures madmom's raw beats against the strongest nearby onsets on a folder of songs, for checking the 11.8 ms bias on real music.
+
 ## Manual checks
 
 These are the checks that were written down for each version, in order. The expected values are for madmom unless it says otherwise. Start the backend and the frontend as described in "Running" in the [README](../README.md#running).
@@ -344,5 +356,23 @@ The script prints the ground truth. The first click is a downbeat at about 8000 
 2. The `for your chart` card and the `music offset` item in the `chart setup` panel read about `-6355` ms (`-6355.320` ms in the example above) for the wav. A wav has no decoder padding, so both offsets are the same. `music starts at measure` has `1` pressed, and the note under the offsets says the music starts in measure 1, at about 7999 ms, and that measure 0 starts about 6355 ms into the audio file.
 3. Press `0` next to `music starts at measure`. The offset becomes about `-8000` ms (`-7999.268` ms in the example), the first click is numbered 0 on the timeline, the bars before it are faint with no number, and the note no longer mentions a lead-in bar.
 4. Reload the page and open the job again from the `recent` list. `0` is still pressed, and the offset is still about `-8000` ms. Press `1` to go back to the default, which is then also remembered.
+
+Don't commit the generated audio.
+
+### Milestone 7 check
+
+Start the backend and the frontend as described in Running.
+
+1. Open the page in a fresh browser profile or a private window. A tour starts: `1 / 5`, `load a song`, pointing at the drop area. Press `next` through the five steps and `done`. Reload: it doesn't come back. Press `?` in the header: it starts again at step 1.
+2. Before any song is open the page is the drop area, `drop a song anywhere on the page`, with `recent` beside it, and nothing else large and empty at 1920×1080 or 1366×768. Drag an audio file over the page: it says `drop the song to load it`. Drop it: the file name and `analyze` show in the drop area. Drop a text file: a line says it's not an audio file.
+3. Analyze a song of a few minutes. The `for your chart` card is at the top with both offsets side by side, and the timeline under it is labelled `whole song`, with the overview strip above it.
+4. Hold Ctrl and turn the wheel over the timeline: it zooms around the mouse, and the readout between `−` and `+` shows the px/s. Zoom to about 100 px/s. The wheel now scrolls the timeline sideways, Shift with the wheel too.
+5. Press on the waveform, drag to the right edge and hold still there: the timeline keeps scrolling right, faster when the pointer is right at the edge or past it, and the playhead moves along. Drag back into the middle: it stops. Do the same at the left edge.
+6. Click in the overview strip near its end: the timeline jumps there, and the outlined part moves with it.
+7. The zoomed view is labelled `zoomed view around the playhead ±60 ms`, and `40 ms` and `400 ms` change that to `±20 ms` and `±200 ms`.
+8. Hover over buttons: each has a tooltip. Nothing on the page is smaller than 12 px.
+9. Press `re-analyze`. When it finishes, the job is at the top of `recent` and says `re-analyzed at` with the time.
+10. For swing, make a click track with swung ticks, `python -c` is enough with `tests/synth.py`'s `ClickTrackSpec(subdivisions=...)`, or analyze a swung song. The suggestions list shows a `swing` row with `1/12`, and the chart setup panel a line like `m.9 to m.16 · swing 2.00:1 · 1/12`. Press `÷2` on the segment: the division reads `1/24`.
+11. Lapis: analyze `SHIKI - Lapis.mp3`. The meter is 4/4 all the way through, with no `m.38 · 1/4` row in the chart setup list. The offset with the mp3 is about `-7279.6` ms at 291.99 bpm. Press `÷2`: about `-6457.6` ms, with measure 1 on the first beat, 17 ms from the chart's -6475 ms by ear.
 
 Don't commit the generated audio.
