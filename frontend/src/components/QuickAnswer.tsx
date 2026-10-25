@@ -113,7 +113,9 @@ export function QuickAnswer({ report, start }: Props) {
       {help !== null && <p className="quick__explain">{HELP[help]}</p>}
       {changes !== null && (
         <p className="quick__changes">
-          {changes}. <a href="#chart-setup">see every change</a>
+          {changes}. <a href="#chart-setup" title="scroll to the chart setup, every change is listed there">
+            see every change
+          </a>
         </p>
       )}
       {answer.hardToRead && <p className="quick__warn">{HARD_TO_READ}</p>}

@@ -74,8 +74,13 @@ export function ExportPanel({ jobId, disabled }: Props) {
       <h2 className="section-label section-label--spaced" id="export-label">
         export
       </h2>
-      <label className="export__check">
-        <input type="checkbox" checked={choice.beats} onChange={(e) => update({ beats: e.target.checked })} />
+      <label className="export__check" title="put the beats file in the export too, timing data only">
+        <input
+          type="checkbox"
+          checked={choice.beats}
+          title="put the beats file in the export too, timing data only"
+          onChange={(e) => update({ beats: e.target.checked })}
+        />
         include beats.json
       </label>
 
@@ -84,6 +89,7 @@ export function ExportPanel({ jobId, disabled }: Props) {
           type="button"
           className="btn btn--outline"
           disabled={disabled || state.kind === "busy"}
+          title="download the report as a json file, with the beats file in it when the box above is ticked"
           onClick={() => void download()}
         >
           export json

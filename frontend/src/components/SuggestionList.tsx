@@ -61,6 +61,7 @@ export function SuggestionList(props: Props) {
                 className="suggestions__go"
                 disabled={disabled}
                 aria-current={i === selected ? "true" : undefined}
+                title="jump the timeline and the zoomed view to where it starts"
                 onClick={() => onSelect(i)}
               >
                 <span className="suggestions__kind">{suggestionKindText(suggestion.kind)}</span>
@@ -128,7 +129,9 @@ export function SuggestionList(props: Props) {
       )}
 
       {decided !== "" && <p className="suggestions__decided">{decided}</p>}
-      {open.length === 0 && feels.length === 0 && decided === "" && <p className="suggestions__empty">none for this song</p>}
+      {open.length === 0 && feels.length === 0 && decided === "" && (
+        <p className="suggestions__empty">none for this song, half or double time, folds, swing and gallop show up here</p>
+      )}
     </section>
   );
 }

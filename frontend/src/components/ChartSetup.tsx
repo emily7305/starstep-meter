@@ -64,11 +64,17 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
           type="button"
           className="btn btn--chip"
           aria-pressed={bpmDecimals > 2}
+          title="show the bpm with 4 decimals instead of 2, in the rows, the timeline labels and the copied list"
           onClick={() => onBpmDecimals(bpmDecimals > 2 ? 2 : MORE_DECIMALS)}
         >
           more decimals
         </button>
-        <button type="button" className="btn btn--outline" onClick={() => void copy()}>
+        <button
+          type="button"
+          className="btn btn--outline"
+          title="copy both offsets and the bpm and time signature changes as text"
+          onClick={() => void copy()}
+        >
           copy list
         </button>
         {copyState !== null && <span className="setup__copied">{copyState}</span>}
@@ -85,6 +91,7 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
                 type="button"
                 className="btn btn--chip mono"
                 aria-pressed={setup.firstMeasure === m}
+                title="the measure the music starts in, 1 leaves measure 0 as an empty lead-in bar"
                 onClick={() => onFirstMeasure(m)}
               >
                 {m}
@@ -119,7 +126,12 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
           <p className="setup__note">load a wav converted with ffmpeg:</p>
           <div className="setup__command">
             <code className="setup__command-text mono">{command}</code>
-            <button type="button" className="btn btn--chip" onClick={() => void copyToClipboard(command).then(setCommandState)}>
+            <button
+              type="button"
+              className="btn btn--chip"
+              title="copy the ffmpeg command that converts the file to wav"
+              onClick={() => void copyToClipboard(command).then(setCommandState)}
+            >
               copy command
             </button>
             {commandState !== null && <span className="setup__copied">{commandState}</span>}
@@ -140,6 +152,7 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
                   type="button"
                   className="setup__row mono"
                   aria-current={i === selected ? "true" : undefined}
+                  title="jump the timeline and the zoomed view to this change"
                   onClick={() => onSelect(i)}
                 >
                   <span className="setup__measure">m.{row.measure}</span>

@@ -22,7 +22,7 @@ function editTime(edit: Edit): string {
 }
 
 export function ReportView({ report, beats }: Props) {
-  if (report === null) return <p className="empty">no file yet</p>;
+  if (report === null) return <p className="empty">no file yet, the numbers show up here after an analysis</p>;
 
   const { source, trim, tempo_map, edits } = report;
   const first = tempo_map[0];
@@ -85,7 +85,7 @@ export function ReportView({ report, beats }: Props) {
 
       <h3 className="subsection-label">edits</h3>
       {edits.length === 0 ? (
-        <p className="empty empty--small">no edits</p>
+        <p className="empty empty--small">no edits yet, every manual change is listed here</p>
       ) : (
         <ol className="edits" start={edits.length - shown.length + 1}>
           {shown.map((edit, i) => (
@@ -106,7 +106,7 @@ export function ReportView({ report, beats }: Props) {
       )}
 
       <details className="raw">
-        <summary>raw json</summary>
+        <summary title="show or hide the whole report as raw json">raw json</summary>
         <pre className="raw__json mono" tabIndex={0}>
           {JSON.stringify(report, null, 2)}
         </pre>

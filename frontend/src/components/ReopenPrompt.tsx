@@ -29,6 +29,7 @@ export function ReopenPrompt({ matches, onReopen, onFresh, busy }: Props) {
               type="button"
               className={i === 0 ? "btn btn--primary" : "btn btn--outline"}
               disabled={busy}
+              title="open this earlier job, its edits come with it"
               onClick={() => onReopen(job.job_id)}
             >
               reopen
@@ -36,7 +37,13 @@ export function ReopenPrompt({ matches, onReopen, onFresh, busy }: Props) {
           </li>
         ))}
       </ol>
-      <button type="button" className="btn btn--outline" disabled={busy} onClick={onFresh}>
+      <button
+        type="button"
+        className="btn btn--outline"
+        disabled={busy}
+        title="analyze the file again as a new job, the earlier ones stay in the recent list"
+        onClick={onFresh}
+      >
         analyze again as a new job
       </button>
     </div>

@@ -43,13 +43,13 @@ function bpmText(bpm: number): string {
 }
 
 // half and double time, then dotted and triplet feel, the same ratios the analysis checks
-const FACTORS: Array<{ label: string; factor: number; name: string }> = [
-  { label: "÷2", factor: 1 / 2, name: "half" },
-  { label: "×2", factor: 2, name: "double" },
-  { label: "×3/4", factor: 3 / 4, name: "3/4 of" },
-  { label: "×4/3", factor: 4 / 3, name: "4/3 of" },
-  { label: "×2/3", factor: 2 / 3, name: "2/3 of" },
-  { label: "×3/2", factor: 3 / 2, name: "3/2 of" },
+const FACTORS: Array<{ label: string; factor: number; name: string; title: string }> = [
+  { label: "÷2", factor: 1 / 2, name: "half", title: "halve the bpm, the anchor stays and every other line goes" },
+  { label: "×2", factor: 2, name: "double", title: "double the bpm, a line goes between each pair" },
+  { label: "×3/4", factor: 3 / 4, name: "3/4 of", title: "multiply the bpm by 3/4, the anchor stays and the lines move further apart" },
+  { label: "×4/3", factor: 4 / 3, name: "4/3 of", title: "multiply the bpm by 4/3, the anchor stays and the lines move closer together" },
+  { label: "×2/3", factor: 2 / 3, name: "2/3 of", title: "multiply the bpm by 2/3, the anchor stays and the lines move further apart" },
+  { label: "×3/2", factor: 3 / 2, name: "3/2 of", title: "multiply the bpm by 3/2, the anchor stays and the lines move closer together" },
 ];
 
 function checkText(check: CrossCheckSegment | null, maxMs: number | null): string {
@@ -101,7 +101,7 @@ export function SegmentControl(props: Props) {
         {bpmText(segment.bpm)}
       </output>
       <div className="segment__buttons">
-        {FACTORS.map(({ label, factor, name }) => (
+        {FACTORS.map(({ label, factor, name, title }) => (
           <button
             key={label}
             type="button"
@@ -109,6 +109,7 @@ export function SegmentControl(props: Props) {
             disabled={disabled || !validBpm(segment.bpm * factor)}
             onClick={() => onEdit({ op: "set_bpm", segment: index, bpm: segment.bpm * factor })}
             aria-label={`${name} the bpm, the grid is rebuilt from the anchor`}
+            title={title}
           >
             {label}
           </button>
@@ -119,6 +120,7 @@ export function SegmentControl(props: Props) {
           className="segment__input mono"
           inputMode="decimal"
           aria-label="bpm for this segment"
+          title="type an exact bpm for this segment, enter does the same as set bpm"
           aria-invalid={!typedOk}
           value={bpmDraft}
           disabled={disabled}
@@ -126,7 +128,12 @@ export function SegmentControl(props: Props) {
           // arrow keys here edit the text, not the anchor
           onKeyDown={(event) => event.stopPropagation()}
         />
-        <button type="submit" className="btn btn--step" disabled={disabled || !typedOk || typed === segment.bpm}>
+        <button
+          type="submit"
+          className="btn btn--step"
+          disabled={disabled || !typedOk || typed === segment.bpm}
+          title="set this exact bpm, the anchor stays"
+        >
           set bpm
         </button>
       </form>
@@ -136,10 +143,22 @@ export function SegmentControl(props: Props) {
         {formatFineMs(anchorMs)}
       </output>
       <div className="segment__buttons">
-        <button type="button" className="btn btn--step mono" disabled={disabled} onClick={() => onNudge(-1)}>
+        <button
+          type="button"
+          className="btn btn--step mono"
+          disabled={disabled}
+          title="move the selected segment's anchor 1 ms earlier, ← does the same"
+          onClick={() => onNudge(-1)}
+        >
           −1 ms
         </button>
-        <button type="button" className="btn btn--step mono" disabled={disabled} onClick={() => onNudge(1)}>
+        <button
+          type="button"
+          className="btn btn--step mono"
+          disabled={disabled}
+          title="move the selected segment's anchor 1 ms later, → does the same"
+          onClick={() => onNudge(1)}
+        >
           +1 ms
         </button>
         <button
@@ -168,6 +187,7 @@ export function SegmentControl(props: Props) {
           type="button"
           className="btn btn--step"
           disabled={disabled || index === 0}
+          title="merge with the segment before, the pair becomes one manual segment"
           onClick={() => onEdit({ op: "merge", segment: index - 1 })}
         >
           merge ←
@@ -176,6 +196,7 @@ export function SegmentControl(props: Props) {
           type="button"
           className="btn btn--step"
           disabled={disabled || index >= count - 1}
+          title="merge with the segment after, the pair becomes one manual segment"
           onClick={() => onEdit({ op: "merge", segment: index })}
         >
           merge →
@@ -242,7 +263,7 @@ export function SegmentControl(props: Props) {
       <p className="segment__state" data-failed={saveState.kind === "failed"}>
         {disabled ? "" : stateText(saveState)}
         {saveState.kind === "failed" && (
-          <button type="button" className="btn btn--link" onClick={onRetry}>
+          <button type="button" className="btn btn--link" title="send the failed edit to the server again" onClick={onRetry}>
             retry
           </button>
         )}

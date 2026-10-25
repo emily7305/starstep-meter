@@ -72,6 +72,7 @@ export function MeterControl(props: Props) {
           className="meter__input mono"
           inputMode="numeric"
           aria-label="beats per bar"
+          title="beats per bar, a whole number from 1 to 32, enter does the same as set meter"
           aria-invalid={typed === null}
           value={numeratorDraft}
           disabled={disabled}
@@ -85,6 +86,7 @@ export function MeterControl(props: Props) {
         <select
           className="meter__select mono"
           aria-label="note value of a beat"
+          title="the note value that counts as one beat, 4 is a quarter note"
           value={denominatorDraft}
           disabled={disabled}
           onChange={(event) => setDenominatorDraft(Number(event.target.value))}
@@ -97,7 +99,12 @@ export function MeterControl(props: Props) {
             </option>
           ))}
         </select>
-        <button type="submit" className="btn btn--step" disabled={disabled || typed === null || unchanged}>
+        <button
+          type="submit"
+          className="btn btn--step"
+          disabled={disabled || typed === null || unchanged}
+          title="set this time signature for the meter segment under the zoomed view"
+        >
           set meter
         </button>
       </form>
@@ -116,6 +123,7 @@ export function MeterControl(props: Props) {
           type="button"
           className="btn btn--step"
           disabled={disabled || index === 0}
+          title="merge with the meter segment before, the pair becomes one manual meter segment"
           onClick={() => onEdit({ op: "merge_meter", segment: index - 1 })}
         >
           merge ←
@@ -124,6 +132,7 @@ export function MeterControl(props: Props) {
           type="button"
           className="btn btn--step"
           disabled={disabled || index >= count - 1}
+          title="merge with the meter segment after, the pair becomes one manual meter segment"
           onClick={() => onEdit({ op: "merge_meter", segment: index })}
         >
           merge →
