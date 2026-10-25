@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { failureText, reanalysisFailureText } from "./format";
+import { elapsedText, failureText, reanalysisFailureText } from "./format";
 import type { JobError } from "./types/api";
 
 const FFMPEG_MISSING: JobError = { stage: "decode", message: "ffmpeg not found on PATH" };
@@ -33,5 +33,16 @@ describe("failureText", () => {
   it("still reads as a failed first analysis", () => {
     expect(failureText(FFMPEG_MISSING)).toBe("analysis failed at decode — check that ffmpeg is on PATH");
     expect(failureText({ stage: "trim", message: "audio is silent" })).toBe("analysis failed at trim — audio is silent");
+  });
+});
+
+describe("elapsedText", () => {
+  it("counts minutes and seconds, and hours past one", () => {
+    expect(elapsedText(0)).toBe("0:00");
+    expect(elapsedText(7999)).toBe("0:07");
+    expect(elapsedText(83_000)).toBe("1:23");
+    expect(elapsedText(3_723_000)).toBe("1:02:03");
+    // a clock that moved back doesn't show a minus
+    expect(elapsedText(-500)).toBe("0:00");
   });
 });

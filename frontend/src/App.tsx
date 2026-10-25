@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   audioUrl,
+  cancelJob,
+  createDemo,
   deleteJob,
   fetchBeats,
   fetchHealth,
@@ -11,13 +13,16 @@ import {
   listJobs,
   patchTempo,
   reanalyzeJob,
+  type ReanalyzeMode,
   uploadAudio,
 } from "./api";
 import { chartStartFor, storedFirstMeasure, storedOffsetSign, storeFirstMeasure, storeOffsetSign } from "./chartSetup";
+import { Analyzing } from "./components/Analyzing";
 import { ExportPanel } from "./components/ExportPanel";
 import { Footer } from "./components/Footer";
 import { HealthReadout, type Health } from "./components/HealthReadout";
 import { QuickAnswer } from "./components/QuickAnswer";
+import { ReanalyzeControl } from "./components/ReanalyzeControl";
 import { RecentJobs } from "./components/RecentJobs";
 import { ReopenPrompt } from "./components/ReopenPrompt";
 import { ReportView } from "./components/ReportView";
@@ -52,6 +57,29 @@ const IDLE: RunState = {
   stage: null,
   errorText: null,
 };
+
+// what runs right now, the picker is replaced by it until it's done
+interface Active {
+  // open: a job from the url or the recent list, only shown as running when the server says so
+  kind: "upload" | "reanalysis" | "open" | "demo";
+  name: string;
+  startedAt: number;
+  // null while the upload is still going
+  jobId: string | null;
+  cancelling: boolean;
+}
+
+const DEMO_LABEL = "demo click track";
+// the name the backend gives the demo's job, for a demo opened before the job list is in
+const DEMO_FILE = "demo click track.wav";
+const RUNNING_STAGES = new Set<JobStage | null>(["queued", "decode", "trim", "beats", "snap", "tempo", "meter", "check"]);
+
+function activeText(active: Active, run: RunState): string {
+  if (active.kind === "upload" && run.progress !== null && !run.progress.complete) {
+    return `uploading ${Math.round(run.progress.fraction * 100)}%`;
+  }
+  return run.stage !== null ? stageLabel(run.stage) : "starting";
+}
 
 function offlineOr(err: unknown, fallback: (message: string) => string): string {
   if (err instanceof ApiError && err.offline) return "backend offline";
@@ -126,6 +154,15 @@ export function App() {
   // a file is being dragged over the page
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [active, setActive] = useState<Active | null>(null);
+  // a song dropped while something runs, it waits for a yes or no
+  const [dropped, setDropped] = useState<File | null>(null);
+  // the picked file whose upload went through, the analyze button is only for a new one
+  const [submitted, setSubmitted] = useState<File | null>(null);
+  const activeRef = useRef<Active | null>(null);
+  activeRef.current = active;
+  const jobsRef = useRef<JobSummary[] | null>(null);
+  jobsRef.current = jobs;
   const runAbort = useRef<AbortController | null>(null);
   const saver = useRef<EditSaver | null>(null);
   // key repeat fires faster than renders land, so nudges read these instead of state
@@ -265,10 +302,18 @@ export function App() {
         setBeats(nextBeats);
         setDraft(null);
         setJobId(id);
-        setRun((r) => ({ ...r, busy: false }));
+        // a cancelled re-analysis came back to the report it had, there's no run to show
+        setRun((r) => (activeRef.current?.cancelling ? IDLE : { ...r, busy: false }));
       } catch (err) {
         // aborted means something else took over, that run is no longer ours to touch
         if (isAbortError(err)) return;
+        // a cancelled first analysis is deleted on the server, its job going away is the cancel landing
+        if (activeRef.current?.cancelling && err instanceof ApiError && err.status === 404) {
+          resetResult();
+          setUrlJob(null, false);
+          setRun(IDLE);
+          return;
+        }
         setRun((r) => ({
           ...r,
           busy: false,
@@ -278,9 +323,10 @@ export function App() {
         }));
       } finally {
         refreshJobs();
+        if (!signal.aborted) setActive(null);
       }
     },
-    [refreshJobs],
+    [refreshJobs, resetResult],
   );
 
   const takeOver = useCallback((): AbortSignal => {
@@ -294,8 +340,17 @@ export function App() {
     (id: string, push: boolean) => {
       const signal = takeOver();
       setMatches(null);
+      setDropped(null);
       resetResult();
       setUrlJob(id, push);
+      const known = jobsRef.current?.find((j) => j.job_id === id);
+      setActive({
+        kind: "open",
+        name: known?.demo ? DEMO_LABEL : (known?.filename ?? "a song"),
+        startedAt: Date.now(),
+        jobId: id,
+        cancelling: false,
+      });
       setRun({ ...IDLE, busy: true, track: { finished: 1, at: "waiting" } });
       void followJob(id, signal);
     },
@@ -358,10 +413,12 @@ export function App() {
       event.preventDefault();
       depth = 0;
       setDragging(false);
-      const dropped = event.dataTransfer?.files[0];
-      if (dropped === undefined) return;
-      if (isAudioName(dropped.name)) choose(dropped);
-      else setNotice(`${dropped.name}: ${NOT_AUDIO}`);
+      const file = event.dataTransfer?.files[0];
+      if (file === undefined) return;
+      if (!isAudioName(file.name)) setNotice(`${file.name}: ${NOT_AUDIO}`);
+      // something is running, so it asks before throwing that away
+      else if (activeRef.current !== null) setDropped(file);
+      else choose(file);
     };
     window.addEventListener("dragenter", enter);
     window.addEventListener("dragleave", leave);
@@ -375,17 +432,18 @@ export function App() {
     };
   }, [choose]);
 
-  const upload = useCallback(async () => {
-    if (file === null) return;
+  const upload = useCallback(async (next: File | null = file) => {
+    if (next === null) return;
     const signal = takeOver();
     setMatches(null);
     resetResult();
+    setActive({ kind: "upload", name: next.name, startedAt: Date.now(), jobId: null, cancelling: false });
     setRun({ ...IDLE, busy: true, progress: { fraction: 0, complete: false }, track: { finished: 0, at: "active" } });
 
     let id: string;
     try {
       const created = await uploadAudio(
-        file,
+        next,
         (fraction) => {
           if (!signal.aborted) setRun((r) => ({ ...r, progress: { fraction, complete: false } }));
         },
@@ -394,6 +452,7 @@ export function App() {
       id = created.job_id;
     } catch (err) {
       if (isAbortError(err)) return;
+      setActive(null);
       setRun((r) => ({
         ...r,
         busy: false,
@@ -402,15 +461,17 @@ export function App() {
       }));
       return;
     }
+    setSubmitted(next);
+    setActive((a) => (a === null ? a : { ...a, jobId: id }));
     setUrlJob(id, true);
     setRun((r) => ({ ...r, progress: { fraction: 1, complete: true }, track: { finished: 1, at: "waiting" } }));
     await followJob(id, signal);
   }, [file, takeOver, resetResult, followJob]);
 
-  const analyze = useCallback(async () => {
-    if (file === null) return;
+  const analyze = useCallback(async (next: File | null = file) => {
+    if (next === null) return;
     // the same file analyzed before has its edits in that job, offer it before starting over
-    const sha256 = await fileSha256(file).catch(() => null);
+    const sha256 = await fileSha256(next).catch(() => null);
     if (sha256 !== null) {
       const earlier = await listJobs(sha256).catch(() => []);
       if (earlier.length > 0) {
@@ -418,24 +479,87 @@ export function App() {
         return;
       }
     }
-    await upload();
+    await upload(next);
   }, [file, upload]);
 
-  const reanalyze = useCallback(async () => {
-    if (jobId === null) return;
-    const id = jobId;
-    const signal = takeOver();
-    setRun({ ...IDLE, busy: true, track: { finished: 1, at: "waiting" } });
-    try {
-      await reanalyzeJob(id, signal);
-    } catch (err) {
-      if (isAbortError(err)) return;
-      setRun((r) => ({ ...r, busy: false, errorText: offlineOr(err, (detail) => `re-analysis refused — ${detail}`) }));
+  // the report stays on screen while it runs, it's only replaced once the new one is in
+  const reanalyze = useCallback(
+    async (mode: ReanalyzeMode) => {
+      if (jobId === null) return;
+      const id = jobId;
+      const signal = takeOver();
+      const name = reportRef.current?.source.filename ?? "this song";
+      setActive({ kind: "reanalysis", name, startedAt: Date.now(), jobId: id, cancelling: false });
+      setRun({ ...IDLE, busy: true, track: { finished: 1, at: "waiting" } });
+      try {
+        await reanalyzeJob(id, mode, signal);
+      } catch (err) {
+        if (isAbortError(err)) return;
+        setActive(null);
+        setRun((r) => ({ ...r, busy: false, errorText: offlineOr(err, (detail) => `re-analysis refused — ${detail}`) }));
+        return;
+      }
+      await followJob(id, signal);
+    },
+    [jobId, takeOver, followJob],
+  );
+
+  // stops at the next stage on the server. polling carries on until the job is gone or back to done
+  const cancel = useCallback(async () => {
+    const current = activeRef.current;
+    if (current === null) return;
+    if (current.jobId === null) {
+      // still uploading, nothing on the server to stop yet
+      runAbort.current?.abort();
+      setActive(null);
+      setRun(IDLE);
       return;
     }
+    setActive({ ...current, cancelling: true });
+    try {
+      await cancelJob(current.jobId);
+    } catch (err) {
+      // a 409 means it finished in the meantime, the poll brings the result
+      if (!(err instanceof ApiError && err.status === 409)) {
+        setActive((a) => (a === null ? a : { ...a, cancelling: false }));
+        setRun((r) => ({ ...r, errorText: offlineOr(err, (detail) => `cancel failed — ${detail}`) }));
+      }
+    }
+  }, []);
+
+  const demo = useCallback(async () => {
+    const signal = takeOver();
+    setMatches(null);
+    setFile(null);
+    setNotice(null);
     resetResult();
+    setActive({ kind: "demo", name: DEMO_LABEL, startedAt: Date.now(), jobId: null, cancelling: false });
+    setRun({ ...IDLE, busy: true, track: { finished: 1, at: "waiting" } });
+    let id: string;
+    try {
+      id = (await createDemo(signal)).job_id;
+    } catch (err) {
+      if (isAbortError(err)) return;
+      setActive(null);
+      setRun((r) => ({ ...r, busy: false, errorText: offlineOr(err, (detail) => `demo failed — ${detail}`) }));
+      return;
+    }
+    setActive((a) => (a === null ? a : { ...a, jobId: id }));
+    setUrlJob(id, true);
     await followJob(id, signal);
-  }, [jobId, takeOver, resetResult, followJob]);
+  }, [takeOver, resetResult, followJob]);
+
+  // the song dropped while something ran: that run is cancelled and the new one starts right away
+  const startDropped = useCallback(() => {
+    const next = dropped;
+    setDropped(null);
+    if (next === null) return;
+    const current = activeRef.current;
+    if (current?.jobId != null) void cancelJob(current.jobId).catch(() => undefined);
+    setActive(null);
+    choose(next);
+    void analyze(next);
+  }, [dropped, choose, analyze]);
 
   const removeJob = useCallback(
     async (id: string): Promise<string | null> => {
@@ -461,6 +585,13 @@ export function App() {
   if (run.errorText !== null) statusText = run.errorText;
   else if (run.stage !== null) statusText = stageLabel(run.stage);
 
+  // a job opened from the list or the url only counts as running once the server says it is
+  const analyzing = active !== null && (active.kind !== "open" || RUNNING_STAGES.has(run.stage));
+  // the file picked last, until its upload went through. after a failure it can be tried again
+  const pending = file !== null && (file !== submitted || run.errorText !== null) ? file : null;
+  const openDemo =
+    report !== null && (jobs?.find((j) => j.job_id === jobId)?.demo === true || report.source.filename === DEMO_FILE);
+
   const recent = (
     <RecentJobs jobs={jobs} currentId={jobId} error={jobsError} onOpen={(id) => openJob(id, true)} onDelete={removeJob} />
   );
@@ -469,11 +600,25 @@ export function App() {
       {matches !== null && (
         <ReopenPrompt matches={matches} busy={run.busy} onReopen={(id) => openJob(id, true)} onFresh={() => void upload()} />
       )}
-      {(run.busy || run.stage !== null || run.errorText !== null || report !== null) && (
-        <StageTrack position={run.track} message={statusText} />
-      )}
+      {/* the last run's pills only matter when it failed, a running one has its own block */}
+      {run.errorText !== null && <StageTrack position={run.track} message={statusText} />}
     </>
   );
+  const analyzingView =
+    analyzing && active !== null ? (
+      <Analyzing
+        name={active.name}
+        demo={active.kind === "demo"}
+        position={run.track}
+        stageText={activeText(active, run)}
+        startedAt={active.startedAt}
+        cancelling={active.cancelling}
+        onCancel={() => void cancel()}
+        dropped={dropped}
+        onStartDropped={startDropped}
+        onKeepRunning={() => setDropped(null)}
+      />
+    ) : null;
 
   return (
     <>
@@ -504,18 +649,20 @@ export function App() {
 
       {report === null ? (
         <main className="start">
-          <section className="start__drop" aria-label="load a song">
-            <UploadPanel
-              file={file}
-              busy={run.busy}
-              progress={run.progress}
-              variant="start"
-              notice={notice}
-              onChoose={choose}
-              onAnalyze={() => void analyze()}
-            >
-              {progress}
-            </UploadPanel>
+          <section className="start__drop" aria-label={analyzing ? "analysis running" : "load a song"}>
+            {analyzingView ?? (
+              <UploadPanel
+                file={pending}
+                songOpen={false}
+                variant="start"
+                notice={notice}
+                onChoose={choose}
+                onAnalyze={() => void analyze()}
+                onDemo={() => void demo()}
+              >
+                {progress}
+              </UploadPanel>
+            )}
           </section>
           <aside className="start__side" aria-labelledby="recent-label">
             <h2 className="section-label" id="recent-label">
@@ -526,6 +673,11 @@ export function App() {
         </main>
       ) : (
         <>
+          {openDemo && (
+            <p className="demo-note">
+              demo: a click track with drums made on this machine, not a real song. choose a song to analyze your own.
+            </p>
+          )}
           {chartStart !== null && <QuickAnswer report={report} start={chartStart} offsetSign={offsetSign} />}
 
           <Timeline
@@ -535,7 +687,7 @@ export function App() {
             draft={draft}
             selected={selected}
             saveState={saveState}
-            editable={!reshaping}
+            editable={!reshaping && active === null}
             onSelect={setSelected}
             onNudge={nudge}
             onEdit={edit}
@@ -557,30 +709,20 @@ export function App() {
               <h2 className="section-label" id="source-label">
                 source
               </h2>
-              <UploadPanel
-                file={file}
-                busy={run.busy}
-                progress={run.progress}
-                variant="compact"
-                notice={notice}
-                onChoose={choose}
-                onAnalyze={() => void analyze()}
-              >
-                {progress}
-              </UploadPanel>
-              {jobId !== null && (
-                <div className="reanalyze">
-                  <button
-                    type="button"
-                    className="btn btn--outline"
-                    disabled={run.busy}
-                    title="run every stage again on the stored upload, manual segments, decided suggestions and the edit log stay"
-                    onClick={() => void reanalyze()}
+              {analyzingView ?? (
+                <>
+                  <UploadPanel
+                    file={pending}
+                    songOpen
+                    variant="compact"
+                    notice={notice}
+                    onChoose={choose}
+                    onAnalyze={() => void analyze()}
                   >
-                    re-analyze
-                  </button>
-                  <span className="reanalyze__hint">manual segments and edits stay</span>
-                </div>
+                    {progress}
+                  </UploadPanel>
+                  {jobId !== null && <ReanalyzeControl disabled={run.busy} onReanalyze={(mode) => void reanalyze(mode)} />}
+                </>
               )}
               {jobId !== null && <ExportPanel jobId={jobId} disabled={run.busy} />}
             </section>

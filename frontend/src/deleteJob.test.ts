@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, deleteJob } from "./api";
+import { ApiError, deleteJob, reanalyzeJob, reanalyzeUrl } from "./api";
 
 const ID = "0123456789abcdef0123456789abcdef";
 
@@ -44,5 +44,20 @@ describe("deleteJob", () => {
     const abort = new DOMException("aborted", "AbortError");
     stubFetch(abort);
     await expect(deleteJob(ID)).rejects.toBe(abort);
+  });
+});
+
+describe("reanalyzeUrl", () => {
+  it("keeps the edits unless asked to start fresh", () => {
+    expect(reanalyzeUrl(ID, "keep")).toBe(`/api/jobs/${ID}/reanalyze`);
+    expect(reanalyzeUrl(ID, "fresh")).toBe(`/api/jobs/${ID}/reanalyze?mode=fresh`);
+  });
+
+  it("posts to that url", async () => {
+    const fetchMock = stubFetch(new Response(JSON.stringify({ job_id: ID }), { status: 202 }));
+    await expect(reanalyzeJob(ID, "fresh")).resolves.toEqual({ job_id: ID });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`/api/jobs/${ID}/reanalyze?mode=fresh`);
+    expect(init.method).toBe("POST");
   });
 });

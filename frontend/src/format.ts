@@ -72,3 +72,12 @@ export function failureText(error: JobError): string {
 export function reanalysisFailureText(error: JobError): string {
   return `re-analysis failed at ${error.stage} — ${hintFor(error)}. showing the last good report`;
 }
+
+// minutes and seconds since something started, "0:07", "1:23", "1:02:03" past an hour
+export function elapsedText(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const s = String(total % 60).padStart(2, "0");
+  const m = Math.floor(total / 60);
+  if (m < 60) return `${m}:${s}`;
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}:${s}`;
+}

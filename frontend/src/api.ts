@@ -100,12 +100,28 @@ export function listJobs(sha256?: string, signal?: AbortSignal): Promise<JobSumm
   return getJson<JobSummary[]>(`/api/jobs${query}`, signal);
 }
 
-// same job id again, the backend keeps the manual edits and runs the analysis over
-export function reanalyzeJob(jobId: string, signal?: AbortSignal): Promise<UploadResponse> {
-  return requestJson<UploadResponse>(`/api/jobs/${encodeURIComponent(jobId)}/reanalyze`, {
-    method: "POST",
-    signal,
-  });
+// keep: the backend keeps the manual edits and runs the analysis over. fresh: it drops them, the
+// edit log keeps a record of what went
+export type ReanalyzeMode = "keep" | "fresh";
+
+export function reanalyzeUrl(jobId: string, mode: ReanalyzeMode): string {
+  const base = `/api/jobs/${encodeURIComponent(jobId)}/reanalyze`;
+  return mode === "keep" ? base : `${base}?mode=fresh`;
+}
+
+// same job id again
+export function reanalyzeJob(jobId: string, mode: ReanalyzeMode = "keep", signal?: AbortSignal): Promise<UploadResponse> {
+  return requestJson<UploadResponse>(reanalyzeUrl(jobId, mode), { method: "POST", signal });
+}
+
+// stops at the next stage. a first analysis is deleted, a re-analysis goes back to its last report
+export function cancelJob(jobId: string, signal?: AbortSignal): Promise<UploadResponse> {
+  return requestJson<UploadResponse>(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST", signal });
+}
+
+// the click track with drums the backend makes, analyzed like an upload
+export function createDemo(signal?: AbortSignal): Promise<UploadResponse> {
+  return requestJson<UploadResponse>("/api/demo", { method: "POST", signal });
 }
 
 // a 204 has no body, so not requestJson. 409 while the job is queued or running
