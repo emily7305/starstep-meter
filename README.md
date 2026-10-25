@@ -1,6 +1,8 @@
 # starstep-meter
 
-Beat, tempo, and meter analysis for rhythm game charting. Upload a song, get a beat grid and a ms-accurate first-downbeat offset, check it on a waveform timeline. Runs locally. ✦ star steps, right on the beat ✦
+Beat, tempo, and meter analysis for rhythm game charting. Upload a song, get a beat grid and a ms-accurate first-downbeat offset, check it on a waveform timeline. Runs locally.
+
+*✦ star steps, right on the beat ✦*
 
 ## What it does and doesn't do
 
