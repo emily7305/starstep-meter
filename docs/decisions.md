@@ -819,3 +819,42 @@ The playhead is now drawn behind the rendered position by `outputLatency + baseL
 ## Sonolus decoder compensation (milestone 6)
 
 Still open. There's no test-level result from the real Sonolus app yet (the check in the README, "Checking the offset in Sonolus"), so the Sonolus preset's default stays 0 ms. MikuMikuWorld not skipping mp3 padding says nothing about Sonolus' decoder.
+
+## cross-check on the real songs (milestone 6b)
+
+The three songs were analyzed again with milestone 6, so their beats files carry librosa's beats, and `tests/test_real_song.py` now runs the cross-check on them. Median distance between the two trackers' beats per tempo segment:
+
+| song | segment | disagreement | flagged at 20 ms |
+| --- | --- | --- | --- |
+| MisoilePunch♪ | 270.0038 (one segment) | 7.13 ms | no |
+| YOUNITHM | 259.9963 (one segment) | 4.16 ms | no |
+| ENDYMION | 219.9965 | 6.99 ms | no |
+| ENDYMION | 292.75 (outro, a 4/3 feel) | 3.17 ms | no |
+| ENDYMION | 267.87 (the fade after it) | 20.75 ms | yes |
+
+Click tracks give 0.01 ms. The segments that are right sit 4 to 7 ms apart, and the one flagged is the 267.87 stretch that the chart has at 220, the one the fold suggestion is for. So 20 ms stays: it has about three times the spread of the right segments as margin and catches the wrong one.
+
+With the cross-check in, ENDYMION gets more low confidence spans: 79.7 to 97.2 s around where madmom lost a beat (agreement down to 0), and 105.9 to 110.3 s, where librosa sits exactly on the half lines and madmom on the lines. The onsets there are even (a median band strength of 1.09 on the lines against 1.14 on the half lines), steady eighths where the phase can't be read from the audio, so the warning is fair and it stays. MisoilePunch♪'s felt sections and YOUNITHM's off-beat runs still aren't shaded.
+
+## grid timing at the start of MisoilePunch♪ (milestone 6b)
+
+The question: the zoomed view at the first downbeat shows "tracked 944.068 ms · grid +7.170 ms", and with the mp3 about −92 ms sounded right against the panel's −85.382 ms. Is the grid systematically late? Checked stage by stage on the beats file:
+
+- The fit: the residuals of madmom's snapped beats have a median of +0.9 ms over the song, and per 30 s stretch between −1.0 and +2.5 ms. The line goes through the middle of the beats, it doesn't drift. The +7.17 ms at the first downbeat is that one beat's residual (the first 16 residuals are spread from −16 to +8.5 ms).
+- The anchor: the fitted line at the first downbeat's index, nothing moves it after the fit except whole beats.
+- The bias shift and the snap: madmom's beats move by a median of 11.67 ms from tracker to snapped, against the 11.8 ms shift. But that turned out to say less than it seemed. On these songs the snap moves 80% of the beats by under ±2 ms after the shift (10th to 90th percentile −1.8 to +1.5 ms on MisoilePunch♪, −2.6 to +2.4 on YOUNITHM), where on clicks it moved them several ms onto the attack. In a full mix there's a flux peak at least half the window's biggest almost everywhere, so the nearest one is right next to where the beat started. So on real music the grid sits where madmom's 10 ms frames plus the 11.8 ms measured on clicks put it, and the "median snap move close to 11.8 ms" check from milestone 3c can't confirm the bias, it's circular when the snap barely moves anything.
+- The second tracker: librosa's snapped beats sit a median of +6.4 ms after madmom's on MisoilePunch♪ (+7.7 ms after the grid), spread from +3 to +10 ms, and +0.07 ms on YOUNITHM and ENDYMION.
+
+So the grid isn't late. If anything it's about 7 ms early on MisoilePunch♪: librosa and the by-ear −92 ms both put the beat later than the grid, by 7.7 ms and about 6.6 ms. On the other two songs the trackers agree. That looks like madmom's bias on this song's attacks being about 7 ms off the clicks', not something in the anchor or the fit. Nothing is changed for it, because the beats file can't say which attack is the beat (it has no audio), and a fix tuned on one song by ear would move every other song by the same amount. The offsets for MisoilePunch♪ stay −62.362 ms with the wav and −85.382 ms with the mp3, before and after. What would settle it: the audio of a few songs to see what the snap finds in a mix, and a per-song check of where the two trackers' beats sit against each other (`cross_check_beats` against `time_ms`, the way it was measured here). Until then, nudging the anchor by hand on the song with the click track is the way to correct it.
+
+## meter change one bar late (milestone 6b)
+
+On a click track with a 7/4 change at beat 144, the 7/4 started at beat 151, one 7 beat bar late, with or without a tempo change before it. The accent runs were at fault, not the tempo change. The first 7 beat bar starts on an accented beat and the three beats after it are plain, so it also reads as one more bar of 4/4. When two accent runs claim the same bar, the longer one keeps it, and here the 4/4 stretch before the change was the longer one (the milestone 4 test track had the 7/4 part longer, which is why it passed). Now a run whose last bar is where a run of another length starts gives that bar up first, so the new length starts on its own first bar. Both tracks put the 7/4 on beat 144 within 0.7 ms, and the chart setup list shows it at m.36 (24 bars at 120 bpm, then 12 at 150). `tests/test_meter.py` checks both tracks and the accent runs on a hand-made accent list.
+
+## offsets in the chart setup list (milestone 6b)
+
+Both offsets were already worked out from unrounded values, measure 0 at 62.3615 ms and 1105 samples of padding at 48 kHz (23.0208 ms) give −85.3823, shown as −85.382 ms. The panel now says the two differ by exactly the decoder padding, worked out before rounding, and a test checks the difference is the padding to 1e-9 ms.
+
+## the plain answer at the top (milestone 6b)
+
+Right after an analysis, a block above the timeline says what a chart editor needs, in plain words: the bpm (the one at the start when it changes), the offset for the wav from ffmpeg and, only when the original file has decoder padding, for the original file, and the time signature. When the bpm or the time signature changes it says how many times, with a link to the chart setup list. Each value has a "?" with a one line explanation. One line warns when a stretch under an auto segment came out low confidence. Its numbers come from the same chart setup list (`frontend/src/quickAnswer.ts`), so they can't differ from it, and a test checks that on a steady song, one with changes, and a wav without padding. The technical panels under it didn't change.
