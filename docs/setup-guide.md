@@ -173,7 +173,7 @@ When the job is done, the timeline shows the waveform with the beat grid and the
 This block is the part to read first. It says in plain words what a chart editor asks for.
 
 - `bpm` is how many beats there are in one minute. When the speed changes during the song, it says `bpm at the start` and gives the first one.
-- `offset` is where the first measure starts in the song, as the number to type into the editor's music offset field. It is usually negative. There are two lines: `if you load the wav made with ffmpeg`, and, only when the original file has padding at its start (an mp3 does), `if you load the original mp3`. Step 17 says which one to use.
+- `offset` is the number to type into the editor's music offset field. It is minus the place where measure 0 starts in the song. Measure 0 is one empty measure before the measure the music starts in. If the song starts with a long silence, the offset is negative. If the silence is shorter than one measure, it is positive, which is normal. There are two lines: `if you load the wav made with ffmpeg`, and, only when the original file has padding at its start (an mp3 does), `if you load the original mp3`. Step 17 says which one to use.
 - `time signature` is how many beats there are in one measure. `4/4` is four.
 - The `?` next to each of the three opens a one line explanation.
 - If the song changes speed or time signature, a line says so, like `this song changes speed 3 times`, with a `see every change` link to the list in step 16.
@@ -184,7 +184,7 @@ For a song with one steady tempo and no warning, this block and step 17 are all 
 
 ### Step 14: check the grid by ear
 
-The thin lines on the waveform are the beats, and the mint ones are the start of each measure. The numbers along the top are the measure numbers. They start at 0 on the first measure line in the audio.
+The thin lines on the waveform are the beats, and the mint ones are the start of each measure. The numbers along the top are the measure numbers. The measure the music starts in is measure 1, and measure 0 is one empty measure before it. Measures before measure 0 are the silence at the start, and they are drawn faintly with no number. The `for your chart` block and the chart setup list use the same numbers.
 
 1. Press `play`, and then `click track` next to it. The click track plays a click on every beat and a higher, louder click on every measure line.
 2. Listen against the song. The clicks should land on the beats you hear. Two sounds a few milliseconds apart (a flam) mean the grid is slightly off there.
@@ -207,9 +207,9 @@ Every change appears in the `edits` list in the report column, and `re-analyze` 
 
 The `chart setup` panel, under the `notation suggestions`, lists everything to type into the editor, in three parts:
 
-- `music offset` has the same two offsets as the block in step 13, with a note on where measure 0 starts in the audio file.
+- `music offset` has the setting `music starts at measure` with two buttons, `0` and `1`. Leave it on 1 unless your editor or your habit needs the music to start at measure 0. The choice is remembered in the browser. Under it are the same two offsets as the block in step 13, with a note on where the music starts and which measure it is in (like `the music starts in measure 1, at 62.362 ms, and measure 0 is one empty bar of lead-in before it`) and where measure 0 starts in the audio file, either `into the audio file` or `before the audio file starts`.
 - `audio file` has the ffmpeg command for step 17 and a `copy command` button.
-- `bpm and time signature changes, in order` has one row per change, like `m.24 · 150.00 bpm` or `m.37 · 3/4`. The `m.` number is the measure, counted from 0 like the numbers on the timeline. A row marked `mid-measure` does not start on a measure line, and it says where inside the measure it goes, like `beat 3`, where `beat 1` is the measure line. Clicking a row jumps the timeline to that change.
+- `bpm and time signature changes, in order` has one row per change, like `m.24 · 150.00 bpm` or `m.37 · 3/4`. The `m.` number is the measure, numbered like the timeline (measure 0 is the empty measure before the music). A row marked `mid-measure` does not start on a measure line, and it says where inside the measure it goes, like `beat 3`, where `beat 1` is the measure line. Clicking a row jumps the timeline to that change.
 
 `copy list` copies the two offsets and every row as text.
 
@@ -224,14 +224,16 @@ ffmpeg -i "song.mp3" "song.wav"
 Run it in the folder the song is in. The quotes keep a file name with spaces working. If the song is already a wav, the panel names the new file `song-ffmpeg.wav`, so it doesn't overwrite the original.
 
 1. Load the wav as the song in MikuMikuWorld.
-2. Type the offset `with the wav from ffmpeg` into the music offset field. It is minus where measure 0 is in the audio, so a negative number is normal. A positive offset in MikuMikuWorld starts the song later.
+2. Type the offset `with the wav from ffmpeg` into the music offset field. It is minus where measure 0 starts in the audio. After a long silence at the start that is a negative number. If the silence is shorter than one measure, it is a positive number, which is also normal, because a positive offset in MikuMikuWorld starts the song later.
 3. Add each bpm and time signature change from the list, at its measure, in order.
 
 If you load the original mp3 into the editor instead, use the other offset, `with the original mp3`. An mp3 starts with a little padding that the decoder adds, and MikuMikuWorld plays it, so the song starts a bit later than the analysis hears it. The second offset is the first one moved by that padding, further negative, so the grid lines up again. The two always differ by exactly the padding, and the report column shows it as `decoder padding`.
 
-For example, in MisoilePunch♪ measure 0 is at 62.362 ms, so the offset is `-62.362` ms with the wav. The mp3 has 23.021 ms of padding, so the offset with the mp3 is `-85.382` ms. A wav has no padding, and then both offsets are the same.
+For example, in MisoilePunch♪ the music starts at 62.362 ms, which is the start of measure 1, and measure 0 starts one measure earlier, at -826.515 ms, before the file begins. The offset is `826.515` ms with the wav. The mp3 has 23.021 ms of padding, so the offset with the mp3 is `803.494` ms. A wav has no padding, and then both offsets are the same.
 
-The tool never cuts the audio. The offset is what tells the editor where the first measure is in the file.
+When a song has a long silence at the start, the offset is negative instead. For a click track with 8 seconds of silence at 145.99 bpm, measure 1 starts at 7999.268 ms, one measure is 1643.948 ms, and the offset with the wav is `-6355.320` ms. If your editor needs the music to start at measure 0, press `0` next to `music starts at measure`. The offset then becomes minus where the music's measure starts, `-7999.268` ms in that example.
+
+The tool never cuts the audio. The offset is what tells the editor where measure 0 is in the file.
 
 ### Step 18: reopen or delete a job
 
