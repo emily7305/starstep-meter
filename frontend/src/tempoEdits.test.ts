@@ -44,6 +44,8 @@ function makeReport(edits: Edit[] = []): TimingReport {
     sections: [],
     offbeat_runs: [],
     notation_suggestions: [],
+    confidence_spans: [],
+    cross_check: null,
     edits,
   };
 }
