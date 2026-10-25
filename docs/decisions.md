@@ -651,6 +651,8 @@ That was the accent rule reading the fade-out. madmom's downbeats are 4/4 to the
 
 madmom lost a beat between 88 and 95 s (24 tracked beats over 25 grid beats, which the tempo map already folds as a run of short segments). It counts bar positions per tracked beat, so its downbeats come back one grid beat later and stay there to the outro, and the meter restarts its bars there. That looked like madmom miscounting, so I checked the accents per position in the bar. Before the stumble the strong beats are the grid beats 0 and 2 of each bar (1.13 and 1.15 against 1.09 and 1.10), after it they're 1 and 3 (1.12 and 1.13 against 1.01 and 1.06). The strong-beat pattern itself moved by a beat, so the song has an odd bar in there and madmom's new phase follows it. The differences are 5 to 10%, but they agree with madmom, so the restart stays.
 
+Changed since: milestone 7 counts a doubled stretch's bar positions on the grid, and real_c's restart went with the per-beat count. Since milestone 7b a slip like it is a `downbeat may shift here` suggestion unless the accents hold both phases, see "a downbeat slip is a suggestion (milestone 7b)".
+
 ### real_c's fold
 
 The outro was a candidate (both outro segments together are 6.3% of the song, its neighbour is longer), and it scored 0.48, just under 0.5. Per segment the evidence is clear. In the 292.75 part, madmom's beats sit on every third quarter of the 220 grid (a 4/3 feel), and the carried grid catches 1.36 against 1.05 on its own grid, 0.57. The 267.87 part is a fade with no distinct attacks left, 0.365 against 0.367, a draw. Pooling every position into one median let the fade, which has twice the positions, outweigh the part with the evidence. Now each segment of the stretch is scored on its own and weighted by its level times its length, so a quiet fade counts for little and a loud real change still decides. real_c comes out at 0.54. The synthetic cases didn't move: a drifting outro on clicks is still 1.0, a real change near the end 0.0, and an outro whose loud part sits on its own grid stays under 0.5 however long its fade.
@@ -969,3 +971,96 @@ The zoom is now any px/s rather than the six fixed steps, so Ctrl with the wheel
 Dropping a song only picks it, it doesn't start the analysis, so a song that was analyzed before still offers its earlier job first, the same as the file dialog.
 
 The tour shows on the first visit and is remembered in the browser (`starstep.tourSeen`). Before a song is open only the drop zone exists, so the four later steps show in the middle of the dimmed page with their text, and point at their parts when the tour is opened again from `?` with a song open.
+
+Changed in milestone 7b: the tour is split by screen, see "start screen, analyzing state, tour and demo (milestone 7b)".
+
+## real songs by id (milestone 7b)
+
+The docs, the tests and the comments named the songs the tool is checked on, and the rhythm games, the chart editor and the platform they came up with. None of that is needed to follow a decision, so the songs are now `real_a` to `real_f`, described by what matters (a constant 270 bpm with felt sections, a steady 260 charted at 130 and 260, and so on), and the games, the editor and the removed platform export have general wording. Their folders under `tests/real/` are `real_a/` to `real_d/`. Which song each id is lives only in `tests/real/SONGS.local.md`, which is git-ignored with the rest of that folder. `tests/test_privacy.py` fails when a tracked file holds a local path (`C:\Users\`, `/home/`, `/Users/`, `/tmp/claude`) or an email address that isn't a GitHub noreply one, and, on a machine with `SONGS.local.md`, any of the search terms listed in it. The commit history still has some of the old names in its messages. It was left as it is.
+
+## offset sign (milestone 7b)
+
+The chart setup panel explained the offset with the convention of the one editor it was checked in, where a positive offset starts the song later. Editors differ there, so it's a setting now, `a positive offset starts the song` with `later` (the default, and what the checked editor does) and `earlier`, remembered in the browser. `earlier` flips the sign of both offsets in the panel, its copied text and the `for your chart` card. Nothing else moves, measure 0 is where it was. The tooltips say what the offset is under the chosen sign.
+
+## the music-start rule on four songs (milestone 7b)
+
+Milestone 7's rule takes the first beat of a song as beat 1 unless madmom's pickup holds up in the accents. It had only been tested on real_d. With all four songs' milestone 7 files in `tests/real/`, here is where measure 1 is (with `music starts at measure` at 1) and what the rule did. Before and after are the same, nothing in this milestone moved a first downbeat on these songs.
+
+| song | measure 1 | first tracked beat | the rule |
+| --- | --- | --- | --- |
+| real_a (270, 2-beat pickup) | 62.362 ms | 490.779 ms, measure 1.48 | didn't run: the trim starts 1.7 beats before the first tracked beat, so the music doesn't start on a beat madmom heard |
+| real_b (260) | 114.052 ms | 111.800 ms, measure 1 | ran, nothing to move: madmom's first beat is its downbeat |
+| real_c (220) | 1158.717 ms | 1155.154 ms, measure 1 | ran, nothing to move: the same |
+| real_d (146, doubled) | 8078.498 ms | 8081.493 ms, measure 1 | ran and moved the bars two grid beats back, the first beat reads 1.70 against 0.63 on madmom's downbeat |
+
+real_a's pickup is real, and the owner checked by ear that it belongs at measure 1.5. With the +7 ms anchor nudge from its edit log the panel gives +819.514 ms with the wav and +796.494 ms with the mp3 at measure 1, and −69.362 and −92.382 ms at measure 0, against about +790 and −92 ms by ear with the mp3. `frontend/src/chartSetup.test.ts` has both settings as regression tests, within 0.01 ms (the last digit depends on how the 3 decimal anchor rounds).
+
+## madmom's bias on real music, measured (milestone 7b)
+
+`scripts/measure_bias_local.py` ran on the owner's songs folder, six songs. The offset is madmom's raw beat minus the strongest onset within 30 ms, so negative is madmom early, the sign of the −11.8 ms the analysis corrects for.
+
+| song | median offset | mean | IQR | median − bias |
+| --- | --- | --- | --- | --- |
+| real_a | −8.68 ms | −8.01 | 13.1 | +3.12 |
+| real_b | −2.00 | −3.95 | 14.6 | +9.80 |
+| real_c | −1.40 | −2.45 | 15.9 | +10.40 |
+| real_d | −3.27 | −5.12 | 13.6 | +8.53 |
+| real_e | −15.78 | −12.87 | 16.1 | −3.98 |
+| real_f | −18.97 | −14.45 | 13.6 | −7.17 |
+
+The folder median is −5.97 ms (the mean of the medians −8.35), and the songs spread from −19.0 to −1.4 ms, with an IQR of 13 to 16 ms inside each song. The by-ear results go the other way: on real_a the beat sounds about 7 ms later than the grid and on real_d about 17 ms later, while the CSV puts the strongest onsets 3.1 and 8.5 ms before where the shifted beats are. Moving the correction towards the folder median would move every grid about 6 ms earlier, which takes real_a to about 13 ms and real_d to about 23 ms off what sounded right, and moving it the ear's way contradicts four of the six songs. The CSV doesn't clearly support any one value, so −11.8 ms stays. The offsets don't change: real_a 826.515 / 803.494 ms (819.514 / 796.494 with its nudge) and real_d −6457.627 ms with the mp3 at 145.99 bpm.
+
+What it does say is that "the strongest onset near the beat" isn't a beat on a full mix. A hat or a bass note 10 ms either side wins as often as the attack the ear hears, which is the spread inside each song. A better reference would need the beats charted by ear on more than two songs.
+
+## the octave on real_d with the mid band (milestone 7b)
+
+Milestone 7 noted that the mid band (snare body, most attacks) favours 146 on real_d while the total flux favours 292. The check was done on the stored band strengths at the grid's lines, split into the tracker's beats and the midpoints it doubled through, with the doubling rule as it stands: the median midpoint against the 25th percentile of the beats, doubling from 0.8.
+
+| song | tracked at | total | mid band | mid band against the median beat |
+| --- | --- | --- | --- | --- |
+| real_a | 135 | 1.55 | 1.41 | 1.00 |
+| real_b | 130 | 3.03 | 2.16 | 0.86 |
+| real_c | 110 | 1.29 | 1.31 | 0.99 |
+| real_d | 145.99 | 1.98 | 0.90 | 0.54 |
+
+With the rule as it is, the mid band still doubles all four, real_d included (0.90). Milestone 7's note compared the off-beats with the typical beat, not with the weaker beats the rule reads, so preferring the mid band alone changes nothing. Comparing against the median beat would keep real_d at 146, but it's a new statistic resting on one song, real_b would be only 0.06 over the line, and the band strengths are a stand-in for the short-window flux the check really reads, which can't be measured again without the audio. real_e and real_f can't double at all (440 and 400 are past 320). Doubled or halved is fine either way, so nothing is adopted and `÷2` stays the way to 146.
+
+## a downbeat slip is a suggestion (milestone 7b)
+
+When madmom's downbeats move by part of a bar and its bars carry on from there, the meter used to restart the bars at the new phase, which left one short bar: a 1/4, 2/4 or 3/4 in the middle of 4/4. That bar's only job is to re-align beat 1, and the slip is often the tracker's: real_d's 1/4 at measure 38 was, and real_c's restart at 94.7 s went away too once milestone 7 counted its doubled positions on the grid. So now two runs of madmom's downbeats with the same bar length on lattices part of a bar apart are one run: the bars before the slip run on through, and the place goes out as a notation suggestion of the new kind `shift`, "downbeat may shift here", at the grid line the tracker's bars restarted on. Applying it splits the meter there, the bars restart and the short bar is back, as one edit with the meter map and the status. Its score is the share of bars after the slip that madmom's downbeats landed on.
+
+The short bar stays a meter change when the accents clearly support it: an accent run (accent_min_bars bars whose first beat is accent_ratio times every other beat) on the old phase up to within a bar of the slip, and one on the new phase from within a bar after it. One side alone isn't enough. The test is in `tests/test_meter.py`: one-beat and two-beat slips, early and late, on beat lists, without accents (one 4/4 run and a shift), with accents on both phases (the short bar stays), and with accents on one side (a shift).
+
+The panel counts how far into the bar on screen the tracker's bars restart, "bars restart 1 beat into the bar", from the bar lines as they are now, so it stays right after other meter edits. None of the four real songs has a slip left, `tests/test_real_song.py` checks that, since their bar positions are counted on the grid since milestone 7.
+
+## x2 and /2 as a notation choice, schema 2.6 (milestone 7b)
+
+x2 and /2 made a segment manual, so a re-analysis left it alone and nothing the analysis learned since reached it. real_d showed it: the owner's first re-analysis on milestone 7 kept the hand-halved segment with its old anchor one beat late, so the panel said −6868.599 ms with the first beat at measure 0.75 and a 2/4 at measure 68. Analyzed fresh it was right.
+
+How a chart writes the pulse isn't a correction of the analysis, so now x2 and /2 on an auto segment keep it auto with a `notation_scale` (a power of two from 1/8 to 8) and its confidence. The bpm in the report is the written one, so the bar lines, the chart setup list, the exports and the swing divisions all read it as before. A re-analysis puts the same scale on the new auto segment that covers most of each old one, with its new anchor, phase and meter. A ratio button chain that lands back on a power of two of the analysis' bpm (x3/4 then x2/3) is a notation choice again when nothing else about the segment changed. Anything else, a nudge, `anchor here`, a bpm that isn't a power of two off, a split, merge or match, makes a segment manual as before, with `notation_scale` 1. A split or merge of a scaled auto segment refits from the tracked beats and puts the scale back on top. A fresh half or double suggestion on a scaled segment is dropped like on a manual one with another bpm, it was made at the analysis' bpm.
+
+Reports from 2.5 are upgraded when they're read. A manual segment whose only log entries are bpm changes by a power of two becomes auto with that scale, and its confidence comes back from the first entry's old value. Both log forms count, one entry per field from before milestone 5 and one per change since. When the log has any change to the whole tempo map (a split, merge, match or applied suggestion) nothing is upgraded, the segment indices in older entries can't be trusted after those. The log itself isn't touched.
+
+## manual segments after a re-analysis (milestone 7b)
+
+The report keeps `auto_result`, the tempo and meter map the latest analysis gave before the manual segments were put back. The segment panel compares a manual segment with it: where the analysis puts the first beat (within half a bar, so a whole bar off is the same bar line), its bpm beyond a x2 or /2, and the time signatures over the segment. When something differs it says so, "this segment is manual; the new analysis would put its first beat 411.0 ms (1 beat) earlier", and offers `reset to auto`. That replaces the segment with what the analysis has over its span, as one edit (the tempo map, and the meter map with it when a manual meter inside the segment goes too). A bpm within 1% of a power of two of the analysis' is taken as that notation choice and put back on the new segment, so a hand-halved 146 comes back as the analysis' 145.99495 at /2. Pieces of one analysis segment either side join up again.
+
+The note shows whenever a manual segment differs from the latest analysis, also right after an edit, since the report doesn't tell an edit from a re-analysis. A report upgraded from before 2.6 has no `auto_result` and shows nothing until it's analyzed again. `tests/test_reanalysis.py` has the case asked for: a segment halved, nudged one beat late, re-analyzed with the edits kept, and reset.
+
+## keep my edits or start fresh, and cancel (milestone 7b)
+
+`re-analyze` asks `keep my edits` (the old behaviour) or `start fresh`, which asks once more. Starting fresh runs the analysis without the manual segments, the notation scales, the manual meter or the decided suggestions. The edit log is kept and gets one entry at `""` holding the tempo map, the meter map and the suggestions before and after, so what was dropped is in the log. When there was nothing manual to drop, no entry is written. `POST /api/jobs/{id}/reanalyze?mode=fresh` does it from the command line.
+
+A queued or running analysis can be cancelled (`POST /api/jobs/{id}/cancel`). The runner checks at each stage boundary, so a running one stops when its stage ends, which can take a while during madmom's network. A first analysis is deleted, a re-analysis goes back to the status and report it had. The runner keeps the cancel and the start fresh in memory, so a restart forgets both: a queued start fresh then keeps the edits, which loses nothing.
+
+## start screen, analyzing state, tour and demo (milestone 7b)
+
+The pick button said `choose a song` until a file had been uploaded in the browser session and `choose another song` after, whatever was on screen, so a recent song being re-analyzed showed `choose a song` and the drop prompt as if nothing ran. Now it follows the page: `choose a song` with nothing open, `choose another song` with a song open, and while anything runs (an upload, the demo, a re-analysis, or a job opened while it's still running) no picker at all. In its place the analyzing state shows the song's name, the stage pills larger as the main thing, the current stage with the time since it started, and `cancel`. A re-analysis keeps the report on screen with the edits locked until the new one is in, so its state is in the source column. Dropping a song while something runs asks `start <name> instead? the current analysis stops.` The pink `analyze` button only shows for a picked file that hasn't been uploaded, or after a failure.
+
+The tour is split by screen. On the start screen there is one step, a bubble beside `choose a song`. The four steps about an analyzed song (the card, the timeline, the zoomed view, the chart setup) run once after the first analysis. Each step dims the page except its part and puts the bubble beside or under it with an arrow pointing at it. `?` replays the steps for the screen that's up. The start screen's step uses the key the old tour used (`starstep.tourSeen`), so a browser that saw the five-step tour doesn't see it again, and the song's steps have their own (`starstep.tourSeen.song`).
+
+`try with a demo` asks the backend to make a click track with drums (`backend/api/demo.py`): 128 bpm in 4/4 for 16 bars after half a second of silence, kick on 1 and 3 with beat 1 louder, snare on 2 and 4, hats on the 8ths and a click on every beat, seeded so it's the same file every time. Nothing is downloaded and there's no real music in it. It's analyzed like an upload, its job is marked `demo`, the recent list leaves it out, a new demo replaces a finished old one, and the page says it's a demo above the card. The song's tour runs on it every time. With beat 1 and beat 3 the same kick, madmom put the first downbeat on beat 3, which is why beat 1 is louder. It analyzes to 128.00 bpm with the anchor within 2 ms of the first kick.
+
+## the recent list by file (milestone 7b)
+
+Uploading the same file again makes a new job each time, so a song could show three times. The list now has one entry per sha256, at the place of its newest job, with `N analyses` to show the earlier ones, each with its date, edits, `open` and `delete`. The prompt when a file analyzed before is picked is unchanged.

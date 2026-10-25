@@ -106,3 +106,15 @@ Milestone 7, swing and gallop. Additive, but 2.4 readers reject the new field, s
 - `BeatsFile` has no new fields, its `schema_version` moves with the report's. From 2.5 on, the bar positions of a stretch the octave check doubled or halved are counted on the grid, not per tracked beat (`docs/decisions.md`, real_d). A 2.4 file keeps what it had.
 
 2.4 reports and beats files are upgraded when they're read by changing the version only, with no subdivision sections. Older files go through the earlier steps first.
+
+## 2.6
+
+Milestone 7b, x2 and /2 as a notation choice, the analysis' own map, and a downbeat shift suggestion. Additive, but 2.5 readers reject the new fields and the new suggestion kind, so the version moves.
+
+- Each tempo segment gains `notation_scale`, the bpm over the analysis' own bpm when only x2 or /2 was applied, a power of two from 1/8 to 8. It's 1 for a segment as analyzed and for a manual one. A segment with another scale is still `auto` and keeps its confidence, `bpm` is the written bpm, and a re-analysis puts the same scale on the new auto segment. Why is in `docs/decisions.md` (x2 and /2 as a notation choice).
+- The report gains `auto_result`, `{tempo_map, meter_map}`: what the latest analysis gave without any manual segment, every segment auto with scale 1. The segment panel compares a manual segment with it and `reset to auto` takes from it. Analysis output, edits don't change it, null in a report upgraded from 2.5.
+- `notation_suggestions` gains the kind `shift`: the downbeat may move at `start_ms`, where the tracker's bars restarted after one short bar the meter left out. `suggested_bpm` and `grid_bpm` are the segment's own, applying it splits the meter at `start_ms`.
+- New edits: `reset_segment` logs the whole `tempo_map` (at `""` with the `meter_map` when that changed too), and applying a `shift` logs at `""` with the `meter_map` and the status. x2 or /2 on an auto segment logs at `tempo_map/<i>` with `bpm` and `notation_scale`. A re-analysis with `mode=fresh` appends one entry at `""` with the tempo map, the meter map and the suggestions before and after, when it dropped anything manual.
+- `BeatsFile` has no new fields, its `schema_version` moves with the report's.
+
+2.5 reports are upgraded when they're read. The version moves, and a manual segment whose only log entries are bpm changes by a power of two becomes auto with that scale and the confidence from the first entry, unless the log has a change to the whole tempo map. Beats files only change their version. Older files go through the earlier steps first.
