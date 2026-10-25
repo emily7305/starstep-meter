@@ -67,6 +67,18 @@ describe("chartSetup", () => {
     expect(formatOffset(setup.originalOffsetMs)).toBe("-85.382 ms");
   });
 
+  it("rounds the mp3 offset only for display, the two differ by exactly the padding", () => {
+    // MisoilePunch: bar 0 at 62.3615 ms and 1105 samples of padding at 48 khz (23.0208 ms)
+    const map = [seg(119.521, 134213.979, 270.0038, 951.238)];
+    const { setup } = setupOf(map, [meter(119.521, 134213.979, 4)], { ...MP3, duration_ms: 137024 });
+
+    expect(setup.wavOffsetMs - setup.originalOffsetMs).toBeCloseTo(1105 / 48, 9);
+    expect(formatOffset(setup.wavOffsetMs)).toBe("-62.362 ms");
+    expect(formatOffset(-setup.paddingMs)).toBe("-23.021 ms");
+    // adding the two rounded values would give -85.383
+    expect(formatOffset(setup.originalOffsetMs)).toBe("-85.382 ms");
+  });
+
   it("starts measure 0 at the first bar line in the audio, before the first downbeat if there's room", () => {
     // first downbeat at 2300 with 2000 ms bars, so there's a bar line at 300 too
     const map = [seg(200, 59000, 120, 2300)];

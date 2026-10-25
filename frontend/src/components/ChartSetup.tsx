@@ -21,23 +21,32 @@ export function wavName(filename: string): string {
   return filename.toLowerCase().endsWith(".wav") ? `${stem}-ffmpeg.wav` : `${stem}.wav`;
 }
 
+export function ffmpegCommand(filename: string): string {
+  return `ffmpeg -i "${filename}" "${wavName(filename)}"`;
+}
+
+// "copied", or why it failed. clipboard needs a secure context and focus, 127.0.0.1 counts as secure
+export async function copyToClipboard(text: string): Promise<string> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return "copied";
+  } catch (err) {
+    return `copy failed — ${err instanceof Error ? err.message : "clipboard not available"}`;
+  }
+}
+
 export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, selected, onSelect }: Props) {
   const [copyState, setCopyState] = useState<string | null>(null);
-  const command = `ffmpeg -i "${filename}" "${wavName(filename)}"`;
+  const [commandState, setCommandState] = useState<string | null>(null);
+  const command = ffmpegCommand(filename);
   const padding = setup.paddingMs > 0;
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(setupText(setup, bpmDecimals));
-      setCopyState("copied");
-    } catch (err) {
-      // clipboard needs a secure context and focus, 127.0.0.1 counts as secure
-      setCopyState(`copy failed — ${err instanceof Error ? err.message : "clipboard not available"}`);
-    }
+    setCopyState(await copyToClipboard(setupText(setup, bpmDecimals)));
   }
 
   return (
-    <section className="setup" aria-labelledby="setup-label">
+    <section className="setup" id="chart-setup" aria-labelledby="setup-label">
       <div className="setup__head">
         <h3 id="setup-label" className="setup__title">
           chart setup
@@ -75,7 +84,8 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
             {padding ? (
               <>
                 the original {setup.kind} has <span className="mono">{formatFineMs(setup.paddingMs)}</span> of decoder
-                padding. mikumikuworld plays it with an mp3 (checked by ear), so that offset is the padding further back.
+                padding. mikumikuworld plays it with an mp3 (checked by ear), so the two offsets differ by exactly that
+                padding, worked out before rounding.
               </>
             ) : (
               `the original ${setup.kind} has no decoder padding, both offsets are the same.`
@@ -85,7 +95,13 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
         <li>
           <p className="setup__step">audio file</p>
           <p className="setup__note">load a wav converted with ffmpeg:</p>
-          <pre className="setup__command mono">{command}</pre>
+          <div className="setup__command">
+            <code className="setup__command-text mono">{command}</code>
+            <button type="button" className="btn btn--chip" onClick={() => void copyToClipboard(command).then(setCommandState)}>
+              copy command
+            </button>
+            {commandState !== null && <span className="setup__copied">{commandState}</span>}
+          </div>
           <p className="setup__note">
             {padding ? (
               <>
