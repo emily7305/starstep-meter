@@ -361,6 +361,26 @@ The columns:
 
 A song that fails gets a row with only `file` and `error` filled in, and the run carries on with the next song.
 
+## Real songs: measure_bias_local.py
+
+madmom's beats are shifted 11.8 ms later before the onset snap. That bias was measured on click tracks, and on full mixes the snap barely moves the beats, so the analysis can't tell whether it holds on real music (see "grid timing at the start of MisoilePunch♪" in `docs/decisions.md`). `scripts/measure_bias_local.py` measures it on a folder of your own songs:
+
+```powershell
+python scripts\measure_bias_local.py C:\path\to\songs --recursive --out results\bias.csv
+```
+
+It needs ffmpeg, ffprobe and madmom. For each song it takes madmom's raw beats, without the bias shift, the snap or the octave check, and finds the strongest onset within `--window-ms` (30 ms by default) of each beat, with the same short-window spectral flux the snap uses. A beat whose strongest flux peak is under 20% of the median over all beats is skipped, the way the snap skips it. `--threshold-db` sets the trim threshold, and `--out` is the csv, `measure_bias.csv` in the current directory by default.
+
+An offset is the raw beat minus the onset in ms, so a negative value means madmom is early, the same sign as the bias. The csv has one row per song, timing numbers only, never audio:
+
+- `file`, `duration_ms` and `sample_rate` say which song it is.
+- `beats` is how many beats madmom found, and `beats_with_onset` how many had a usable onset.
+- `median_offset_ms`, `mean_offset_ms` and the 10th, 25th, 75th and 90th percentiles (`p10_offset_ms` and so on) describe the offsets of that song, and `iqr_ms` and `mad_ms` (the median absolute deviation, unscaled) their spread.
+- `bias_ms` is the bias the analysis uses, and `median_minus_bias_ms` the median offset minus it. That is about where a beat shifted by the bias sits against the onsets, positive meaning late.
+- `error` is empty for a song that worked. A song that fails gets a row with only `file` and `error`, and the run carries on.
+
+If the bias holds, the medians sit near −11.8 ms. On click tracks they read about −11.1, because the flux peak lands about 0.7 ms before a click's first sample. One song can be several ms off depending on where madmom's 10 ms frames fall, so judge by the folder median, which the last line on stderr prints along with how many songs failed.
+
 ## Tests
 
 Backend tests run from the repo root:
