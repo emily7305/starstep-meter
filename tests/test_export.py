@@ -111,7 +111,7 @@ def test_timing_export_with_beats_validates_and_carries_them() -> None:
     assert set(doc) == {"kind", "exported_at", "report", "beats"}
     assert BeatsFile.model_validate(doc["beats"]) == beats
     # timing numbers only, nothing in there could be audio
-    assert set(doc["beats"]) == {"schema_version", "sha256", "tracker", "octave", "beats", "grid_features"}
+    assert set(doc["beats"]) == {"schema_version", "sha256", "tracker", "octave", "beats", "grid_features", "cross_check_beats"}
 
 
 @pytest.mark.parametrize(
