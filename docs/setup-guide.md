@@ -135,7 +135,7 @@ Without madmom the beats come from librosa. That works, but with lower confidenc
    python scripts\check_madmom.py
    ```
 
-This hasn't been tried on Windows yet (it works on Linux). If the install fails, the app still runs with librosa, and the header in the page reads `madmom not installed`. If it installs but `check_madmom.py` fails, the header reads `madmom failed to import`, with the error when you hover over it. The beats then come from librosa too, and the report says `librosa fallback`.
+When it works, `check_madmom.py` prints the beats it found on a generated click track and a median tempo of 120.00, and the header in the page reads `madmom ok`. This works on Windows and on Linux. If the install fails, the app still runs with librosa, and the header in the page reads `madmom not installed`. If it installs but `check_madmom.py` fails, the header reads `madmom failed to import`, with the error when you hover over it. The beats then come from librosa too, and the report says `librosa fallback`.
 
 ## Part 4: start the app and analyze a song (every time)
 

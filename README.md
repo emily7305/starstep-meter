@@ -98,7 +98,7 @@ Check the install with:
 python scripts\check_madmom.py
 ```
 
-This has not been tested on Windows yet. It worked on Linux with Python 3.11 and 3.13.
+This works on Windows: the install above builds, `check_madmom.py` passes, and the header in the UI reads `madmom ok`. It also works on Linux with Python 3.11 and 3.13.
 
 ## Install on Linux
 

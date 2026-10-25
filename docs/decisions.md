@@ -12,6 +12,8 @@ So the `madmom` extra in `pyproject.toml` pins that git commit (`27f032e89472049
 
 Not tested yet: Windows. madmom has Cython extensions, so a source build on Windows needs the MSVC Build Tools (the "Desktop development with C++" workload). Python 3.12/3.13 weren't tried either.
 
+Checked since: the same install works on Windows (the owner's machine, with the Build Tools), `scripts/check_madmom.py` passes there and the header reads `madmom ok`. The cloud sessions run it on Linux with Python 3.13.
+
 One number for milestone 2: on the click track, madmom's beats come out 10 ms before the click onsets (490 ms for a click at 500 ms). It runs at 100 frames per second, so 10 ms is one frame. Onset snapping will have to deal with that.
 
 Nothing in milestone 1 imports madmom. `/api/health` only checks whether it's importable, and the librosa path runs without it.
