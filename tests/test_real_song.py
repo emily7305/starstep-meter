@@ -18,9 +18,9 @@ import numpy as np
 import pytest
 
 from backend.analysis.confidence import assess
-from backend.analysis.cross_check import compare
 from backend.analysis.meter import infer_meter
 from backend.analysis.notation import feel_suggestions, fold_suggestions, from_fits, stored_features
+from backend.analysis.pipeline import check_against
 from backend.analysis.tempo_map import build_tempo_map
 from backend.schema.migrate import upgrade_beats, upgrade_report
 from backend.schema.models import BeatsFile, TimingReport
@@ -251,12 +251,7 @@ def _confidence(name):
     beats = BeatsFile.model_validate(upgrade_beats(json.loads((REAL / name / "beats.json").read_text(encoding="utf-8"))))
     times = np.array([b.time_ms for b in beats.beats])
     tempo = meter.tempo
-    cross = None
-    if beats.cross_check_beats:
-        felt = [(m.start_ms, m.end_ms) for s in tempo.segments for m in s.ratio_merges]
-        runs = [(r.start_ms, r.end_ms) for s in tempo.segments for r in s.offbeat_runs]
-        segments = [(s.start_ms, s.end_ms) for s in tempo.segments]
-        cross = compare(times, np.array(beats.cross_check_beats), segments, felt + runs)
+    cross = check_against(tempo, times, np.array(beats.cross_check_beats)) if beats.cross_check_beats else None
     return assess(tempo, times, cross), tempo
 
 
