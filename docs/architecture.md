@@ -26,6 +26,8 @@ Each stage is a plain function that takes paths or numpy arrays and returns a sm
 | `tempo.py` | samples, sample rate, trim bounds | `TempoResult`: milestone 1 bpm estimate, only used by the librosa fallback now |
 | `pipeline.py` | original, work dir, filename, sha256, previous report | `AnalysisOutput` with the `TimingReport` and the `BeatsFile` |
 | `cli.py` | file path | report JSON on stdout |
+| `sonolus.py` | tempo map, meter map, decoder compensation | `SonolusTiming`: `bgmOffset`, bpm changes and time signatures in beats |
+| `export.py` | report, beats file or decoder compensation | the timing export or the Sonolus preset as a dict, checked against `shared/schema/`. Also a CLI |
 
 `ffmpeg_tools.py` finds and runs ffmpeg/ffprobe (`shutil.which`, argument lists, never a shell). A missing tool raises `ToolNotFoundError("ffmpeg not found on PATH")`.
 
@@ -40,15 +42,17 @@ All times are milliseconds from the first decoded sample. Trim only reports boun
   - `GET /api/jobs/{id}`: status, with `report_available` for a failed re-analysis that left the last good report.
   - `GET /api/jobs/{id}/report`: the timing report.
   - `GET /api/jobs`: every job, newest first. `?sha256=` narrows it to one file.
-  - `PATCH /api/jobs/{id}/report`: one edit, `{"op": "set_anchor" | "set_bpm" | "split" | "merge" | "match" | "set_meter" | "split_meter" | "merge_meter" | "apply_suggestion" | "dismiss_suggestion", ...}`, appends to `edits`.
+  - `PATCH /api/jobs/{id}/report`: one edit, `{"op": "set_anchor" | "set_bpm" | "split" | "split_out" | "merge" | "match" | "set_meter" | "split_meter" | "merge_meter" | "apply_suggestion" | "dismiss_suggestion", ...}`, appends exactly one entry to `edits`.
   - `POST /api/jobs/{id}/reanalyze`: runs the analysis again, keeping manual segments and edits.
   - `GET /api/jobs/{id}/beats`: the beats file.
+  - `GET /api/jobs/{id}/export`: the timing export as a download. `?beats=true` adds the beats file, `?preset=sonolus` gives the Sonolus values instead, with `&decoder_compensation_ms=`. Checked against `shared/schema/` before it's returned.
+  - `DELETE /api/jobs/{id}`: deletes the job folder, not while it's queued or running.
   - `GET /api/jobs/{id}/audio`: the decoded wav, for playback in the local UI.
   - `GET /api/health`: ffmpeg and ffprobe found, madmom installed and importing (checked once at startup).
 - `jobs.py`: a `ThreadPoolExecutor` (one worker by default) runs `run_analysis` and writes status as stages change. On re-analysis it passes the old report in and decodes into `.rerun/`, so a failed run leaves the job's files as they were.
-- `tempo_patch.py`: applies one edit (tempo, meter or suggestion) and writes the edit log entries for it.
+- `tempo_patch.py`: applies one edit (tempo, meter or suggestion) and writes its one edit log entry.
 - `storage.py`: job directories and atomic JSON writes.
-- `settings.py`: data dir, upload limit, trim threshold, snap window, tempo range, worker count, all overridable with `STARSTEP_*` env vars.
+- `settings.py`: data dir, upload limit, trim threshold, snap window, tempo range, worker count, retention, all overridable with `STARSTEP_*` env vars.
 - `python -m backend.api` starts uvicorn on 127.0.0.1:8000.
 
 Job storage, one directory per job under `data/jobs/<job_id>/`:
@@ -65,13 +69,13 @@ beats.json       every tracked beat (snapped and raw time, residual, bar) and th
 
 Report edits go through one lock in `JobStore`, so a burst of patches can't read the same old report and drop an edit. Reports and beats files from schema 1.1, 2.0, 2.1 and 2.2 are upgraded to 2.3 as they're read (`backend/schema/migrate.py`).
 
-Status and report are on disk, so a restart doesn't lose finished jobs. Jobs that were still queued or running when the server stopped are marked failed on the next start ("server restarted before the job finished"). There's no Celery, Redis, or database.
+Status and report are on disk, so a restart doesn't lose finished jobs. At startup, job folders unchanged for longer than the retention (14 days by default) are deleted, then jobs that were still queued are queued again, and jobs that were running are marked failed ("server restarted before the job finished"). There's no Celery, Redis, or database.
 
 `status` is `queued | running | done | failed`. `stage` is `queued | decode | trim | beats | snap | tempo | meter | done | failed`. A failure keeps the stage it happened in as `error.stage`.
 
 ## schema (`backend/schema/`, `shared/schema/`)
 
-`models.py` is the source of truth for the timing report and the beats file (v2.3, see `schema-changelog.md`). `export_schema.py` writes `shared/schema/timing_report.schema.json` and `shared/schema/beats.schema.json`, which are committed. The frontend generates `frontend/src/types/timingReport.ts` and `frontend/src/types/beats.ts` from them with `npm run gen:types`.
+`models.py` is the source of truth for the timing report and the beats file (v2.3, see `schema-changelog.md`), and `export_models.py` for the two export files. `export_schema.py` writes `shared/schema/timing_report.schema.json`, `beats.schema.json`, `timing_export.schema.json` and `sonolus_export.schema.json`, which are committed. The frontend generates one TypeScript file per schema in `frontend/src/types/` with `npm run gen:types`. `validate.py` checks a document against a committed schema file with jsonschema, which the exports go through.
 
 Two checks keep them in sync. A pytest test fails if a committed JSON Schema differs from its model, and `npm run check:types` fails if the committed TypeScript differs from what the JSON Schemas generate.
 
@@ -93,6 +97,8 @@ Vite + React + TypeScript. In dev, Vite proxies `/api` to the backend, so there'
 - `grid.ts` has the beat-to-pixel maths for one grid and `tempoMap.ts` puts the segments' grids together (boundaries, bar lines from the meter map with the backend's rule, bar numbers across segments, bands). `tempoEdits.ts` is the edit logic (`EditSaver` debounces anchor nudges, sends everything else at once, and keeps one patch in flight). All three are plain modules with vitest tests, and the components only wire them up.
 - `beatGridPlugin.ts` is the wavesurfer plugin that draws the bands, the grid and a thin mark for each open suggestion, `components/Loupe.tsx` the zoomed view, `components/SegmentControl.tsx` the controls for the selected segment, `components/MeterControl.tsx` the ones for the meter under the zoomed view, `components/SuggestionList.tsx` the suggestions with apply and dismiss, and `components/Timeline.tsx` owns the wavesurfer instance.
 - `fonts.ts` loads the Japanese font slices on demand.
+- `clockPlayer.ts` plays the decoded wav on an AudioContext the app owns and is wavesurfer's media element. `clickTrack.ts` puts a click on every beat line and an accented one on every bar line, started at exact times on that context. Both have vitest tests with a fake context.
+- `components/ExportPanel.tsx` is the export block in the source column, with `exportOptions.ts` for the request and the decoder compensation presets, and `editLog.ts` reads an edit log entry for the report column.
 
 ## tests (`tests/`)
 
@@ -105,3 +111,4 @@ Vite + React + TypeScript. In dev, Vite proxies `/api` to the backend, so there'
 - `make_click_track.py` writes a click track for checking by hand, with tempo changes and felt rhythm sections if asked.
 - `eval_local.py` runs the pipeline on every song in a local folder and writes a csv of timing numbers (meter and notation suggestions included), for tuning thresholds on real songs. It never writes audio.
 - `check_madmom.py` checks a madmom install.
+- `make_sonolus_test_level.py` turns a Sonolus export into level data with a tap note on every grid beat, for checking the offset in Sonolus with a click track.

@@ -228,7 +228,7 @@ Vite moves on to the next free port and prints it, for example http://127.0.0.1:
 
 ### Where the uploads went
 
-Each job is a folder under `data\jobs\` in the repo folder, with a copy of the upload, the decoded audio and the json files. Nothing is deleted automatically. Deleting a job's folder by hand removes it from the list in the page too.
+Each job is a folder under `data\jobs\` in the repo folder, with a copy of the upload, the decoded audio and the json files. When the backend starts, it deletes the folders of jobs that haven't changed for 14 days (`STARSTEP_RETENTION_DAYS` in the README's settings table, 0 keeps them all). Deleting a job's folder by hand, with the backend stopped, removes it from the list in the page too.
 
 ## Linux
 

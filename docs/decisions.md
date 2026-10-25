@@ -140,6 +140,7 @@ Copy is tool copy: lowercase labels, no exclamation marks. Stage names show as `
 - Jobs run on a `ThreadPoolExecutor` with one worker by default (`STARSTEP_WORKERS`). Analysis is CPU-bound and it's one person uploading, so a queue of one is fine. There's no Celery, Redis or database.
 - Each job's state lives in `data/jobs/<id>/status.json`, written atomically (temp file plus `os.replace`, retried briefly on Windows `PermissionError`). The report is written before the status flips to done, so done never shows without a report to fetch.
 - After a restart, finished jobs are still served. Jobs that were queued or running are marked failed with "server restarted before the job finished". Re-queueing queued jobs would be nicer and is a todo.
+- Changed in milestone 5: queued jobs are queued again at startup, see "job cleanup and restarts (milestone 5)".
 - Ingest runs inside the upload request, not as a job stage. A wrong extension or a file ffprobe can't read gets a 415, a missing ffprobe gets a 503, and nothing is left on disk.
 - Upload size: FastAPI parses the multipart body before the route function runs, so a check inside the route would only fire after the whole file was spooled. A small custom route class checks `Content-Length` first and returns 413 when it's over the limit by more than 64 KiB of multipart slack. The byte count in ingest catches anything closer to the limit.
 - The server binds to 127.0.0.1. `--host` with anything else prints a warning. There's no CORS middleware because the Vite dev server proxies `/api`.
@@ -346,6 +347,7 @@ Limits:
 - `match` joins a segment to its previous or next neighbour with the neighbour's bpm and anchor as they are. Nothing is refit, and the result has no confidence, since its extent was set by hand. It's one edit, for a stretch that is the neighbour's tempo felt differently.
 - A segment's `ratio_merged` sections are left out of every refit, the way the analysis left them out of its fit. They follow the segment through edits: a split clips them to each side, a merge or match keeps both segments' sections, and a section that ends up covering a whole segment is dropped, since it is that segment now. So splitting at a section's start and end gives it back with its own fitted tempo. The ui's "split out" does exactly that, as two split edits.
 - The edit log says exactly what moved. `set_bpm` and `set_anchor` add one entry per changed field of that segment, so the first edit of an auto segment also logs `source` auto → manual and `confidence` → null. Split, merge and match log the whole `tempo_map` before and after.
+- Changed in milestone 5: one manual change is one entry, see "edit log, one entry per change (milestone 5)". "split out" became one edit too.
 - Re-analysis (`POST /api/jobs/{id}/reanalyze`) runs the pipeline again on the stored upload. The manual segments come back exactly as they were, and the fresh auto segments fill only the time they don't cover, clipped at their edges. The edit log is kept, and re-analysis itself isn't logged since it isn't a manual change.
 
 A failed re-analysis keeps the last good report (milestone 3b). Before, the job showed as failed and its report wasn't served until a re-analysis succeeded, even though the file on disk was untouched. Now a re-analysis decodes into a `.rerun` folder inside the job, and the decoded wav only replaces the old one once the whole pipeline has run. A failed job that still has a `report.json` serves its report, beats and audio as before, and edits still work on it. `GET /api/jobs/{id}` says so with `report_available`, which is worked out when the status is read and never stored. The ui keeps the report on screen with "re-analysis failed at <stage> — <reason>. showing the last good report". A first analysis that fails has no report and still answers 409. A server restart in the middle of a re-analysis marks the job failed and clears the `.rerun` folder, and the last good report stays available.
@@ -669,3 +671,79 @@ So the detector stays as it was, and the milestone 4 synthetic results all still
 | `MeterConfig.accent_min_level` | 0.25 |
 
 Its test in `tests/test_meter.py` flips the MisoilePunch♪ case on a beat list, and `tests/test_notation.py` has the fold weighting on hand-made band strengths shaped like ENDYMION's outro, with `fold_min_score` flipping it.
+
+## edit log, one entry per change (milestone 5)
+
+Milestone 5 asks for every manual change to give exactly one entry in `edits`, with old, new and a timestamp. Before, a value edit logged one entry per field it changed, so the first `set_bpm` on an auto segment wrote three (bpm, source, confidence), `set_meter` up to four, and applying a suggestion two (the tempo map and the status). "split out" in the ui sent two splits, so it wrote two.
+
+The rule now: `field` is the deepest path that holds everything the change touched. With one changed value, old and new are that value. With several, they're objects keyed by each value's path under `field`, and an empty `field` is the report itself.
+
+- A nudge on a segment that's already manual changes only the anchor, so it's still `tempo_map/0/anchor_ms`, 136.774 → 139.774, the same as every entry before.
+- The first edit of an auto segment is `tempo_map/1` with `{"bpm": 200, "confidence": 0.98, "source": "auto"}` → `{"bpm": 400, "confidence": null, "source": "manual"}`. The same goes for `set_meter` on an auto meter segment (`meter_map/<i>`).
+- Split, merge, match, meter split and meter merge are unchanged, the whole list before and after.
+- Applying a suggestion changes the tempo map and the suggestion's status, so it's one entry at `""` with both, `{"tempo_map": [...], "notation_suggestions/0/status": "open"}` → the same keys after. Dismissing one is still `notation_suggestions/<i>/status`.
+- "split out" is its own edit now, `{"op": "split_out", "segment": i, "section": j}`, which splits at both ends of the kept section on the server and logs the tempo map once. An end within half a beat of the segment's edge isn't cut, it's already a boundary.
+
+The `Edit` shape didn't change (`old` and `new` were already any json), so `schema_version` stays 2.3. A version bump wouldn't tell a reader which rule an entry follows anyway, because the log is append-only and a report from before keeps its old entries. The changelog has a note.
+
+The frontend's edit list shows a several-value entry as one row with a line per value.
+
+## export (milestone 5)
+
+`GET /api/jobs/{id}/export` returns the plain timing export, `{"kind": "timing", "exported_at", "report"}`, with `"beats"` (the beats file) only for `?beats=true`. It's a wrapper and not the report with a `beats` key added, because the report's schema forbids unknown keys and the export should validate against a schema too. `?preset=sonolus` gives the Sonolus values instead, see the next section.
+
+Every export is checked against the committed JSON Schema in `shared/schema/` (`timing_export.schema.json` or `sonolus_export.schema.json`) with jsonschema before it goes out, not against the pydantic models. So a schema file that went stale shows up as a failed export (a 500 that names where it doesn't match) instead of a file a consumer can't read. The two schemas are generated from `backend/schema/export_models.py` like the others, the sync test covers them, and the frontend has their TypeScript types.
+
+`backend/analysis/export.py` builds both as plain functions, and `python -m backend.analysis.export report.json [--beats beats.json]` or `--sonolus [--decoder-compensation-ms MS | --decoder-padding]` does the same from the command line. Exports hold timing numbers only, never audio.
+
+Since schema 2.0 there's no `beat_offset_ms`, so every offset in an export comes from the segment anchors, the first downbeat being `tempo_map[0].anchor_ms`. The plain export carries the report as it is, no compensation. Decoder compensation is a Sonolus preset setting.
+
+## Sonolus export (milestone 5)
+
+What was checked, on 2026-10-25, before writing any of it:
+
+- `@sonolus/core` 7.15.4 on npm (the old `sonolus-core` package says it moved there). `LevelData` is `{bgmOffset: number, entities: LevelDataEntity[]}`, an entity is `{name?, archetype, data: [{name, value} | {name, ref}]}`. The engine archetype names are `#BPM_CHANGE` and `#TIMESCALE_CHANGE`, the data names `#BEAT`, `#BPM` and `#TIMESCALE`. There's no time signature archetype.
+- The Sonolus wiki (github.com/Sonolus/wiki, `level-specs/resources/level-data.md` and the engine play data page): the same type, and "`#BPM_CHANGE` ... must also provide data named `#BEAT` and `#BPM`". It doesn't say which way `bgmOffset` goes.
+- The sign comes from the converters in the engines by the Sonolus developer. In `sonolus-taiko-engine`, `lib/src/osu/convert.ts` puts beat 0 on the first osu timing point, whose time is seconds from the start of the audio, and sets `offset` (which becomes `bgmOffset`) to that time when it's 0 or negative. When it's positive it adds a lead-in tempo so beat 0 is at audio time 0 instead. `lib/src/tja/convert.ts` does the same with TJA's OFFSET. So `bgmOffset` is the bgm position in seconds at level time 0, which is beat 0, and the bgm is at level time + bgmOffset. `sonolus-pjsekai-engine`'s sample level (`shared/src/level/data/append.json`) has `"bgmOffset": 9`, so a positive value is a normal one, it starts the bgm 9 s in.
+
+How the values are built (`backend/analysis/sonolus.py`):
+
+- Beat 0 is the latest bar line of the first tempo segment at or before the start of the audio, so beat 0 is a bar line and nothing before the first downbeat (a pickup, an intro) is skipped. `bgmOffset` is that bar line's time in seconds, 0 or negative. For the 120 bpm click track with its first downbeat at 136.78 ms that's −1.86322 s, and the first downbeat is beat 4.
+- Each later tempo segment gets a `#BPM_CHANGE` on its first grid line, with the same quarter period rule the bar lines use, at the beat the tempo before it has reached by then. When a segment's grid doesn't carry on from the one before, that beat isn't whole (23.2 in a test). It's left exact, because rounding it would move every grid line after it. A sliver of a segment with no grid line of its own gets no change.
+- Time signatures come from the bar lines (`bars.py`, the same rule the timeline draws with), turned into beats. A bar cut short by a tempo change or a meter split gets its own entry, written in the bar's own denominator where it fits (half a 4/4 bar is 2/4). A cut bar that isn't a whole number of 64ths only happens next to a change on a fractional beat. It gets the nearest 64ths and the next entry restarts on its exact beat. These aren't level data, they're for the chart editor.
+- The output has `level_data` in Sonolus' own shape (the `#BPM_CHANGE` entities and `bgmOffset`, ready to sit next to an engine's own entities), the same changes as `bpm_changes` with their times on the report's timeline for checking, the time signatures, and `first_downbeat_beat`.
+
+Decoder compensation is how much later than ffmpeg's timeline the player's decoder plays the audio, 0 ms by default. The presets are 0 (a decoder that honours the gapless info, ffmpeg's timeline) and the source's decoder padding in ms, `decoder_padding_samples / sample_rate` (25.057 ms for a lame mp3 at 44.1 kHz), for a decoder that plays the padding. It only moves `bgmOffset`, by +compensation / 1000. The beats stay where they are, so switching presets never moves a note. With the padding preset and beat 0 right at the start of the audio, `bgmOffset` comes out a little positive, which skips only the padding.
+
+Measured on mp3 click tracks (lame 192k) through the app, against a decoder that ignores the gapless header (ffmpeg with `-flags2 +skip_manual`, its lag measured by cross-correlation): the level time of the first downbeat as that decoder plays it, minus its beat's time.
+
+| track | without compensation | padding preset |
+| --- | --- | --- |
+| 120 bpm, 44.1 kHz, first click 137.5 ms | +25.78 ms | +0.73 ms |
+| 174 bpm, 48 kHz, first click 612.5 ms | +23.76 ms | +0.74 ms |
+| 150 bpm, 44.1 kHz, first click 1234.5 ms | +25.80 ms | +0.74 ms |
+
+The 0.73 ms left is onset snap landing that far before a click's first sample (see "onset snap"). `tests/test_export.py` checks the 120 bpm case. What the real Sonolus app's decoder does with an mp3 isn't known from here, which is what the click-track test level in the README is for.
+
+`scripts/make_sonolus_test_level.py` turns a Sonolus export into level data with a tap note on every grid beat from the first downbeat. Its default note is the pjsekai engine's `NormalTapNote` with `lane` 0 and `size` 1.5, as in that engine's sample level, and it can be changed for another engine. It gzips the output, since the wiki says level data has to be.
+
+## click track (milestone 5)
+
+The click track plays a click on every beat line of the grid on screen and a higher, louder one on every bar line, a bar line between two beats (7/8) included. It follows the anchor while it's being nudged.
+
+Playback moved off wavesurfer's media element onto an AudioContext the app owns (`frontend/src/clockPlayer.ts`, handed to wavesurfer as its media). The clicks are AudioBufferSourceNodes started at exact context times on that same context. An interval wakes the scheduler every 50 ms to queue the next 250 ms of clicks, but no click is timed by the interval. A late wake can only mean a click is skipped (one whose time has gone), never one that's late.
+
+What broke on the way to that: with wavesurfer's own WebAudio player the music is started with `start(context.currentTime)` and its position is worked out from the time read at that call. A start time that's already gone starts whenever the audio thread gets to it, a few ms later, and clicks scheduled against that read would land early by the same amount. So the player starts the music 50 ms ahead on the context clock, like the clicks, and the mapping from song time to context time is exact for both. With an `<audio>` element and the clicks on a separate context it would have been worse, two clocks and two output paths.
+
+Checked in Chromium (Playwright, headless) on the 120 bpm click track, with `AudioBufferSourceNode.start` wrapped to record its arguments: the music started 50 ms after the call, and all 7 clicks of a 3 s play sat on the grid lines (136.78 ms + k × 500) to the microsecond relative to the music's start, queued about 217 ms ahead.
+
+Output latency: the music and the clicks share one context and one output, so a Bluetooth headset's 150 to 250 ms delays both the same and they stay together. What it doesn't delay is the playhead on screen, which follows `currentTime`, the audio being rendered and not the audio being heard. On wired output the gap is a few tens of ms or less. On Bluetooth the playhead runs visibly ahead of the sound. That doesn't matter for listening to the clicks against the music. It does for watching the playhead cross a bar line, so do that check on wired output. Nothing compensates for it (`AudioContext.outputLatency` isn't in every browser, and the number isn't reliable on Bluetooth anyway). Todo if it gets in the way.
+
+The click sounds are short decaying sines, 1200 Hz and 1800 Hz for the accent, 30 ms with a 4 ms decay so they're down about 70 dB by the cut. Picked to sit above a mix without covering the attack underneath, tuned on the test tracks only.
+
+## job cleanup and restarts (milestone 5)
+
+- Retention: at startup, job folders that haven't changed for `STARSTEP_RETENTION_DAYS` days (14 by default, 0 keeps everything) are deleted whole, upload, decoded wav, report and edits. "Changed" is the newest of the upload time, the last status change (an analysis or re-analysis) and the last edit. Opening or exporting a job doesn't count, an edit does. A folder with none of those readable (an upload that never finished) goes by its own mtime, which also clears what the old todo about half uploads was about.
+- `DELETE /api/jobs/{id}` deletes one job folder for good, 204. It refuses a job that's queued or running (409) and says so if a file couldn't go, which can happen on Windows while a player has the wav open.
+- Restarts: a job that was queued when the server stopped is queued again at startup, it hasn't started, so the stored upload is all it needs. A queued re-analysis still has its report, so it keeps its manual segments as usual. A job that was running is still marked failed with "server restarted before the job finished". It might be what took the server down, and running it again on every start could loop. Re-analyze runs it again by hand.
+- Expired jobs are removed before the queued ones are picked up, so a job that sat queued past the retention isn't started only to be deleted.
