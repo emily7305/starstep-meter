@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { type ChartSetup as Setup, FIRST_MEASURES, formatBeat, formatOffset, midMeasure, setupText } from "../chartSetup";
+import { type ChartSetup as Setup, type FeelLine, FIRST_MEASURES, formatBeat, formatOffset, midMeasure, setupText } from "../chartSetup";
 import { formatFineMs } from "../format";
 
 interface Props {
@@ -11,9 +11,16 @@ interface Props {
   selected: number | null;
   onSelect: (row: number) => void;
   onFirstMeasure: (measure: number) => void;
+  // swing and gallop, the division the editor's grid needs there
+  feelLines: FeelLine[];
 }
 
 const MORE_DECIMALS = 4;
+
+// the long reasons go in the tooltips, the panel keeps one line each
+const OFFSET_WHY =
+  "the tool doesn't cut the audio, the offset skips whatever comes before measure 0. in mikumikuworld a positive offset starts the song later, so the offset is minus where measure 0 is, and positive when measure 0 starts before the file";
+const PADDING_WHY = "mikumikuworld plays an mp3's decoder padding (checked by ear), so with the original file everything is that much later. worked out before rounding";
 
 // song.mp3 -> song.wav, and a wav source gets a name of its own so ffmpeg doesn't write over it
 export function wavName(filename: string): string {
@@ -37,7 +44,7 @@ export async function copyToClipboard(text: string): Promise<string> {
 }
 
 
-export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, selected, onSelect, onFirstMeasure }: Props) {
+export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, selected, onSelect, onFirstMeasure, feelLines }: Props) {
   const [copyState, setCopyState] = useState<string | null>(null);
   const [commandState, setCommandState] = useState<string | null>(null);
   const command = ffmpegCommand(filename);
@@ -48,7 +55,7 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
   }
 
   return (
-    <section className="setup" id="chart-setup" aria-labelledby="setup-label">
+    <section className="setup" id="chart-setup" data-tour="setup" aria-labelledby="setup-label">
       <div className="setup__head">
         <h3 id="setup-label" className="setup__title">
           chart setup
@@ -90,21 +97,17 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
             <dt>with the original {setup.kind}</dt>
             <dd className="mono">{formatOffset(setup.originalOffsetMs)}</dd>
           </dl>
-          <p className="setup__note">
+          <p className="setup__note" title={OFFSET_WHY}>
             the music starts in measure {setup.firstMeasure}, at <span className="mono">{formatFineMs(setup.firstMeasureMs)}</span>
             {setup.firstMeasure > 0 ? ", and measure 0 is one empty bar of lead-in before it" : ""}. measure 0 starts{" "}
             <span className="mono">{formatFineMs(Math.abs(setup.measureZeroMs))}</span>
-            {setup.measureZeroMs >= 0 ? " into the audio file" : " before the audio file starts"}. the tool doesn't cut the audio, trim only
-            marks where the music starts, so the offset skips whatever comes before measure 0. in mikumikuworld a positive
-            offset starts the song later, so the offset is minus where measure 0 is, and positive when measure 0 starts
-            before the file.
+            {setup.measureZeroMs >= 0 ? " into the audio file" : " before the audio file starts"}.
           </p>
-          <p className="setup__note">
+          <p className="setup__note" title={padding ? PADDING_WHY : undefined}>
             {padding ? (
               <>
                 the original {setup.kind} has <span className="mono">{formatFineMs(setup.paddingMs)}</span> of decoder
-                padding. mikumikuworld plays it with an mp3 (checked by ear), so the two offsets differ by exactly that
-                padding, worked out before rounding.
+                padding, the two offsets differ by exactly that.
               </>
             ) : (
               `the original ${setup.kind} has no decoder padding, both offsets are the same.`
@@ -122,15 +125,9 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
             {commandState !== null && <span className="setup__copied">{commandState}</span>}
           </div>
           <p className="setup__note">
-            {padding ? (
-              <>
-                ffmpeg skips the {setup.kind}'s decoder padding the same way this tool does. loading the original{" "}
-                {setup.kind} puts everything <span className="mono">{formatFineMs(setup.paddingMs)}</span> late if the
-                editor's player doesn't skip it, use the second offset then.
-              </>
-            ) : (
-              `this ${setup.kind} has no decoder padding, so the original works the same as the converted wav.`
-            )}
+            {padding
+              ? `ffmpeg skips the decoder padding like this tool does. with the original ${setup.kind}, use the second offset.`
+              : `this ${setup.kind} has no decoder padding, the original works the same as the converted wav.`}
           </p>
         </li>
         <li>
@@ -159,6 +156,18 @@ export function ChartSetup({ setup, filename, bpmDecimals, onBpmDecimals, select
               </li>
             ))}
           </ol>
+          {feelLines.length > 0 && (
+            <>
+              <p className="setup__note">uneven notes, set the grid to this division for them:</p>
+              <ul className="setup__feels">
+                {feelLines.map((line) => (
+                  <li key={`${line.timeMs}-${line.text}`} className="setup__feel mono">
+                    {line.text}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </li>
       </ol>
     </section>

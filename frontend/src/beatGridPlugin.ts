@@ -66,16 +66,17 @@ export interface BeatGridOptions {
 // below this many px apart, lines turn into a smear, so thin them out
 const MIN_BEAT_SPACING_PX = 5;
 const MIN_LABEL_SPACING_PX = 36;
-// the bpm labels sit along the bottom, the bar numbers along the top
-const BAND_LABEL_H_PX = 16;
+// the bpm labels sit along the bottom, the bar numbers along the top. 12 px text in both
+const BAND_LABEL_H_PX = 18;
+const BAR_LABEL_H_PX = 16;
 // hatching instead of a tint, the bands already use tints
 const HATCH_SPACING_PX = 7;
-// under the bar number labels, which end at 16 px
-const MARK_Y_PX = 19;
+// under the bar number labels, which end at 18 px
+const MARK_Y_PX = 21;
 const MARK_TICK_PX = 5;
 // the change labels go under the suggestion marks
-const CHANGE_Y_PX = 27;
-const CHANGE_H_PX = 14;
+const CHANGE_Y_PX = 29;
+const CHANGE_H_PX = 16;
 const LOW_LABEL = "low confidence";
 
 export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions> {
@@ -218,7 +219,7 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
       ctx.font = this.options.labelFont;
       ctx.textBaseline = "middle";
       const x = Math.max(left, 0) + 4;
-      if (x + ctx.measureText(LOW_LABEL).width + 4 < Math.min(right, viewWidthPx)) ctx.fillText(LOW_LABEL, x, bottom - 10);
+      if (x + ctx.measureText(LOW_LABEL).width + 4 < Math.min(right, viewWidthPx)) ctx.fillText(LOW_LABEL, x, bottom - 12);
     }
     ctx.globalAlpha = 1;
   }
@@ -325,10 +326,10 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
         ctx.font = this.options.labelFont;
         const w = ctx.measureText(text).width;
         ctx.fillStyle = colors.labelBg;
-        ctx.fillRect(x + 2, 2, w + 6, 14);
+        ctx.fillRect(x + 2, 2, w + 6, BAR_LABEL_H_PX);
         ctx.fillStyle = colors.label;
         ctx.textBaseline = "middle";
-        ctx.fillText(text, x + 5, 9);
+        ctx.fillText(text, x + 5, 2 + BAR_LABEL_H_PX / 2);
       }
     }
     this.drawChanges(ctx, view);

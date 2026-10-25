@@ -1,13 +1,20 @@
 import { formatBpm, formatMs } from "../format";
+import { divisionAt, divisionText, feelKindText } from "../subdivisions";
 import type { TempoEditOp } from "../types/api";
-import type { NotationSuggestion } from "../types/timingReport";
+import type { NotationSuggestion, SubdivisionSection } from "../types/timingReport";
 
 interface Props {
   suggestions: NotationSuggestion[];
   // index into suggestions
   selected: number | null;
+  // swing and gallop, listed here too but never applied, there's nothing in the map to change
+  feels: SubdivisionSection[];
+  // the bpm each one's segment has now
+  feelBpm: number[];
+  selectedFeel: number | null;
   disabled: boolean;
   onSelect: (index: number) => void;
+  onSelectFeel: (index: number) => void;
   onEdit: (op: TempoEditOp) => void;
 }
 
@@ -33,7 +40,7 @@ export function decidedText(suggestions: NotationSuggestion[]): string {
 }
 
 export function SuggestionList(props: Props) {
-  const { suggestions, selected, disabled, onSelect, onEdit } = props;
+  const { suggestions, selected, feels, feelBpm, selectedFeel, disabled, onSelect, onSelectFeel, onEdit } = props;
   // the indices stay those of the full array, that's what the edits and the timeline use
   const open = suggestions.flatMap((suggestion, i) => (suggestion.status === "open" ? [{ suggestion, i }] : []));
   const decided = decidedText(suggestions);
@@ -43,7 +50,7 @@ export function SuggestionList(props: Props) {
       <p className="suggestions__label" id="suggestions-label">
         notation suggestions
       </p>
-      <p className="suggestions__note">the analysis never applies these</p>
+      <p className="suggestions__note">the analysis never applies these, a row jumps there</p>
 
       {open.length > 0 && (
         <ul className="suggestions__list">
@@ -82,6 +89,7 @@ export function SuggestionList(props: Props) {
                   type="button"
                   className="btn btn--step"
                   disabled={disabled}
+                  title="keep the grid as it is here, the suggestion is logged as dismissed"
                   onClick={() => onEdit({ op: "dismiss_suggestion", suggestion: i })}
                 >
                   dismiss
@@ -92,8 +100,35 @@ export function SuggestionList(props: Props) {
         </ul>
       )}
 
+      {feels.length > 0 && (
+        <ul className="suggestions__list suggestions__list--feel" aria-label="swing and gallop">
+          {feels.map((section, i) => (
+            <li key={`${section.start_ms}-${section.kind}`} className="suggestions__item" data-selected={i === selectedFeel}>
+              <button
+                type="button"
+                className="suggestions__go"
+                aria-current={i === selectedFeel ? "true" : undefined}
+                title="the notes between the beats are uneven here, set the editor's grid to this division for them"
+                onClick={() => onSelectFeel(i)}
+              >
+                <span className="suggestions__kind">{feelKindText(section)}</span>
+                <span className="suggestions__range mono">
+                  {formatMs(section.start_ms)} → {formatMs(section.end_ms)}
+                </span>
+                <span className="suggestions__bpm mono">
+                  {divisionText(divisionAt(section.division, section.grid_bpm, feelBpm[i] ?? section.grid_bpm))}
+                </span>
+                <span className="suggestions__score mono" title="how clear it is, 1 is as clear as it gets">
+                  {section.score.toFixed(2)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       {decided !== "" && <p className="suggestions__decided">{decided}</p>}
-      {open.length === 0 && decided === "" && <p className="suggestions__empty">no suggestions</p>}
+      {open.length === 0 && feels.length === 0 && decided === "" && <p className="suggestions__empty">none for this song</p>}
     </section>
   );
 }
