@@ -555,6 +555,8 @@ One rule, in `backend/analysis/bars.py` and again in `frontend/src/tempoMap.ts`,
 - A meter segment that starts with its tempo segment (within a quarter beat of its start) counts bars from the tempo segment's anchor. One that starts later starts a bar right there, snapped to the nearest beat, and counts from it. Every tempo segment's anchor is bar 1 for the meter it starts with, as before.
 - Bar 0 is the first downbeat of the song, and numbers keep counting across tempo and meter segments.
 
+Changed in milestone 6: bar 0 is the first bar line in the audio, see "chart setup list (milestone 6)".
+
 This replaced the bar length the frontend read from the beats file (the most common full bar in madmom's positions).
 
 ### meter from the downbeats, and from the accents where they're clear
@@ -739,6 +741,8 @@ Checked in Chromium (Playwright, headless) on the 120 bpm click track, with `Aud
 
 Output latency: the music and the clicks share one context and one output, so a Bluetooth headset's 150 to 250 ms delays both the same and they stay together. What it doesn't delay is the playhead on screen, which follows `currentTime`, the audio being rendered and not the audio being heard. On wired output the gap is a few tens of ms or less. On Bluetooth the playhead runs visibly ahead of the sound. That doesn't matter for listening to the clicks against the music. It does for watching the playhead cross a bar line, so do that check on wired output. Nothing compensates for it (`AudioContext.outputLatency` isn't in every browser, and the number isn't reliable on Bluetooth anyway). Todo if it gets in the way.
 
+Changed in milestone 6: the playhead is drawn behind by the latency the browser reports, see "playhead and output latency (milestone 6)".
+
 The click sounds are short decaying sines, 1200 Hz and 1800 Hz for the accent, 30 ms with a 4 ms decay so they're down about 70 dB by the cut. Picked to sit above a mix without covering the attack underneath, tuned on the test tracks only.
 
 ## job cleanup and restarts (milestone 5)
@@ -747,3 +751,69 @@ The click sounds are short decaying sines, 1200 Hz and 1800 Hz for the accent, 3
 - `DELETE /api/jobs/{id}` deletes one job folder for good, 204. It refuses a job that's queued or running (409) and says so if a file couldn't go, which can happen on Windows while a player has the wav open.
 - Restarts: a job that was queued when the server stopped is queued again at startup, it hasn't started, so the stored upload is all it needs. A queued re-analysis still has its report, so it keeps its manual segments as usual. A job that was running is still marked failed with "server restarted before the job finished". It might be what took the server down, and running it again on every start could loop. Re-analyze runs it again by hand.
 - Expired jobs are removed before the queued ones are picked up, so a job that sat queued past the retention isn't started only to be deleted.
+
+## cross-check against librosa (milestone 6)
+
+librosa's beat tracker runs as a second opinion on the same audio, in a new `check` stage after `meter` (`backend/analysis/cross_check.py`). It's the same call as the librosa fallback, its own tempo guess from the milestone 1 estimate, and its beats go through the same onset snap as madmom's (no bias shift, its +4 to +12 ms is already inside the window). Two trackers that took the same attack then sit a fraction of a ms apart, and the comparison says whether they chose the same attacks, not how each tracker is biased.
+
+Per tempo segment, every main beat is measured to the nearest librosa beat and every librosa beat to the nearest main beat, and the side with the smaller median counts. librosa's own tempo guess can be half or twice madmom's, and then one side still finds a beat next to every one of its own, so half or double agrees and half a beat off doesn't. The median distance is the segment's `disagreement_ms`, and a segment is flagged when it's over `max_disagreement_ms`, 20 ms by default (`--cross-check-ms` on the CLI and the eval script, `STARSTEP_CROSS_CHECK_MS` for the server). 20 is the snap window: further apart than that, the two can't have snapped onto the same attack. It's a guess from click tracks, where every segment comes out at 0.01 ms, and needs real songs with the audio to tune.
+
+Felt sections (ratio merges) and off-beat runs are left out, with the ramps either side of a run (see confidence below). The trackers are expected to disagree there: madmom follows the felt pulse or the off-beat, and the grid deliberately doesn't. With librosa as the main tracker there's nothing to compare with, so there's no check (`cross_check: null`) and the confidence is the residuals alone.
+
+librosa's snapped beats go in the beats file (`cross_check_beats`), so the check and the confidence can be worked out again without the audio, the way the suggestions are from `grid_features`. The check costs about 6 s on a 3 minute song (11 s for the first one after a start, numba compiling), next to about 30 s for madmom's network.
+
+## confidence (milestone 6)
+
+`backend/analysis/confidence.py` gives each tempo segment a confidence and splits it into spans of 16 grid beats from its anchor (four bars of 4/4, on bar lines), with no stub under half a span at either end. The formula, for a segment or a span:
+
+```
+confidence = residual_share * (1 - w + w * agreement), w = 0.5
+```
+
+- `residual_share` is the share of the tracked beats within 10 ms of the grid, the measure the segment confidence was since milestone 2. A beat in a felt section counts as min(1, fit) of its section instead of 1 or 0: madmom fills the gaps of a 3-3-2 bar with guesses, and the section's fit (how well the grid caught it against its own tempo) is the honest number for those beats. An off-beat run and the beats ramping into and out of it are left out. The grid is on the real beats there, the tracker followed the off-beat. A ramp is the beats next to a run that sit more than 10 ms off both the line and the half line, at most 8 either side (YOUNITHM's are 3 to 7). A span whose beats are all left out takes its segment's share.
+- `agreement` is the share of compared beats with the other tracker's beat within `max_disagreement_ms`. Without a cross-check, or with nothing compared in the span, the confidence is the residual share.
+- w = 0.5 means both trackers disagreeing everywhere keeps half the residual share. librosa is the weaker tracker and can be the one that's wrong.
+
+The segment's confidence is halved for the librosa fallback as before (its bar phase is a guess), the spans aren't, they're about where the grid sits. A refit after a split or merge keeps the refit's residual share only, and a span under a manual segment isn't written or shaded, the spans were measured on the analysis' grid.
+
+A span is `low` under 0.5, and the timeline shades those under auto segments. Measured:
+
+| track | spans in the messy or special part | the rest | low |
+| --- | --- | --- | --- |
+| clicks 120 bpm, 32 beats jittered +-25 ms | 0.31, 0.53 | 1.0 | the 0.31 span |
+| clicks 174 bpm, 48 beats jittered +-20 ms | 0.5, 0.6, 0.63 | 1.0 | none |
+| clicks 270 bpm, dotted and triplet feel sections | 1.0 | 1.0 | none |
+| clicks 260 bpm, off-beat section | 1.0 | 1.0 | none |
+| MisoilePunch♪, felt sections at 3/4 and 2/3 | 1.0 | lowest 0.56 | the fade-out from 128.9 s |
+| YOUNITHM, four off-beat runs | not low | lowest 0.77 | the fade-out from 170.0 s |
+| ENDYMION, 6/5 felt section (fit 0.81) | about 0.8 | | the intro to 5.5 s (beats about 11 ms late), 88.4 to 92.8 s (madmom lost a beat), and 92.8 to 97.2 s sits at exactly 0.5 |
+
+The real songs ran on their beats files without the audio, so without the cross-check (their files are from before it). The cross-check on clicks agreed within 0.01 ms everywhere, including the messy sections, since both trackers snapped to the same jittered clicks. Mess shows up in the residuals, and the cross-check is for a tracker that took the wrong attacks. Nothing synthetic makes the two trackers disagree through the pipeline yet, the beat list tests do it by hand. ±20 ms jitter at 174 bpm isn't shaded. That's a sloppy performance on a right grid, which is what the 0.5 is set to let through, and the second lowest real-song span (0.56) is too close to raise it.
+
+## chart setup list (milestone 6)
+
+The chart setup panel under the suggestions lists what to type into a chart editor, MikuMikuWorld being the one checked: the music offset, which audio file to load, and every bpm and time signature change by measure and beat (`frontend/src/chartSetup.ts`). It's worked out from the same bar lines the timeline draws (`tempoGrid` in `tempoMap.ts`), so the measure numbers can't drift from the bar labels, and a test checks every row against the label of its bar line.
+
+Bar 0 moved. It was the first downbeat, with any bar before it numbered negative. Now it's the first bar line at or after 0 ms of the audio file, which is where the timeline's lines start, so the labels run 0, 1, 2 from the left. With a lead-in shorter than a bar (the usual case) bar 0 is still the first downbeat. With a longer intro, the first downbeat gets a later number and the intro's bars are chartable. The Sonolus export is unchanged, its beat 0 is the bar line at or before the start and its `first_downbeat_beat` says where the downbeat is.
+
+The offset. MikuMikuWorld's offset field moves the song later when it's positive, checked in the app. So the offset is minus where measure 0 is in the audio, and since measure 0 is at or after 0 ms it's 0 or negative. Negative offsets work in MikuMikuWorld (checked by ear, below). Its source couldn't be read from the cloud session, the repository wasn't reachable, so the sign and the negative values rest on that hands-on check. The plan if negative offsets hadn't worked was the bar line at or before the start as measure 0, with a positive offset.
+
+Decoder padding. MikuMikuWorld doesn't skip an mp3's decoder padding, so with the original mp3 the music plays that much later and the offset is the padding further negative. The panel shows both, labelled: the offset for a wav converted with ffmpeg (recommended, ffmpeg skips the padding the way the analysis does) and the one for the original file. Checked by ear on MisoilePunch♪: measure 0 at 62.362 ms, so −62.362 ms with the wav and −62.362 − 23.021 = −85.383 ms with the mp3 (1105 samples at 48 kHz), and −85 to −92 ms sounded right with the mp3. The panel says −85.382 ms, the exact sum of −62.3615 and −23.0208. Values are shown with 3 decimals and an ascii minus, so they can be pasted into the field. The export panel's decoder compensation setting doesn't apply here, both are always shown.
+
+Beat positions. A chart editor counts beats, measure lengths come from the time signatures and a bpm change sits at a beat inside a measure. So the beat position of every bar line and change is counted along the tempo map from bar 0, the way the Sonolus export counts from its beat 0. A bar that a tempo change or a meter split cuts short gets its own time signature (half a 4/4 bar is 2/4), and a change that isn't on a bar line shows its beat, like "beat 3" or "beat 3 + 1/5" (1/2 to 1/16, else three decimals), marked mid-measure.
+
+What broke: two segments are fitted on their own, so the beat where one hands over to the next is rarely whole. On a 120 → 150 click track it was 0.77 ms off the first segment's line, which made the bar before the change 4.0015 beats, and that came out as a time signature of 64/64 followed by 4/4 again. A bar length or a change within 2 ms of whole beats (at the tempo there) is now taken as whole. 2 ms is a guess, well under the 10 ms the confidence calls on the grid, and a real fractional change (0.2 of a beat in the test) is far outside it.
+
+The copy button copies the two offsets and one row per line, the same text as the rows (BPM with 2 decimals, 4 with "more decimals"). On the timeline each change after the first gets a label at its line, like `m.24 · 150.00 bpm` or `m.37 · 3/4`, one label when both share a line. Zoomed out, a label that would run into the one before is left out. Picking a row in the panel moves the playhead and the zoomed view there and gives its label the accent.
+
+## zoomed view at the file's sample rate (milestone 6)
+
+The zoomed view drew from wavesurfer's decode, which is 8 kHz by default, so at 40 ms wide it had 320 samples to draw from. It now draws from the decoded wav itself. `ClockPlayer` already fetches the file to play it, and before handing it to `decodeAudioData` (which detaches the buffer, and resamples to the context's rate) it reads the samples out with a small wav reader (`frontend/src/wav.ts`). ffmpeg writes `WAVE_FORMAT_EXTENSIBLE` with a float subformat, then `fact` and `LIST` chunks, so the data starts at byte 114, not a multiple of 4, and the samples are copied out rather than viewed. Only the visible window is read per draw. If the file can't be read, the context's decode stands in. The test builds a 44.1 kHz file laid out like ffmpeg's and checks the view gets 44.1 kHz samples while the context decodes at 48 kHz.
+
+## playhead and output latency (milestone 6)
+
+The playhead is now drawn behind the rendered position by `outputLatency + baseLatency`, whichever of the two the browser reports, read again on every frame since it changes with the device. Only the drawing: the music and the clicks are started on the context clock as before, and the click scheduler reads the rendered position (`songTime`), so the latency doesn't eat its lookahead. Pausing stops where the audio stopped, so the playhead jumps forward by the latency on pause, which is where the last sound heard was. The transport says what was used, like `playhead −42.0 ms output latency`, or that the browser reports no output latency and the playhead isn't compensated. Headless Chromium on the cloud VM reported 42 ms. On Bluetooth the reported number may still be off, untested.
+
+## Sonolus decoder compensation (milestone 6)
+
+Still open. There's no test-level result from the real Sonolus app yet (the check in the README, "Checking the offset in Sonolus"), so the Sonolus preset's default stays 0 ms. MikuMikuWorld not skipping mp3 padding says nothing about Sonolus' decoder.
