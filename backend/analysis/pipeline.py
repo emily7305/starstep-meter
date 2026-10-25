@@ -403,7 +403,8 @@ def run_analysis(
         cross = None
         second = np.zeros(0)
         if tracked.tracker != SECOND_TRACKER:
-            second = second_opinion(samples, sample_rate, trim.start_ms, trim.end_ms, config.tempo_range, config.snap_window_ms)
+            segments = [(s.start_ms, s.end_ms, s.fit.bpm) for s in tempo.segments]
+            second = second_opinion(samples, sample_rate, segments, config.snap_window_ms)
             cross = check_against(tempo, snap.times_ms, second, config)
         confidence = assess(tempo, snap.times_ms, cross, config.confidence)
     except Exception as exc:
