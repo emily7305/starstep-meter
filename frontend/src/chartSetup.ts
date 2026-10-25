@@ -9,7 +9,8 @@
 import { type ChartStart, chartStartOf, DEFAULT_FIRST_MEASURE, EDGE_FRACTION, barBeats, type TempoGrid } from "./tempoMap";
 import type { BeatsFile } from "./types/beats";
 import { periodMs } from "./grid";
-import type { AudioSource, MeterSegment, TempoSegment, TimingReport } from "./types/timingReport";
+import { divisionAt, divisionText, feelKindText } from "./subdivisions";
+import type { AudioSource, MeterSegment, SubdivisionSection, TempoSegment, TimingReport } from "./types/timingReport";
 
 // two segments are fitted on their own, so where one hands over to the next is rarely a whole
 // number of beats of the first (0.77 ms off on a 120 -> 150 click track). a bar length or a
@@ -221,6 +222,36 @@ export function setupText(setup: ChartSetup, bpmDecimals: number): string {
     ...setup.rows.map((row) => rowText(row, bpmDecimals)),
   ];
   return `${lines.join("\n")}\n`;
+}
+
+// the measure a time is in, by the same numbering as the rows. 0 for anything before measure 0
+export function measureAt(grid: TempoGrid, timeMs: number): number {
+  const measures = measuresOf(grid);
+  let k = 0;
+  measures.forEach((m, i) => {
+    if (m.timeMs <= timeMs + SAME_POSITION_MS) k = i;
+  });
+  return k;
+}
+
+// a swing or gallop section as a line of the panel, "m.9 to m.16 · swing 2.00:1 · 1/12"
+export interface FeelLine {
+  timeMs: number;
+  from: number;
+  to: number;
+  text: string;
+}
+
+// bpms is the bpm each section's segment has now, its division follows a halved or doubled bpm
+export function feelLines(grid: TempoGrid, sections: SubdivisionSection[], bpms: number[]): FeelLine[] {
+  return sections.map((section, i) => {
+    const from = measureAt(grid, section.start_ms);
+    // the end is the bar line after the section's last bar
+    const to = Math.max(from, measureAt(grid, section.end_ms - 2 * SAME_POSITION_MS));
+    const division = divisionText(divisionAt(section.division, section.grid_bpm, bpms[i] ?? section.grid_bpm));
+    const where = from === to ? `m.${from}` : `m.${from} to m.${to}`;
+    return { timeMs: section.start_ms, from, to, text: `${where} · ${feelKindText(section)} · ${division}` };
+  });
 }
 
 // what goes on the timeline at a change: "m.21 · 130.00 bpm", "m.64 · 7/4", both when they share a line
