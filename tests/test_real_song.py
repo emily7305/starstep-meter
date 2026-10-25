@@ -301,10 +301,11 @@ def test_the_cross_check_flags_only_endymions_outro():
     # is the one over 20 ms
     flagged = {}
     for name in ("misoilepunch", "younithm", "endymion"):
+        # first, it skips when the song's folder isn't there
+        meter, _ = _analysis(name)
         beats = BeatsFile.model_validate(upgrade_beats(json.loads((REAL / name / "beats.json").read_text(encoding="utf-8"))))
         if not beats.cross_check_beats:
             pytest.skip(f"tests/real/{name}/beats.json has no cross_check_beats")
-        meter, _ = _analysis(name)
         times = np.array([b.time_ms for b in beats.beats])
         check = check_against(meter.tempo, times, np.array(beats.cross_check_beats))
         flagged[name] = [round(c.disagreement_ms or 0.0) for c in check.segments if c.flagged]
