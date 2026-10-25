@@ -458,6 +458,13 @@ export function Timeline(props: Props) {
               beatMs={beatMs}
               saveState={saveState}
               offbeatRuns={(offbeatRuns ?? []).filter((run) => run.end_ms >= segment.start_ms && run.start_ms < segment.end_ms)}
+              crossCheck={
+                // the check was made on the analysis' segments, an edited one isn't the same stretch any more
+                segment.source === "auto"
+                  ? (report.cross_check?.segments.find((c) => c.start_ms === segment.start_ms && c.end_ms === segment.end_ms) ?? null)
+                  : null
+              }
+              maxDisagreementMs={report.cross_check?.max_disagreement_ms ?? null}
               disabled={!ready || !editable}
               onNudge={onNudge}
               onEdit={onEdit}

@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { formatBpm, formatFineMs } from "../format";
 import { type SaveState, validBpm } from "../tempoEdits";
 import type { TempoEditOp } from "../types/api";
-import type { OffbeatRun, RatioMergedSection, TempoSegment } from "../types/timingReport";
+import type { CrossCheckSegment, OffbeatRun, RatioMergedSection, TempoSegment } from "../types/timingReport";
 
 interface Props {
   segment: TempoSegment;
@@ -15,6 +15,9 @@ interface Props {
   saveState: SaveState;
   // the off-beat runs inside this segment, from the analysis
   offbeatRuns: OffbeatRun[];
+  // the second tracker's verdict on this segment, null once it's been edited or without a check
+  crossCheck: CrossCheckSegment | null;
+  maxDisagreementMs: number | null;
   disabled: boolean;
   onNudge: (steps: number) => void;
   onEdit: (op: TempoEditOp) => void;
@@ -49,12 +52,20 @@ const FACTORS: Array<{ label: string; factor: number; name: string }> = [
   { label: "×3/2", factor: 3 / 2, name: "3/2 of" },
 ];
 
+function checkText(check: CrossCheckSegment | null, maxMs: number | null): string {
+  if (check === null || maxMs === null) return "no cross-check";
+  if (check.disagreement_ms === null) return "too few beats to cross-check";
+  const apart = `librosa ${check.disagreement_ms.toFixed(2)} ms apart`;
+  return check.flagged ? `${apart}, over ${maxMs} ms` : apart;
+}
+
 function feltText(note: RatioMergedSection): string {
   return `${formatFineMs(note.start_ms)} → ${formatFineMs(note.end_ms)} · ${formatBpm(note.bpm)} (${note.ratio})`;
 }
 
 export function SegmentControl(props: Props) {
-  const { segment, index, count, anchorMs, beatMs, saveState, offbeatRuns, disabled, onNudge, onEdit, onRetry } = props;
+  const { segment, index, count, anchorMs, beatMs, saveState, offbeatRuns, crossCheck, maxDisagreementMs, disabled } = props;
+  const { onNudge, onEdit, onRetry } = props;
   const [bpmDraft, setBpmDraft] = useState(String(segment.bpm));
   useEffect(() => setBpmDraft(String(segment.bpm)), [segment.bpm, index]);
 
@@ -79,6 +90,10 @@ export function SegmentControl(props: Props) {
       </p>
       <p className="segment__range mono">
         {formatFineMs(segment.start_ms)} → {formatFineMs(segment.end_ms)}
+      </p>
+      <p className="segment__check mono" data-flagged={crossCheck?.flagged === true}>
+        {segment.confidence === null ? "set by hand" : `confidence ${segment.confidence.toFixed(2)}`} ·{" "}
+        {checkText(crossCheck, maxDisagreementMs)}
       </p>
 
       <span className="segment__sub">bpm</span>
