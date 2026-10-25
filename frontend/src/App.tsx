@@ -15,6 +15,7 @@ import {
 } from "./api";
 import { ExportPanel } from "./components/ExportPanel";
 import { HealthReadout, type Health } from "./components/HealthReadout";
+import { QuickAnswer } from "./components/QuickAnswer";
 import { RecentJobs } from "./components/RecentJobs";
 import { ReopenPrompt } from "./components/ReopenPrompt";
 import { ReportView } from "./components/ReportView";
@@ -410,6 +411,8 @@ export function App() {
         </h1>
         <HealthReadout health={health} />
       </header>
+
+      {report !== null && <QuickAnswer report={report} />}
 
       <Timeline
         audioUrl={jobId === null ? null : audioUrl(jobId)}
