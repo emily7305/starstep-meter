@@ -1,4 +1,4 @@
-"""Timing report schema v2.4.
+"""Timing report schema v2.5.
 
 All times are milliseconds from the first sample of the decoded audio
 (ffmpeg's output, before any trimming). Bars are 0-based, beats inside
@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-SCHEMA_VERSION = "2.4"
+SCHEMA_VERSION = "2.5"
 
 # every segment says where it came from, re-analysis only ever replaces "auto"
 SegmentSource = Literal["auto", "manual"]
@@ -220,6 +220,35 @@ class NotationSuggestion(_Strict):
         return self
 
 
+SubdivisionKind = Literal["swing", "gallop", "reverse_gallop"]
+
+
+class SubdivisionSection(_Strict):
+    # where the notes between the beats are uneven, read on the grid as it is and never applied
+    start_ms: float = Field(ge=0, description="a bar line, or the start of the tempo segment")
+    end_ms: float = Field(ge=0, description="a bar line, or the end of the tempo segment")
+    kind: SubdivisionKind = Field(
+        description="swing: long-short 8ths, gallop: 8th-16th-16th, reverse_gallop: 16th-16th-8th, "
+        "the gallops on a straight or a triplet base"
+    )
+    ratio: float = Field(
+        gt=0, description="the long note over the short one, 2 for a 2:1 swing or a straight gallop, 4 for a triplet gallop"
+    )
+    division: int = Field(
+        ge=1,
+        description="notes per 4/4 measure a chart editor needs for them at grid_bpm, 12 is 1/12. "
+        "twice that with the bpm halved",
+    )
+    grid_bpm: float = Field(gt=0, description="bpm of the tempo segment it was read on")
+    score: float = Field(ge=0, le=1, description="how clear the notes and the empty positions are, 1 is as clear as it gets")
+
+    @model_validator(mode="after")
+    def _ordered(self) -> SubdivisionSection:
+        if self.end_ms <= self.start_ms:
+            raise ValueError("subdivision section end_ms has to be after start_ms")
+        return self
+
+
 class Edit(_Strict):
     # one manual change is one entry, however many values it touched
     field: str = Field(
@@ -233,7 +262,7 @@ class Edit(_Strict):
 
 
 class TimingReport(_Strict):
-    schema_version: Literal["2.4"] = SCHEMA_VERSION
+    schema_version: Literal["2.5"] = SCHEMA_VERSION
     source: AudioSource
     trim: Trim
     # contiguous, the first downbeat is tempo_map[0].anchor_ms. no player compensation, see docs/decisions.md
@@ -250,6 +279,12 @@ class TimingReport(_Strict):
         default_factory=list,
         description="places where a chart may write the pulse at another tempo (half or double time feel) or "
         "fold an edge into its neighbour. never applied by the analysis, an edit applies or dismisses each one",
+    )
+    subdivision_sections: list[SubdivisionSection] = Field(
+        default_factory=list,
+        description="stretches where the notes between the beats are uneven (swing, gallop), with the division a "
+        "chart editor needs for them. suggestions only, nothing applies them. analysis output, edits don't change "
+        "it and a re-analysis replaces it",
     )
     confidence_spans: list[ConfidenceSpan] = Field(
         default_factory=list,
@@ -301,7 +336,7 @@ class GridFeature(_Strict):
 
 class BeatsFile(_Strict):
     # beats live in their own file next to report.json, a long song has thousands
-    schema_version: Literal["2.4"] = SCHEMA_VERSION
+    schema_version: Literal["2.5"] = SCHEMA_VERSION
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="same file as the report it belongs to")
     # librosa is the fallback when madmom isn't installed, it has no downbeats so bars are guessed
     tracker: Literal["madmom", "librosa"]

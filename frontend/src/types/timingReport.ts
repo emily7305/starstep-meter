@@ -101,7 +101,7 @@ export type StartMs4 = number;
  * stretches where the analysis found the tracked beats half a beat off the tempo map's grid. the grid is on the real beats there, the tracker followed the off-beat. analysis output, edits don't change it
  */
 export type OffbeatRuns = OffbeatRun[];
-export type SchemaVersion = "2.4";
+export type SchemaVersion = "2.5";
 export type EndMs5 = number;
 export type Label = string;
 export type Source1 = "auto" | "manual";
@@ -132,6 +132,38 @@ export type SampleRate = number;
  */
 export type Sha256 = string;
 /**
+ * notes per 4/4 measure a chart editor needs for them at grid_bpm, 12 is 1/12. twice that with the bpm halved
+ */
+export type Division = number;
+/**
+ * a bar line, or the end of the tempo segment
+ */
+export type EndMs6 = number;
+/**
+ * bpm of the tempo segment it was read on
+ */
+export type GridBpm1 = number;
+/**
+ * swing: long-short 8ths, gallop: 8th-16th-16th, reverse_gallop: 16th-16th-8th, the gallops on a straight or a triplet base
+ */
+export type Kind1 = "swing" | "gallop" | "reverse_gallop";
+/**
+ * the long note over the short one, 2 for a 2:1 swing or a straight gallop, 4 for a triplet gallop
+ */
+export type Ratio = number;
+/**
+ * how clear the notes and the empty positions are, 1 is as clear as it gets
+ */
+export type Score1 = number;
+/**
+ * a bar line, or the start of the tempo segment
+ */
+export type StartMs6 = number;
+/**
+ * stretches where the notes between the beats are uneven (swing, gallop), with the division a chart editor needs for them. suggestions only, nothing applies them. analysis output, edits don't change it and a re-analysis replaces it
+ */
+export type SubdivisionSections = SubdivisionSection[];
+/**
  * @minItems 1
  */
 export type TempoMap = [TempoSegment, ...TempoSegment[]];
@@ -147,12 +179,12 @@ export type Confidence2 = number | null;
 /**
  * where it stops, the same value as the next segment's start_ms
  */
-export type EndMs6 = number;
+export type EndMs7 = number;
 /**
  * what the stretch fitted to on its own
  */
 export type Bpm1 = number;
-export type EndMs7 = number;
+export type EndMs8 = number;
 /**
  * share of its beats on the segment's grid (lines, halves, thirds) over the share on its own grid
  */
@@ -160,8 +192,8 @@ export type Fit = number;
 /**
  * its bpm over the segment's, near enough, e.g. 3/4 for a triplet feel or 2/3 for a dotted one
  */
-export type Ratio = string;
-export type StartMs6 = number;
+export type Ratio1 = string;
+export type StartMs7 = number;
 /**
  * felt tempo sections (dotted, triplet feel) inside this segment that the analysis kept on its grid, splitting at a section's start_ms and end_ms gives it back its own tempo
  */
@@ -170,15 +202,15 @@ export type Source2 = "auto" | "manual";
 /**
  * where this tempo starts, the first segment starts at trim.start_ms
  */
-export type StartMs7 = number;
+export type StartMs8 = number;
 /**
  * end of the last audible sound
  */
-export type EndMs8 = number;
+export type EndMs9 = number;
 /**
  * first audible sound
  */
-export type StartMs8 = number;
+export type StartMs9 = number;
 
 export interface TimingReport {
   confidence_spans: ConfidenceSpans;
@@ -193,6 +225,7 @@ export interface TimingReport {
   schema_version: SchemaVersion;
   sections: Sections;
   source: AudioSource;
+  subdivision_sections: SubdivisionSections;
   tempo_map: TempoMap;
   trim: Trim;
 }
@@ -258,23 +291,32 @@ export interface AudioSource {
   sample_rate: SampleRate;
   sha256: Sha256;
 }
+export interface SubdivisionSection {
+  division: Division;
+  end_ms: EndMs6;
+  grid_bpm: GridBpm1;
+  kind: Kind1;
+  ratio: Ratio;
+  score: Score1;
+  start_ms: StartMs6;
+}
 export interface TempoSegment {
   anchor_ms: AnchorMs;
   bpm: Bpm;
   confidence: Confidence2;
-  end_ms: EndMs6;
+  end_ms: EndMs7;
   ratio_merged: RatioMerged;
   source: Source2;
-  start_ms: StartMs7;
+  start_ms: StartMs8;
 }
 export interface RatioMergedSection {
   bpm: Bpm1;
-  end_ms: EndMs7;
+  end_ms: EndMs8;
   fit: Fit;
-  ratio: Ratio;
-  start_ms: StartMs6;
+  ratio: Ratio1;
+  start_ms: StartMs7;
 }
 export interface Trim {
-  end_ms: EndMs8;
-  start_ms: StartMs8;
+  end_ms: EndMs9;
+  start_ms: StartMs9;
 }

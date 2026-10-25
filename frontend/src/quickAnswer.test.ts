@@ -23,7 +23,7 @@ const MP3: AudioSource = {
 
 function report(tempo: TempoSegment[], meters: MeterSegment[], source = MP3, spans: ConfidenceSpan[] = []): TimingReport {
   return {
-    schema_version: "2.4",
+    schema_version: "2.5",
     source,
     trim: { start_ms: tempo[0]?.start_ms ?? 0, end_ms: tempo.at(-1)?.end_ms ?? 0 },
     tempo_map: tempo as TimingReport["tempo_map"],
@@ -31,6 +31,7 @@ function report(tempo: TempoSegment[], meters: MeterSegment[], source = MP3, spa
     sections: [],
     offbeat_runs: [],
     notation_suggestions: [],
+    subdivision_sections: [],
     confidence_spans: spans,
     cross_check: null,
     edits: [],

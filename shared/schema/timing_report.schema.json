@@ -455,6 +455,69 @@
       "title": "Section",
       "type": "object"
     },
+    "SubdivisionSection": {
+      "additionalProperties": false,
+      "properties": {
+        "division": {
+          "description": "notes per 4/4 measure a chart editor needs for them at grid_bpm, 12 is 1/12. twice that with the bpm halved",
+          "minimum": 1,
+          "title": "Division",
+          "type": "integer"
+        },
+        "end_ms": {
+          "description": "a bar line, or the end of the tempo segment",
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "grid_bpm": {
+          "description": "bpm of the tempo segment it was read on",
+          "exclusiveMinimum": 0,
+          "title": "Grid Bpm",
+          "type": "number"
+        },
+        "kind": {
+          "description": "swing: long-short 8ths, gallop: 8th-16th-16th, reverse_gallop: 16th-16th-8th, the gallops on a straight or a triplet base",
+          "enum": [
+            "swing",
+            "gallop",
+            "reverse_gallop"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "ratio": {
+          "description": "the long note over the short one, 2 for a 2:1 swing or a straight gallop, 4 for a triplet gallop",
+          "exclusiveMinimum": 0,
+          "title": "Ratio",
+          "type": "number"
+        },
+        "score": {
+          "description": "how clear the notes and the empty positions are, 1 is as clear as it gets",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "start_ms": {
+          "description": "a bar line, or the start of the tempo segment",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "kind",
+        "ratio",
+        "division",
+        "grid_bpm",
+        "score"
+      ],
+      "title": "SubdivisionSection",
+      "type": "object"
+    },
     "TempoSegment": {
       "additionalProperties": false,
       "properties": {
@@ -603,8 +666,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "2.4",
-      "default": "2.4",
+      "const": "2.5",
+      "default": "2.5",
       "title": "Schema Version",
       "type": "string"
     },
@@ -617,6 +680,14 @@
     },
     "source": {
       "$ref": "#/$defs/AudioSource"
+    },
+    "subdivision_sections": {
+      "description": "stretches where the notes between the beats are uneven (swing, gallop), with the division a chart editor needs for them. suggestions only, nothing applies them. analysis output, edits don't change it and a re-analysis replaces it",
+      "items": {
+        "$ref": "#/$defs/SubdivisionSection"
+      },
+      "title": "Subdivision Sections",
+      "type": "array"
     },
     "tempo_map": {
       "items": {
@@ -639,6 +710,7 @@
     "sections",
     "offbeat_runs",
     "notation_suggestions",
+    "subdivision_sections",
     "confidence_spans",
     "cross_check",
     "edits"

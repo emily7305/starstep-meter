@@ -1,7 +1,7 @@
 """Bring a stored report or beats file from an older schema up to the current one.
 
 Works on the parsed json before validation, one version step at a time. 1.1,
-2.0, 2.1, 2.2 and 2.3 can be upgraded, 1.0 reports have no codec or decoder padding
+2.0, 2.1, 2.2, 2.3 and 2.4 can be upgraded, 1.0 reports have no codec or decoder padding
 and those can only come from the original file, so they still need a fresh upload.
 """
 
@@ -11,19 +11,24 @@ from typing import Any
 
 
 def upgrade_report(data: Any) -> Any:
-    """A 1.1, 2.0, 2.1, 2.2 or 2.3 report as 2.4. Anything else comes back untouched and fails validation as usual."""
+    """A 1.1, 2.0, 2.1, 2.2, 2.3 or 2.4 report as 2.5. Anything else comes back untouched and fails validation as usual."""
     data = _version_step(_report_2_0_to_2_1(_report_1_1_to_2_0(data)), "2.1", "2.2")
     # 2.3 -> 2.4: no confidence spans and no cross-check, the segment confidences stay as they were
-    return _version_step(_report_2_2_to_2_3(data), "2.3", "2.4")
+    data = _version_step(_report_2_2_to_2_3(data), "2.3", "2.4")
+    # 2.4 -> 2.5: no subdivision sections, a re-analysis finds them
+    return _version_step(data, "2.4", "2.5")
 
 
 def upgrade_beats(data: Any) -> Any:
-    """A 1.1, 2.0, 2.1, 2.2 or 2.3 beats file as 2.4."""
+    """A 1.1, 2.0, 2.1, 2.2, 2.3 or 2.4 beats file as 2.5."""
     data = _version_step(_beats_2_0_to_2_1(_beats_1_1_to_2_0(data)), "2.1", "2.2")
     # 2.2 -> 2.3: grid_features defaults to empty, the suggestions just can't be checked without the audio
     data = _version_step(data, "2.2", "2.3")
     # 2.3 -> 2.4: cross_check_beats defaults to empty, the cross-check needs the audio again
-    return _version_step(data, "2.3", "2.4")
+    data = _version_step(data, "2.3", "2.4")
+    # 2.4 -> 2.5: nothing new. a doubled or halved song's positions stay counted per beat, the
+    # file doesn't say which stretches were, see docs/decisions.md (Lapis)
+    return _version_step(data, "2.4", "2.5")
 
 
 def _version_step(data: Any, old: str, new: str) -> Any:

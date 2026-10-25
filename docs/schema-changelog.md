@@ -97,3 +97,12 @@ Milestone 6, confidence and the cross-check. Additive, but 2.3 readers reject th
 ## 2.4, milestone 7: the Sonolus export is removed (no version change)
 
 The Sonolus preset is gone, and with it `shared/schema/sonolus_export.schema.json` and `frontend/src/types/sonolusExport.ts`. `GET /api/jobs/{id}/export` only gives the timing export, and `?preset=` and `?decoder_compensation_ms=` are ignored, so an old link gets the timing export instead of an error. The timing report and the beats file didn't change, `source.decoder_padding_samples` stays, the chart setup list's second offset needs it.
+
+## 2.5
+
+Milestone 7, swing and gallop. Additive, but 2.4 readers reject the new field, so the version moves.
+
+- The report gains `subdivision_sections`, a list of `{start_ms, end_ms, kind, ratio, division, grid_bpm, score}`: stretches where the notes between the beats are uneven. `kind` is `swing` (long-short 8ths), `gallop` (8th-16th-16th) or `reverse_gallop` (16th-16th-8th), the gallops on a straight or a triplet base. `ratio` is the long note over the short one (2 for a 2:1 swing). `division` is the note division a chart editor needs for them at `grid_bpm`, the tempo segment's bpm they were read on: 12 for 1/12, so twice that with the bpm halved. Suggestions only, nothing applies them. Analysis output like `offbeat_runs`, edits don't change it and a re-analysis replaces it. How they're found is in `docs/decisions.md` (swing and gallop).
+- `BeatsFile` has no new fields, its `schema_version` moves with the report's. From 2.5 on, the bar positions of a stretch the octave check doubled or halved are counted on the grid, not per tracked beat (`docs/decisions.md`, Lapis). A 2.4 file keeps what it had.
+
+2.4 reports and beats files are upgraded when they're read by changing the version only, with no subdivision sections. Older files go through the earlier steps first.
