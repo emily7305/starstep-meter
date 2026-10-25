@@ -158,22 +158,22 @@ npm run dev
 
 ### Step 12: open the page and analyze
 
-Open http://127.0.0.1:5173. The header shows `ffmpeg ok · ffprobe ok · madmom ok` (or `madmom not installed` without Part 3).
+Open http://127.0.0.1:5173. The header shows `ffmpeg ok · ffprobe ok · madmom ok` (or `madmom not installed` without Part 3). On the first visit a short tour of five steps points at the parts of the page, one at a time. `close tour` or Esc ends it, and the `?` at the right of the header shows it again whenever you want.
 
-Press `choose audio file`, pick a song (mp3, wav, flac, ogg or m4a), and press `analyze`. The pills under the buttons count through `upload`, `decode`, `trim`, `beats`, `snap`, `tempo`, `meter`, `check` and `done`. A 4 minute song takes under a minute with madmom.
+Before a song is loaded, most of the page is a large area that says `drop a song anywhere on the page`, with the `recent` list beside it. Drag a song (mp3, wav, flac, ogg or m4a) from a folder onto the page, or press `choose a song` and pick one. While a file is dragged over the page, it says `drop the song to load it`. A file that isn't audio gets a line saying so. Then press `analyze`. The pills under the button count through `upload`, `decode`, `trim`, `beats`, `snap`, `tempo`, `meter`, `check` and `done`. A 4 minute song takes under a minute with madmom.
 
 If you pick a song that was analyzed before, the page says `this file was analyzed before` and offers `reopen` for each earlier job. That brings back the job with the changes you made to it. `analyze again as a new job` starts over instead.
 
 ## Part 5: use the result
 
-When the job is done, the timeline shows the waveform with the beat grid and the tempo segments as bands, and a block called `for your chart` sits above it. The steps below go from that block to a song set up in a chart editor. MikuMikuWorld is the editor the numbers were checked against.
+When the job is done, the page shows the block called `for your chart` at the top, the timeline under it, and the controls and lists under that. The steps below go from that block to a song set up in a chart editor. MikuMikuWorld is the editor the numbers were checked against.
 
 ### Step 13: read the `for your chart` block
 
 This block is the part to read first. It says in plain words what a chart editor asks for.
 
 - `bpm` is how many beats there are in one minute. When the speed changes during the song, it says `bpm at the start` and gives the first one.
-- `offset` is the number to type into the editor's music offset field. It is minus the place where measure 0 starts in the song. Measure 0 is one empty measure before the measure the music starts in. If the song starts with a long silence, the offset is negative. If the silence is shorter than one measure, it is positive, which is normal. There are two lines: `if you load the wav made with ffmpeg`, and, only when the original file has padding at its start (an mp3 does), `if you load the original mp3`. Step 17 says which one to use.
+- `offset` is the number to type into the editor's music offset field. It is minus the place where measure 0 starts in the song. Measure 0 is one empty measure before the measure the music starts in. If the song starts with a long silence, the offset is negative. If the silence is shorter than one measure, it is positive, which is normal. There are two side by side: `if you load the wav made with ffmpeg`, and, only when the original file has padding at its start (an mp3 does), `if you load the original mp3`. Step 17 says which one to use.
 - `time signature` is how many beats there are in one measure. `4/4` is four.
 - The `?` next to each of the three opens a one line explanation.
 - If the song changes speed or time signature, a line says so, like `this song changes speed 3 times`, with a `see every change` link to the list in step 16.
@@ -184,11 +184,20 @@ For a song with one steady tempo and no warning, this block and step 17 are all 
 
 ### Step 14: check the grid by ear
 
-The thin lines on the waveform are the beats, and the mint ones are the start of each measure. The numbers along the top are the measure numbers. The measure the music starts in is measure 1, and measure 0 is one empty measure before it. Measures before measure 0 are the silence at the start, and they are drawn faintly with no number. The `for your chart` block and the chart setup list use the same numbers.
+The big timeline, labelled `whole song` with the file name next to it, shows the waveform with the beat grid. The thin lines are the beats, and the mint ones are the start of each measure. The numbers along the top are the measure numbers. The measure the music starts in is measure 1, and measure 0 is one empty measure before it. Measures before measure 0 are the silence at the start, and they are drawn faintly with no number. The `for your chart` block and the chart setup list use the same numbers.
+
+To move around in it:
+
+- `−` and `+` above the timeline zoom out and in, halving and doubling how wide one second is, and the readout between them says how wide (`fit` is the whole song). Holding Ctrl and turning the mouse wheel over the timeline zooms around the mouse.
+- Once zoomed in, the mouse wheel scrolls the timeline sideways, and so does Shift with the wheel.
+- The thin strip above the timeline is the whole song, with the part the timeline shows outlined. Click or drag in it to move the timeline there. With the whole song in view, a click there moves the playhead instead.
+- Click the waveform to move the playhead there. Drag on it to move the playhead along, and hold the drag near the left or right edge to keep scrolling that way, faster the closer to the edge. That's how to get far into the song when zoomed in.
+
+Then check it:
 
 1. Press `play`, and then `click track` next to it. The click track plays a click on every beat and a higher, louder click on every measure line.
 2. Listen against the song. The clicks should land on the beats you hear. Two sounds a few milliseconds apart (a flam) mean the grid is slightly off there.
-3. Click the waveform where something sounds off. The zoomed view under the play time shows a few milliseconds of the sound around the nearest beat, with the grid line over it. The `40 ms`, `120 ms` and `400 ms` buttons set how wide it is. The line under it, like `tracked 944.068 ms · grid +7.170 ms`, says how far the grid line is from the beat the tracker found.
+3. Click the waveform where something sounds off. The zoomed view next to the play controls, labelled `zoomed view around the playhead` with its width (`±60 ms`), shows a few milliseconds of the sound around the nearest beat, with the grid line over it. The `40 ms`, `120 ms` and `400 ms` buttons set how wide it is. The line under it, like `tracked 944.068 ms · grid +7.170 ms`, says how far the grid line is from the beat the tracker found.
 4. Under the play time, a line like `playhead −42.0 ms output latency` says how far behind the sound the moving line is drawn, because the sound takes a moment to reach the speakers. On Bluetooth headphones the sound arrives even later than that, so judge the playhead with wired headphones. The clicks and the song are always together, whatever the headphones.
 
 ### Step 15: fix what is wrong (optional)
@@ -199,17 +208,18 @@ Click the band of the segment to fix, and use the panel for that segment (the pa
 - If the grid is a little early or late, press `−1 ms` or `+1 ms` to move it, or click the timeline and press ← and →. The change is saved about half a second after the last step, and `saved` appears.
 - If the song really changes tempo in the middle, `split here` splits the segment at the beat shown in the zoomed view.
 - The `meter 1 of 2` panel under the zoomed view sets the time signature by hand with `set meter`.
-- The `notation suggestions` list offers a half time, double time or fold into neighbour reading of a stretch. `apply` takes it, `dismiss` throws it away. Nothing is applied on its own.
+- The `notation suggestions` list, next to the meter panel, offers a half time, double time or fold into neighbour reading of a stretch. `apply` takes it, `dismiss` throws it away. Nothing is applied on its own.
+- The same list has a row for each stretch where the notes between the beats are uneven, like `swing 2.00:1` or `gallop, 8th-16th-16th`, with the note division to set the editor's grid to there, like `1/12`. These never change anything in the analysis. Clicking a row jumps there.
 
 Every change appears in the `edits` list in the report column, and `re-analyze` keeps them. The README section "Using it" describes every control.
 
 ### Step 16: read the chart setup list
 
-The `chart setup` panel, under the `notation suggestions`, lists everything to type into the editor, in three parts:
+The `chart setup` panel, under the zoomed view and the segment panel, lists everything to type into the editor, in three parts:
 
 - `music offset` has the setting `music starts at measure` with two buttons, `0` and `1`. Leave it on 1 unless your editor or your habit needs the music to start at measure 0. The choice is remembered in the browser. Under it are the same two offsets as the block in step 13, with a note on where the music starts and which measure it is in (like `the music starts in measure 1, at 62.362 ms, and measure 0 is one empty bar of lead-in before it`) and where measure 0 starts in the audio file, either `into the audio file` or `before the audio file starts`.
 - `audio file` has the ffmpeg command for step 17 and a `copy command` button.
-- `bpm and time signature changes, in order` has one row per change, like `m.24 · 150.00 bpm` or `m.37 · 3/4`. The `m.` number is the measure, numbered like the timeline (measure 0 is the empty measure before the music). A row marked `mid-measure` does not start on a measure line, and it says where inside the measure it goes, like `beat 3`, where `beat 1` is the measure line. Clicking a row jumps the timeline to that change.
+- `bpm and time signature changes, in order` has one row per change, like `m.24 · 150.00 bpm` or `m.37 · 3/4`. The `m.` number is the measure, numbered like the timeline (measure 0 is the empty measure before the music). A row marked `mid-measure` does not start on a measure line, and it says where inside the measure it goes, like `beat 3`, where `beat 1` is the measure line. Clicking a row jumps the timeline to that change. When the song has swing or gallop stretches, a line for each follows the rows, like `m.9 to m.16 · swing 2.00:1 · 1/12`, saying which division to set the editor's grid to in those measures. With the bpm halved the division doubles, the panel works that out.
 
 `copy list` copies the two offsets and every row as text.
 
@@ -237,7 +247,7 @@ The tool never cuts the audio. The offset is what tells the editor where measure
 
 ### Step 18: reopen or delete a job
 
-The page's url ends in `?job=...` from the first analysis on, so a reload brings the same job back with its changes. The `recent` list in the source column lists earlier jobs, newest first, and pressing one reopens it.
+The page's url ends in `?job=...` from the first analysis on, so a reload brings the same job back with its changes. The `recent` list, beside the drop area before a song is open and in the middle column under the editor after, lists earlier jobs, newest first, and pressing one reopens it. `re-analyze` runs the analysis again on the same job and keeps your changes. The job then moves to the top of the list and says `re-analyzed at` with the time.
 
 Each job in the list has a `delete` button. Pressing it asks `delete this job and its files?`, and pressing `delete` again removes the job, its upload and its decoded audio. `cancel` keeps it. A job that is still waiting or running has no `delete` button until it's done.
 
