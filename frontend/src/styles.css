@@ -2096,6 +2096,45 @@ body {
   margin-left: 0;
 }
 
+/* the arrow is a turned square on the edge that faces the target, --arrow says where along it */
+.tour[data-placement]:not([data-placement="center"])::before {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  transform: rotate(45deg);
+}
+
+.tour[data-placement="right"]::before {
+  left: -7px;
+  top: calc(var(--arrow, 24px) - 6px);
+  border-top-color: transparent;
+  border-right-color: transparent;
+}
+
+.tour[data-placement="left"]::before {
+  right: -7px;
+  top: calc(var(--arrow, 24px) - 6px);
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+}
+
+.tour[data-placement="below"]::before {
+  top: -7px;
+  left: calc(var(--arrow, 24px) - 6px);
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.tour[data-placement="above"]::before {
+  bottom: -7px;
+  left: calc(var(--arrow, 24px) - 6px);
+  border-top-color: transparent;
+  border-left-color: transparent;
+}
+
 /* recent jobs, files with more than one analysis */
 
 /* btn sets the display face, the count wants the mono one */

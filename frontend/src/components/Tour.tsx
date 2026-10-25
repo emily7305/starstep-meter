@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { bubblePosition, markTourSeen, type Rect, type Size, TOUR_STEPS, type TourStep, tourTarget } from "../tour";
+import { type CSSProperties, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { bubblePosition, markTourSeen, type Rect, type Size, stepsFor, type TourScreen, type TourStep, tourTarget } from "../tour";
 
 interface Props {
-  open: boolean;
+  // which steps, the ones whose parts are on the page now. null when the tour is closed
+  screen: TourScreen | null;
   onClose: () => void;
 }
 
@@ -30,13 +31,13 @@ function readViewport(): Size {
   return { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
 }
 
-// a few boxes on the page, pointed at one at a time. the state lives in the inner part so every
-// opening starts at the first step
-export function Tour({ open, onClose }: Props) {
-  return open ? <TourSteps onClose={onClose} /> : null;
+// a few parts of the page, pointed at one at a time with everything else dimmed. the state lives in
+// the inner part so every opening starts at the first step
+export function Tour({ screen, onClose }: Props) {
+  return screen !== null ? <TourSteps key={screen} screen={screen} onClose={onClose} /> : null;
 }
 
-function TourSteps({ onClose }: { onClose: () => void }) {
+function TourSteps({ screen, onClose }: { screen: TourScreen; onClose: () => void }) {
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<Rect | null>(null);
   const [viewport, setViewport] = useState<Size>(readViewport);
@@ -45,9 +46,10 @@ function TourSteps({ onClose }: { onClose: () => void }) {
   const nextRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
 
-  const step = TOUR_STEPS[index];
+  const steps = stepsFor(screen);
+  const step = steps[index];
   const stepId = step?.id;
-  const last = index === TOUR_STEPS.length - 1;
+  const last = index === steps.length - 1;
 
   const measure = useCallback(() => {
     const next = stepId === undefined ? null : readTarget(stepId);
@@ -93,9 +95,9 @@ function TourSteps({ onClose }: { onClose: () => void }) {
   }, [stepId]);
 
   const close = useCallback(() => {
-    markTourSeen();
+    markTourSeen(screen);
     onClose();
-  }, [onClose]);
+  }, [screen, onClose]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -132,23 +134,31 @@ function TourSteps({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        style={{ transform: `translate(${Math.round(place.left)}px, ${Math.round(place.top)}px)` }}
+        data-placement={place.placement}
+        style={
+          {
+            transform: `translate(${Math.round(place.left)}px, ${Math.round(place.top)}px)`,
+            "--arrow": place.arrow === null ? undefined : `${Math.round(place.arrow)}px`,
+          } as CSSProperties
+        }
       >
-        <p className="tour__count mono">{`${index + 1} / ${TOUR_STEPS.length}`}</p>
+        {steps.length > 1 && <p className="tour__count mono">{`${index + 1} / ${steps.length}`}</p>}
         <h2 className="tour__title" id={titleId}>
           {step.title}
         </h2>
         <p className="tour__text">{step.text}</p>
         <div className="tour__buttons">
-          <button
-            type="button"
-            className="btn btn--outline"
-            title="previous step"
-            disabled={index === 0}
-            onClick={() => setIndex(index - 1)}
-          >
-            back
-          </button>
+          {steps.length > 1 && (
+            <button
+              type="button"
+              className="btn btn--outline"
+              title="previous step"
+              disabled={index === 0}
+              onClick={() => setIndex(index - 1)}
+            >
+              back
+            </button>
+          )}
           <button
             ref={nextRef}
             type="button"
@@ -158,14 +168,16 @@ function TourSteps({ onClose }: { onClose: () => void }) {
           >
             {last ? "done" : "next"}
           </button>
-          <button
-            type="button"
-            className="btn btn--link"
-            title="close the tour, the ? in the header opens it again"
-            onClick={close}
-          >
-            close tour
-          </button>
+          {!last && (
+            <button
+              type="button"
+              className="btn btn--link"
+              title="close the tour, the ? in the header opens it again"
+              onClick={close}
+            >
+              close tour
+            </button>
+          )}
         </div>
       </div>
     </>

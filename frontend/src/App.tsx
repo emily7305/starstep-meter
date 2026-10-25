@@ -37,7 +37,7 @@ import { fileSha256, jobIdFromSearch, searchWithJob } from "./jobs";
 import { pollJob } from "./poll";
 import { EditSaver, nudged, type SaveState } from "./tempoEdits";
 import { type AnchorDraft, appliedSegment, segmentAt, splitOutSegment } from "./tempoMap";
-import { tourSeen } from "./tour";
+import { markTourSeen, type TourScreen, tourSeen } from "./tour";
 import type { JobStage, JobStatus, JobSummary, TempoEditOp } from "./types/api";
 import type { BeatsFile } from "./types/beats";
 import type { TimingReport } from "./types/timingReport";
@@ -149,8 +149,11 @@ export function App() {
   const [jobsError, setJobsError] = useState<string | null>(null);
   // earlier jobs for the file just picked, the upload waits until one is chosen
   const [matches, setMatches] = useState<JobSummary[] | null>(null);
-  // once per browser, the ? in the header opens it again
-  const [tourOpen, setTourOpen] = useState(() => !tourSeen());
+  // the start screen's step on the first visit, the song's steps after the first analysis. the ? in
+  // the header opens the ones for the screen that's up
+  const [tour, setTour] = useState<TourScreen | null>(() =>
+    jobIdFromSearch(window.location.search) === null && !tourSeen("start") ? "start" : null,
+  );
   // a file is being dragged over the page
   const [dragging, setDragging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -163,6 +166,8 @@ export function App() {
   activeRef.current = active;
   const jobsRef = useRef<JobSummary[] | null>(null);
   jobsRef.current = jobs;
+  // the demo's tour starts once its report is on screen
+  const demoTour = useRef(false);
   const runAbort = useRef<AbortController | null>(null);
   const saver = useRef<EditSaver | null>(null);
   // key repeat fires faster than renders land, so nudges read these instead of state
@@ -194,6 +199,29 @@ export function App() {
     );
   }, []);
   useEffect(refreshJobs, [refreshJobs]);
+
+  // the song's steps once the first analysis is on screen, and for the demo every time. a song tour
+  // left open goes with the song
+  // keyed on whether there is a report, not on the report, every edit makes a new one
+  const songOnScreen = report !== null;
+  useEffect(() => {
+    if (!songOnScreen) {
+      setTour((t) => (t === "song" ? null : t));
+      return;
+    }
+    if (demoTour.current || !tourSeen("song")) {
+      demoTour.current = false;
+      setTour("song");
+    }
+  }, [songOnScreen]);
+
+  // pressing analyze answers the start screen's one step
+  useEffect(() => {
+    if (active !== null && tour === "start") {
+      markTourSeen("start");
+      setTour(null);
+    }
+  }, [active, tour]);
 
   // unmount stops the upload and the polling loop together
   useEffect(() => () => runAbort.current?.abort(), []);
@@ -546,6 +574,7 @@ export function App() {
     }
     setActive((a) => (a === null ? a : { ...a, jobId: id }));
     setUrlJob(id, true);
+    demoTour.current = true;
     await followJob(id, signal);
   }, [takeOver, resetResult, followJob]);
 
@@ -591,6 +620,7 @@ export function App() {
   const pending = file !== null && (file !== submitted || run.errorText !== null) ? file : null;
   const openDemo =
     report !== null && (jobs?.find((j) => j.job_id === jobId)?.demo === true || report.source.filename === DEMO_FILE);
+  const screen: TourScreen = report === null ? "start" : "song";
 
   const recent = (
     <RecentJobs jobs={jobs} currentId={jobId} error={jobsError} onOpen={(id) => openJob(id, true)} onDelete={removeJob} />
@@ -633,8 +663,9 @@ export function App() {
             type="button"
             className="help-btn"
             aria-label="help, show the tour"
-            title="show the tour again"
-            onClick={() => setTourOpen(true)}
+            title={analyzing && report === null ? "the tour is there again once the analysis is done" : "show the tour again"}
+            disabled={analyzing && report === null}
+            onClick={() => setTour(screen)}
           >
             ?
           </button>
@@ -745,7 +776,7 @@ export function App() {
       )}
 
       <Footer />
-      <Tour open={tourOpen} onClose={() => setTourOpen(false)} />
+      <Tour screen={tour} onClose={() => setTour(null)} />
     </>
   );
 }
