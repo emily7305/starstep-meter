@@ -38,12 +38,15 @@ export interface BarLine {
   timeMs: number;
   bar: number;
   segment: number;
+  // index into TempoGrid.regions, the meter this bar was counted in
+  region: number;
 }
 
 export interface TempoGrid {
   segments: SegmentGrid[];
   regions: BarRegion[];
-  // every bar line from 0 to the end of the audio, numbered from the first anchor's bar as 0
+  // every bar line from 0 to the end of the audio, the first one is bar 0. that's measure 0 in a
+  // chart editor too, see chartSetup.ts
   bars: BarLine[];
 }
 
@@ -109,22 +112,21 @@ export function barRegions(map: TempoSegment[], meter: MeterSegment[], durationM
   return out;
 }
 
-function barLinesOf(regions: BarRegion[], firstAnchorMs: number): BarLine[] {
-  const times: { timeMs: number; segment: number }[] = [];
-  for (const r of regions) {
-    if (!(r.barMs > 0) || r.toMs <= r.fromMs) continue;
+function barLinesOf(regions: BarRegion[]): BarLine[] {
+  const times: { timeMs: number; segment: number; region: number }[] = [];
+  regions.forEach((r, region) => {
+    if (!(r.barMs > 0) || r.toMs <= r.fromMs) return;
     // tiny slack so a line sitting exactly on fromMs isn't lost to float noise
     for (let k = Math.ceil((r.fromMs - r.refMs) / r.barMs - 1e-9); ; k += 1) {
       const t = r.refMs + k * r.barMs;
       if (t >= r.toMs) break;
-      times.push({ timeMs: t, segment: r.tempo });
+      times.push({ timeMs: t, segment: r.tempo, region });
     }
-  }
+  });
   times.sort((a, b) => a.timeMs - b.timeMs);
-  // bar 0 is the first downbeat of the song, earlier bars count down from it
-  let zero = times.findIndex((l) => l.timeMs >= firstAnchorMs - SAME_LINE_MS);
-  if (zero < 0) zero = times.length;
-  return times.map((l, i) => ({ ...l, bar: i - zero }));
+  // bar 0 is the first bar line in the audio, not the first downbeat. an intro before the first
+  // downbeat gets bars of its own, and a chart editor's measure 0 can start where bar 0 does
+  return times.map((l, i) => ({ ...l, bar: i }));
 }
 
 export function tempoGrid(
@@ -147,8 +149,7 @@ export function tempoGrid(
       barBeats: Number.isFinite(shortest) && shortest > 0 ? shortest : 4,
     };
   });
-  const firstAnchor = segs[0]?.anchor_ms ?? 0;
-  return { segments, regions, bars: barLinesOf(regions, firstAnchor) };
+  return { segments, regions, bars: barLinesOf(regions) };
 }
 
 function barIndexAt(bars: BarLine[], timeMs: number): number {
