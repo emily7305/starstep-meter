@@ -4,7 +4,7 @@
 //
 // a chart editor counts beats, not ms: measure lengths come from the time signatures and a bpm
 // change sits at a beat inside a measure. so the beat position of every bar line and change is
-// counted along the tempo map from bar 0, the same way the sonolus export counts beats
+// counted along the tempo map from bar 0
 
 import { type ChartStart, chartStartOf, DEFAULT_FIRST_MEASURE, EDGE_FRACTION, barBeats, type TempoGrid } from "./tempoMap";
 import type { BeatsFile } from "./types/beats";

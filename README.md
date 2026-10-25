@@ -8,7 +8,7 @@ Beat, tempo, and meter analysis for rhythm game charting. Upload a song, get a b
 
 starstep-meter runs on your own machine. You upload a song in the browser, and the backend decodes it with ffmpeg, finds where the music starts and ends (the trim), and tracks beats and downbeats with madmom, or with a librosa fallback when madmom isn't installed. It checks the tracked tempo for half or double time, snaps each beat onto the nearest onset, and splits the beats into tempo segments. Each segment gets its own bpm and its own anchor, the time of its first downbeat, from a linear fit through its beats. It then infers the meter of each segment, suggests where a chart might write the pulse at half or twice the tempo, runs librosa's beat tracker as a second opinion, and gives every segment and every stretch of 16 grid beats a confidence.
 
-The browser shows a waveform timeline with the segments as bands and the beat grid on them, a zoomed view for checking the grid against an attack, a click track to check it by ear, and a list of what to type into a chart editor (the music offset and every bpm and time signature change by measure). Every manual change is recorded in an edit log. The result downloads as a timing JSON, or as the values a Sonolus level needs. A CLI does the same analysis for one file without the server.
+The browser shows a waveform timeline with the segments as bands and the beat grid on them, a zoomed view for checking the grid against an attack, a click track to check it by ear, and a list of what to type into a chart editor (the music offset and every bpm and time signature change by measure). Every manual change is recorded in an edit log. The result downloads as a timing JSON. A CLI does the same analysis for one file without the server.
 
 What it doesn't do:
 
@@ -34,7 +34,6 @@ Known to be imperfect:
 - The half and double time suggestions found nothing on the three real songs. Their drums show no plain backbeat in the three frequency bands the detector reads, so there is nothing for it to find, and the stretches YOUNITHM charts at half tempo are the stretches without drums. A missed suggestion was judged cheaper than a wrong one, so the detector was left as it was. Half and double time are set with the bpm buttons.
 - The onset snap barely refines madmom's beats on full mixes. On the real songs it moves 80% of the beats by no more than about 2.6 ms after the bias shift. So on real music the timing rests on madmom's own beats plus the 11.8 ms bias that was measured on click tracks.
 - That bias is not the same on every song. On MisoilePunch♪ the grid sits about 7 ms earlier than librosa's beats and than what sounded right by ear. Nothing is changed for it, because a correction tuned on one song would move every other song. Nudging the anchor by hand with the click track on is the way to correct it.
-- The Sonolus decoder compensation defaults to 0 ms. Whether that is right for the real Sonolus app has not been checked, see "Checking the offset in Sonolus" below.
 - Sections are not detected.
 - The librosa fallback holds one tempo, so it can't follow tempo changes or felt sections, its downbeat is a guess, and its confidence is halved.
 - The denominator of an inferred meter is always 4. Seven beats of the grid are 7/4, and whether a chart writes that as 7/8 at twice the bpm is a notation choice the audio can't make.
@@ -286,7 +285,7 @@ These steps use MikuMikuWorld, the editor the list was checked against.
 
 To use the original mp3 in the editor instead, type the second offset, `with the original mp3`. MikuMikuWorld plays the mp3's decoder padding, so that offset is the padding further negative, and the two offsets differ by exactly the padding. The panel works that out before rounding. For MisoilePunch♪, the music starts on the bar line at 62.362 ms, which is measure 1, and measure 0 starts one bar earlier, at -826.515 ms, before the file. So the offset is `826.515` ms with the wav. The mp3 has 23.021 ms of decoder padding, so the offset is `803.494` ms with the mp3. The padding is shown in the report column (`decoder padding`) and in the note under the offsets.
 
-The offset is positive here because the silence before the music is shorter than a bar. With a longer silence it is negative. A click track with 8 s of silence at 145.99 bpm has its first downbeat at 7999.268 ms, which is measure 1. A bar is 1643.948 ms, so measure 0 starts at 6355.320 ms and the offset is `-6355.320` ms with the wav. The silence before measure 0 is skipped by the offset. If the editor, or your habit, wants the music at measure 0, press `0` next to `music starts at measure`. The bar the music starts in is then measure 0, with no lead-in bar, and the offset is minus where that bar starts: `-62.362` ms for MisoilePunch♪ with the wav, and `-7999.268` ms for the 8 s example. The decoder compensation setting of the Sonolus export does not apply here, both offsets are always shown.
+The offset is positive here because the silence before the music is shorter than a bar. With a longer silence it is negative. A click track with 8 s of silence at 145.99 bpm has its first downbeat at 7999.268 ms, which is measure 1. A bar is 1643.948 ms, so measure 0 starts at 6355.320 ms and the offset is `-6355.320` ms with the wav. The silence before measure 0 is skipped by the offset. If the editor, or your habit, wants the music at measure 0, press `0` next to `music starts at measure`. The bar the music starts in is then measure 0, with no lead-in bar, and the offset is minus where that bar starts: `-62.362` ms for MisoilePunch♪ with the wav, and `-7999.268` ms for the 8 s example. Both offsets are always shown.
 
 The tool never cuts the audio. The trim only marks where the music starts, so the offset is what tells an editor that plays the file from 0 ms where measure 0 is.
 
@@ -312,50 +311,17 @@ A job that was still waiting in the queue when the server stopped runs when it s
 
 ## Export
 
-The export block in the source column downloads the JSON. `timing json` is the report as it is, and `include beats.json` adds the beats file. `sonolus` gives the values for a Sonolus level instead. The file is named after the song, like `song.timing.json` or `song.sonolus.json`, and the last choice is remembered in the browser. Both are checked against the JSON Schema in `shared/schema/` before they go out, and neither contains audio.
-
-### Sonolus export
-
-`sonolus` in the export block, or `GET /api/jobs/<job id>/export?preset=sonolus`, gives:
-
-- `level_data`: `bgmOffset` and one `#BPM_CHANGE` entity per tempo (with `#BEAT` and `#BPM`), in Sonolus' own level data shape. A level's own entities (initialization, stage, notes) go next to these.
-- `bpm_changes`: the same changes, each with its time in ms on the report's timeline, for checking against the tempo map.
-- `time_signatures`: the meter as beat positions. Sonolus level data has no time signature, so these are for the chart editor. A bar that a tempo change or a meter split cuts short gets its own entry.
-- `first_downbeat_beat`: the beat the song's first downbeat lands on.
-
-Level time 0 is beat 0, and the bgm plays at level time + `bgmOffset` seconds, which is how the official Sonolus converters use it. Beat 0 is a bar line at or before the start of the audio, so the intro isn't cut and `bgmOffset` is 0 or negative before decoder compensation. This is a separate rule from measure 0 of the chart setup list, and the two can differ. Where these conventions come from is in `docs/decisions.md` (Sonolus export).
-
-Decoder compensation is how many ms later than ffmpeg the player's decoder plays the audio. It's 0 by default, which is right for a decoder that honours the gapless info in an mp3 or m4a. The other preset is the file's decoder padding, like `25.057 ms, 1105 padding samples` for an mp3 from lame at 44.1 kHz, for a decoder that plays the padding. Only `bgmOffset` changes, every beat stays where it is. A wav or flac has no padding, so only `0 ms` is offered.
-
-The default is still 0 ms, and which preset is right for the real Sonolus app is still open. It waits on the test level in "Checking the offset in Sonolus" below, and there is no result from it yet.
+The export block in the source column downloads the timing JSON, the report as it is. `include beats.json` adds the beats file, and the choice is remembered in the browser. The file is named after the song, like `song.timing.json`. It is checked against the JSON Schema in `shared/schema/` before it goes out, and it never contains audio.
 
 The same from the command line, with the report and beats files from a job folder:
 
 ```bash
-python -m backend.analysis.export data/jobs/<job id>/report.json --sonolus --decoder-padding
 python -m backend.analysis.export data/jobs/<job id>/report.json --beats data/jobs/<job id>/beats.json
 ```
 
-The first command prints the Sonolus preset with the decoder padding as the compensation. `--decoder-compensation-ms MS` sets any other value instead. The second prints the timing export with the beats file in it. The export goes to stdout.
+It prints the timing export with the beats file in it to stdout. Leave out `--beats` for the report alone.
 
-### Checking the offset in Sonolus
-
-This checks the Sonolus preset in the real app, including how its player decodes the audio, which can't be checked from here. `scripts/make_sonolus_test_level.py` makes the level data.
-
-1. Export `click-137.mp3` with the sonolus preset twice, once at 0 ms and once with the 25.057 ms preset, as `click-0.sonolus.json` and `click-25.sonolus.json`. (`click-137.mp3` comes from the generated click track in the roadmap's listening checks: `python scripts/make_click_track.py click-137.wav --bpm 120 --lead 0.1375 --accent`, then `ffmpeg -i click-137.wav -b:a 192k click-137.mp3`.)
-2. Make level data with a tap note on every beat for each of them:
-
-   ```bash
-   python scripts/make_sonolus_test_level.py click-0.sonolus.json click-0.data.gz --beats 32
-   python scripts/make_sonolus_test_level.py click-25.sonolus.json click-25.data.gz --beats 32
-   ```
-
-   The notes default to the pjsekai engine's `NormalTapNote` with `lane` 0 and `size` 1.5. For another engine, give its tap note with `--archetype` and its data with `--data name=value`. `--no-gzip` writes plain JSON for reading it.
-3. Make two levels with `click-137.mp3` as the bgm and each data file as the level data, served the way you serve your levels (the engine's dev server or your own server).
-4. Play each in auto play with note sound effects on. In the one that's right, every note's sound lands on a click of the bgm. In the other, they're about 25 ms apart, a clear flam. If the 0 ms level is right, Sonolus' decoder honours the gapless info on this device. If the 25 ms one is, it doesn't, and that preset is the one to use for mp3s on it. Do the same with an m4a if you use them, its padding is different.
-5. To be sure which way is which, add 0.05 to `bgmOffset` in the right level by hand. The notes should then come 50 ms after the clicks, since the bgm is further in at every level time.
-
-Do this once per device and player you chart for, and keep the compensation that worked. The export block remembers the last value.
+There used to be a Sonolus preset here as well. It was removed in milestone 7, before its offset had been checked in the real app. The decoder padding it compensated for is still in the report, and both offsets in the chart setup list and the `for your chart` card account for it.
 
 ## Real songs: eval_local.py
 

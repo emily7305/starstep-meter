@@ -1,9 +1,6 @@
-"""The two export files, both built from a timing report and never from audio.
+"""The export file, built from a timing report and never from audio.
 
-TimingExport is the plain one: the report as it is, plus the beats file when it's
-asked for. SonolusExport holds the values a Sonolus level needs, worked out from
-the tempo map and the meter map (see backend/analysis/sonolus.py and the Sonolus
-section of docs/decisions.md).
+TimingExport is the report as it is, plus the beats file when it's asked for.
 """
 
 from __future__ import annotations
@@ -34,57 +31,4 @@ class TimingExport(_Strict):
         default=None,
         description="the beats file of the same analysis, only there when the export asked for it",
         json_schema_extra=lambda schema: schema.pop("default", None),
-    )
-
-
-class SonolusDataValue(_Strict):
-    name: str
-    value: float
-
-
-class SonolusEntity(_Strict):
-    archetype: str
-    data: list[SonolusDataValue]
-
-
-class SonolusLevelData(_Strict):
-    # field names are Sonolus' own (LevelData in @sonolus/core), hence the camel case
-    bgmOffset: float = Field(
-        description="seconds into the bgm file at level time 0, which is beat 0. the bgm is at level time + bgmOffset"
-    )
-    entities: list[SonolusEntity] = Field(
-        description="one #BPM_CHANGE per tempo, with #BEAT and #BPM. an engine's own entities (initialization, "
-        "stage, notes) go next to these"
-    )
-
-
-class SonolusBpmChange(_Strict):
-    beat: float = Field(ge=0)
-    bpm: float = Field(gt=0)
-    time_ms: float = Field(
-        description="where the change is on the report's timeline (ffmpeg's decode), before decoder compensation"
-    )
-
-
-class SonolusTimeSignature(_Strict):
-    beat: float = Field(ge=0, description="the bar line this signature starts on")
-    numerator: int = Field(ge=1)
-    denominator: int = Field(ge=1, le=64)
-
-
-class SonolusExport(_Strict):
-    kind: Literal["sonolus"] = "sonolus"
-    exported_at: AwareDatetime
-    filename: str = Field(description="the report's source filename, for display only")
-    sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="the source file the report belongs to")
-    decoder_compensation_ms: float = Field(
-        description="how much later than ffmpeg's timeline the player's decoder plays the audio, already in bgmOffset"
-    )
-    first_downbeat_beat: float = Field(ge=0, description="the beat of tempo_map[0].anchor_ms, the song's first downbeat")
-    level_data: SonolusLevelData
-    bpm_changes: list[SonolusBpmChange] = Field(min_length=1, description="the same changes as level_data, with times")
-    time_signatures: list[SonolusTimeSignature] = Field(
-        min_length=1,
-        description="not part of Sonolus level data, which has no time signature archetype. for the chart editor. "
-        "a bar cut short by a tempo change or a meter split gets its own entry",
     )

@@ -139,7 +139,7 @@ export async function fetchExport(jobId: string, choice: ExportChoice, signal?: 
     throw offlineError();
   }
   if (!res.ok) throw errorFromResponse(res.status, await res.text());
-  const fallback = `${jobId}.${choice.preset}.json`;
+  const fallback = `${jobId}.timing.json`;
   return { blob: await res.blob(), filename: downloadName(res.headers.get("content-disposition"), fallback) };
 }
 

@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePath
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
@@ -18,10 +18,9 @@ from fastapi.routing import APIRoute
 from pydantic import ValidationError
 
 from backend.analysis.beats import madmom_available, madmom_import_error
-from backend.analysis.export import ExportError, sonolus_export, timing_export
+from backend.analysis.export import ExportError, timing_export
 from backend.analysis.ffmpeg_tools import ToolNotFoundError, find_tool
 from backend.analysis.ingest import FileTooLargeError, UnsupportedFileError, check_extension, ingest_stream
-from backend.analysis.sonolus import SonolusError
 from backend.analysis.tempo_edit import TempoEditError
 from backend.api.jobs import JobRunner
 from backend.api.models import Health, JobCreated, JobStatus, JobSummary, TempoEdit
@@ -36,8 +35,6 @@ log = logging.getLogger("starstep.api")
 # multipart boundaries and part headers add a few hundred bytes on top of the file
 # only reject on the header when it's over the limit by more than that, ingest counts the real bytes
 _MULTIPART_SLACK = 64 * 1024
-# a player that's this far off is a typo, not a decoder
-_MAX_COMPENSATION_MS = 1000.0
 
 
 def _attachment(filename: str) -> str:
@@ -223,45 +220,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(status_code=204)
 
     @router.get("/jobs/{job_id}/export")
-    def export(
-        job_id: str,
-        preset: Literal["timing", "sonolus"] = "timing",
-        beats: bool = False,
-        decoder_compensation_ms: float = Query(0.0, ge=-_MAX_COMPENSATION_MS, le=_MAX_COMPENSATION_MS, allow_inf_nan=False),
-    ) -> JSONResponse:
+    def export(job_id: str, beats: bool = False) -> JSONResponse:
         # timing data only. checked against shared/schema before it goes out
         require_report(job_id, "export")
-        if preset == "sonolus" and beats:
-            raise HTTPException(422, "beats only go in the timing export")
-        if preset == "timing" and decoder_compensation_ms != 0:
-            raise HTTPException(422, "decoder compensation is for the sonolus preset")
         try:
             report = store.read_report(job_id)
         except ValidationError as exc:
             raise stale_report(exc) from exc
         now = datetime.now(timezone.utc)
         try:
-            if preset == "sonolus":
-                doc = sonolus_export(report, now, decoder_compensation_ms)
-            else:
-                beats_file = None
-                if beats:
-                    try:
-                        beats_file = store.read_beats(job_id)
-                    except FileNotFoundError as exc:
-                        raise HTTPException(409, "no beats file for this job, upload the file again") from exc
-                    except ValidationError as exc:
-                        raise HTTPException(409, f"stored beats don't match schema {SCHEMA_VERSION}, upload the file again") from exc
-                doc = timing_export(report, beats_file, now)
+            beats_file = None
+            if beats:
+                try:
+                    beats_file = store.read_beats(job_id)
+                except FileNotFoundError as exc:
+                    raise HTTPException(409, "no beats file for this job, upload the file again") from exc
+                except ValidationError as exc:
+                    raise HTTPException(409, f"stored beats don't match schema {SCHEMA_VERSION}, upload the file again") from exc
+            doc = timing_export(report, beats_file, now)
         except SchemaMismatch as exc:
             # the models and the committed schema disagree, that's a bug here and not in the request
             log.error("export for job %s %s", job_id, exc)
             raise HTTPException(500, f"export {exc}") from exc
-        except (ExportError, SonolusError) as exc:
+        except ExportError as exc:
             raise HTTPException(409, str(exc)) from exc
         stem = PurePath(report.source.filename).stem or "export"
-        name = f"{stem}.{'sonolus' if preset == 'sonolus' else 'timing'}.json"
-        return JSONResponse(doc, headers={"content-disposition": _attachment(name)})
+        return JSONResponse(doc, headers={"content-disposition": _attachment(f"{stem}.timing.json")})
 
     @router.get("/jobs/{job_id}/beats", response_model=BeatsFile)
     def get_beats(job_id: str) -> BeatsFile:

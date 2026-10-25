@@ -1,36 +1,23 @@
 import { useEffect, useState } from "react";
 import { ApiError, fetchExport, isAbortError } from "../api";
-import {
-  compensationPresets,
-  DEFAULT_CHOICE,
-  type ExportChoice,
-  type ExportPreset,
-  validCompensation,
-} from "../exportOptions";
-import type { AudioSource } from "../types/timingReport";
+import { DEFAULT_CHOICE, type ExportChoice } from "../exportOptions";
 
 interface Props {
   jobId: string;
-  source: AudioSource;
   disabled: boolean;
 }
 
 type ExportState = { kind: "idle" } | { kind: "busy" } | { kind: "saved"; filename: string } | { kind: "failed"; message: string };
 
-// the last choice, a player's compensation doesn't change between songs. only a convenience,
-// storage can be off or full and then it's just the default again
+// the last choice. only a convenience, storage can be off or full and then it's just the default
+// again. an older entry can have more keys, only beats is read
 const STORAGE_KEY = "starstep.export";
 
 function storedChoice(): ExportChoice {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     if (typeof parsed !== "object" || parsed === null) return DEFAULT_CHOICE;
-    const p = parsed as Partial<ExportChoice>;
-    return {
-      preset: p.preset === "sonolus" ? "sonolus" : "timing",
-      beats: p.beats === true,
-      compensationMs: typeof p.compensationMs === "number" && validCompensation(p.compensationMs) ? p.compensationMs : 0,
-    };
+    return { beats: (parsed as Partial<ExportChoice>).beats === true };
   } catch {
     return DEFAULT_CHOICE;
   }
@@ -56,21 +43,11 @@ function save(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-const PRESETS: Array<{ value: ExportPreset; label: string }> = [
-  { value: "timing", label: "timing json" },
-  { value: "sonolus", label: "sonolus" },
-];
-
-export function ExportPanel({ jobId, source, disabled }: Props) {
+export function ExportPanel({ jobId, disabled }: Props) {
   const [choice, setChoice] = useState<ExportChoice>(storedChoice);
-  const [draft, setDraft] = useState(String(choice.compensationMs));
   const [state, setState] = useState<ExportState>({ kind: "idle" });
   // a new job starts without the last job's message
   useEffect(() => setState({ kind: "idle" }), [jobId]);
-
-  const typed = draft.trim() === "" ? Number.NaN : Number(draft);
-  const compensationOk = validCompensation(typed);
-  const presets = compensationPresets(source);
 
   function update(next: ExportChoice) {
     setChoice(next);
@@ -79,16 +56,10 @@ export function ExportPanel({ jobId, source, disabled }: Props) {
     setState({ kind: "idle" });
   }
 
-  function pickCompensation(ms: number) {
-    setDraft(String(ms));
-    update({ ...choice, compensationMs: ms });
-  }
-
   async function download() {
-    const sent = choice.preset === "sonolus" ? { ...choice, compensationMs: typed } : choice;
     setState({ kind: "busy" });
     try {
-      const file = await fetchExport(jobId, sent);
+      const file = await fetchExport(jobId, choice);
       save(file.blob, file.filename);
       setState({ kind: "saved", filename: file.filename });
     } catch (err) {
@@ -103,70 +74,16 @@ export function ExportPanel({ jobId, source, disabled }: Props) {
       <h2 className="section-label section-label--spaced" id="export-label">
         export
       </h2>
-      <div className="export__presets" role="group" aria-label="export preset">
-        {PRESETS.map((p) => (
-          <button
-            key={p.value}
-            type="button"
-            className="btn btn--chip"
-            aria-pressed={choice.preset === p.value}
-            onClick={() => update({ ...choice, preset: p.value })}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      {choice.preset === "timing" ? (
-        <label className="export__check">
-          <input type="checkbox" checked={choice.beats} onChange={(e) => update({ ...choice, beats: e.target.checked })} />
-          include beats.json
-        </label>
-      ) : (
-        <div className="export__comp">
-          <label className="export__label" htmlFor="export-compensation">
-            decoder compensation
-          </label>
-          <div className="export__comp-row">
-            <input
-              id="export-compensation"
-              className="export__input mono"
-              inputMode="decimal"
-              aria-invalid={!compensationOk}
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                const ms = Number(e.target.value);
-                if (e.target.value.trim() !== "" && validCompensation(ms)) update({ ...choice, compensationMs: ms });
-              }}
-            />
-            <span className="export__unit mono">ms</span>
-          </div>
-          <div className="export__comp-row" role="group" aria-label="compensation presets">
-            {presets.map((p) => (
-              <button
-                key={p.ms}
-                type="button"
-                className="btn btn--chip mono"
-                aria-pressed={compensationOk && typed === p.ms}
-                onClick={() => pickCompensation(p.ms)}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          <p className="export__hint">
-            how much later than ffmpeg's decode the player plays the audio, only bgmOffset moves. the padding is
-            for a decoder that ignores the gapless info
-          </p>
-        </div>
-      )}
+      <label className="export__check">
+        <input type="checkbox" checked={choice.beats} onChange={(e) => update({ beats: e.target.checked })} />
+        include beats.json
+      </label>
 
       <div className="export__go">
         <button
           type="button"
           className="btn btn--outline"
-          disabled={disabled || state.kind === "busy" || (choice.preset === "sonolus" && !compensationOk)}
+          disabled={disabled || state.kind === "busy"}
           onClick={() => void download()}
         >
           export json

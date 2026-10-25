@@ -93,3 +93,7 @@ Milestone 6, confidence and the cross-check. Additive, but 2.3 readers reject th
 - The job stages gain `check` after `meter`, where librosa runs and the confidence is worked out. That's the job status, not the report.
 
 2.3 reports and beats files are upgraded when they're read by changing the version only: no spans, no cross-check and no second tracker's beats, and the segment confidences stay what they were. Older files go through the earlier steps first.
+
+## 2.4, milestone 7: the Sonolus export is removed (no version change)
+
+The Sonolus preset is gone, and with it `shared/schema/sonolus_export.schema.json` and `frontend/src/types/sonolusExport.ts`. `GET /api/jobs/{id}/export` only gives the timing export, and `?preset=` and `?decoder_compensation_ms=` are ignored, so an old link gets the timing export instead of an error. The timing report and the beats file didn't change, `source.decoder_padding_samples` stays, the chart setup list's second offset needs it.

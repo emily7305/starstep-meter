@@ -28,8 +28,7 @@ Each stage is a plain function that takes paths or numpy arrays and returns a sm
 | `cli.py` | file path | report JSON on stdout |
 | `cross_check.py` | samples, trim bounds, the tempo map's beats and segments | `CrossCheck`: librosa's snapped beats compared with the main ones per segment, felt sections and off-beat runs left out |
 | `confidence.py` | tempo map, snapped beats, cross-check | `Confidence`: one per segment and one per span of 16 grid beats, from the residuals and the agreement |
-| `sonolus.py` | tempo map, meter map, decoder compensation | `SonolusTiming`: `bgmOffset`, bpm changes and time signatures in beats |
-| `export.py` | report, beats file or decoder compensation | the timing export or the Sonolus preset as a dict, checked against `shared/schema/`. Also a CLI |
+| `export.py` | report, beats file | the timing export as a dict, checked against `shared/schema/`. Also a CLI |
 
 `ffmpeg_tools.py` finds and runs ffmpeg/ffprobe (`shutil.which`, argument lists, never a shell). A missing tool raises `ToolNotFoundError("ffmpeg not found on PATH")`.
 
@@ -47,7 +46,7 @@ All times are milliseconds from the first decoded sample. Trim only reports boun
   - `PATCH /api/jobs/{id}/report`: one edit, `{"op": "set_anchor" | "set_bpm" | "split" | "split_out" | "merge" | "match" | "set_meter" | "split_meter" | "merge_meter" | "apply_suggestion" | "dismiss_suggestion", ...}`, appends exactly one entry to `edits`.
   - `POST /api/jobs/{id}/reanalyze`: runs the analysis again, keeping manual segments and edits.
   - `GET /api/jobs/{id}/beats`: the beats file.
-  - `GET /api/jobs/{id}/export`: the timing export as a download. `?beats=true` adds the beats file, `?preset=sonolus` gives the Sonolus values instead, with `&decoder_compensation_ms=`. Checked against `shared/schema/` before it's returned.
+  - `GET /api/jobs/{id}/export`: the timing export as a download. `?beats=true` adds the beats file. Checked against `shared/schema/` before it's returned.
   - `DELETE /api/jobs/{id}`: deletes the job folder, not while it's queued or running.
   - `GET /api/jobs/{id}/audio`: the decoded wav, for playback in the local UI.
   - `GET /api/health`: ffmpeg and ffprobe found, madmom installed and importing (checked once at startup).
@@ -77,7 +76,7 @@ Status and report are on disk, so a restart doesn't lose finished jobs. At start
 
 ## schema (`backend/schema/`, `shared/schema/`)
 
-`models.py` is the source of truth for the timing report and the beats file (v2.4, see `schema-changelog.md`), and `export_models.py` for the two export files. `export_schema.py` writes `shared/schema/timing_report.schema.json`, `beats.schema.json`, `timing_export.schema.json` and `sonolus_export.schema.json`, which are committed. The frontend generates one TypeScript file per schema in `frontend/src/types/` with `npm run gen:types`. `validate.py` checks a document against a committed schema file with jsonschema, which the exports go through.
+`models.py` is the source of truth for the timing report and the beats file (v2.4, see `schema-changelog.md`), and `export_models.py` for the export file. `export_schema.py` writes `shared/schema/timing_report.schema.json`, `beats.schema.json` and `timing_export.schema.json`, which are committed. The frontend generates one TypeScript file per schema in `frontend/src/types/` with `npm run gen:types`. `validate.py` checks a document against a committed schema file with jsonschema, which the exports go through.
 
 Two checks keep them in sync. A pytest test fails if a committed JSON Schema differs from its model, and `npm run check:types` fails if the committed TypeScript differs from what the JSON Schemas generate.
 
@@ -103,7 +102,7 @@ Vite + React + TypeScript. In dev, Vite proxies `/api` to the backend, so there'
 - `wav.ts` reads the decoded wav at its own sample rate for the zoomed view.
 - `fonts.ts` loads the Japanese font slices on demand.
 - `clockPlayer.ts` plays the decoded wav on an AudioContext the app owns and is wavesurfer's media element. Its playhead time trails the rendered audio by the output latency the browser reports, and it keeps the wav's own samples for the zoomed view. `clickTrack.ts` puts a click on every beat line and an accented one on every bar line, started at exact times on that context. Both have vitest tests with a fake context.
-- `components/ExportPanel.tsx` is the export block in the source column, with `exportOptions.ts` for the request and the decoder compensation presets, and `editLog.ts` reads an edit log entry for the report column.
+- `components/ExportPanel.tsx` is the export block in the source column, with `exportOptions.ts` for the request, and `editLog.ts` reads an edit log entry for the report column.
 
 ## tests (`tests/`)
 
@@ -116,4 +115,3 @@ Vite + React + TypeScript. In dev, Vite proxies `/api` to the backend, so there'
 - `make_click_track.py` writes a click track for checking by hand, with tempo changes and felt rhythm sections if asked.
 - `eval_local.py` runs the pipeline on every song in a local folder and writes a csv of timing numbers (meter and notation suggestions included), for tuning thresholds on real songs. It never writes audio.
 - `check_madmom.py` checks a madmom install.
-- `make_sonolus_test_level.py` turns a Sonolus export into level data with a tap note on every grid beat, for checking the offset in Sonolus with a click track.

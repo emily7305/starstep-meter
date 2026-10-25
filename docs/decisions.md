@@ -700,7 +700,11 @@ Every export is checked against the committed JSON Schema in `shared/schema/` (`
 
 Since schema 2.0 there's no `beat_offset_ms`, so every offset in an export comes from the segment anchors, the first downbeat being `tempo_map[0].anchor_ms`. The plain export carries the report as it is, no compensation. Decoder compensation is a Sonolus preset setting.
 
+Changed in milestone 7: the Sonolus preset is gone, the timing export is the only one.
+
 ## Sonolus export (milestone 5)
+
+Removed in milestone 7, see "Sonolus export removed (milestone 7)". Kept here as what was decided at the time.
 
 What was checked, on 2026-10-25, before writing any of it:
 
@@ -818,6 +822,8 @@ The playhead is now drawn behind the rendered position by `outputLatency + baseL
 
 ## Sonolus decoder compensation (milestone 6)
 
+Removed in milestone 7, see "Sonolus export removed (milestone 7)". Kept here as what was decided at the time.
+
 Still open. There's no test-level result from the real Sonolus app yet (the check in the README, "Checking the offset in Sonolus"), so the Sonolus preset's default stays 0 ms. MikuMikuWorld not skipping mp3 padding says nothing about Sonolus' decoder.
 
 ## cross-check on the real songs (milestone 6b)
@@ -900,3 +906,9 @@ Limits:
 ### the octave on Lapis
 
 291.99 is twice the chart's 146. The octave check doubles when the onsets halfway between the tracked beats reach 0.8 of the weaker beats. On Lapis the hats are on every off-beat 8th. In the high band the off-beats read 0.88 to 0.98 against 0.30 to 0.55 on the beats, and in the mid band, which holds the snare body and most attacks, they read 0.31 to 0.43 against 0.54 to 0.76. Summed, the two come out even, so the midpoints pass. A check that weighed the mid band over the hats would choose 146 here, and that's a reasonable reading of this song. It isn't changed: the same rule picked the octave on the other real songs, which can't be checked again from here, and 291.99 is a plain 2x that `÷2` turns into the chart's tempo with measure 1 where it was.
+
+## Sonolus export removed (milestone 7)
+
+The Sonolus preset, its decoder compensation setting, `--sonolus` on the export CLI, `scripts/make_sonolus_test_level.py` and `shared/schema/sonolus_export.schema.json` are gone. The charts this tool is used for are set up in MikuMikuWorld, which takes the offset and the bpm and time signature changes from the chart setup list, and the Sonolus offset never got its check in the real app, so the preset was a second set of numbers nobody could vouch for. Its own beat 0, the bar line at or before the start of the audio, went with it, so there's one numbering left, the chart setup list's.
+
+What stays: `source.codec` and `source.decoder_padding_samples` in the report, the decoder padding row in the report column, and both offsets (with the wav from ffmpeg and with the original file) in the chart setup list and the `for your chart` card. The plain timing export is unchanged. An old `?preset=sonolus` link gets the timing export, FastAPI ignores query parameters a route doesn't declare.

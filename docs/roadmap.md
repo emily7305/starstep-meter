@@ -71,6 +71,8 @@ These are the checks that were written down for each version, in order. The expe
 
 Two things changed in the UI after most of these were written. Bar numbers on the timeline start at 0 on the first bar line in the audio, not on the first downbeat. That is the same line for the click tracks below whose lead-in is shorter than one bar. The milestone 1 track has a 2 s lead-in, which is a full bar at 120 bpm, so there bar 0 can be earlier than the first downbeat. And the `for your chart` card now sits above the timeline with the bpm and the offsets, so a check that reads a number from the report column can also read it there.
 
+Milestone 7 removed the Sonolus export. The steps below that use the `sonolus` preset, its decoder compensation or `scripts/make_sonolus_test_level.py` no longer apply, and the export block has only `include beats.json` and `export json`.
+
 A third change came with milestone 6c. The bar the music starts in is now measure 1 and measure 0 is one empty bar before it. For the tracks below, whose music starts in the first bar, every measure or bar number read from the timeline or the chart setup list is one higher than the checks say, and the offsets are minus where measure 0 starts, which is positive when the silence before the music is shorter than a bar.
 
 ### Milestone 1 manual check
@@ -293,7 +295,7 @@ Then a real song. Play it with the click track on from a few bars in. If the acc
 
 Don't commit the generated audio.
 
-The check of the Sonolus preset in the real app, "Checking the offset in Sonolus", is in the [README](../README.md#checking-the-offset-in-sonolus) next to the export it belongs to. It makes two test levels with `scripts/make_sonolus_test_level.py` from the exports of step 5, and has no result yet.
+The check of the Sonolus preset in the real app made two test levels with `scripts/make_sonolus_test_level.py` from the exports of step 5. It never got a result, and the preset was removed in milestone 7.
 
 ### Milestone 6 check
 

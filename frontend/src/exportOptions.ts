@@ -1,51 +1,15 @@
-// the export choices and the request they make. timing is the report as it is (beats only when
-// asked for), sonolus the values a Sonolus level needs, with the decoder compensation in bgmOffset
-
-import type { AudioSource } from "./types/timingReport";
-
-export type ExportPreset = "timing" | "sonolus";
+// the export choice and the request it makes. the timing json is the report as it is, with
+// beats.json in it only when asked for
 
 export interface ExportChoice {
-  preset: ExportPreset;
   beats: boolean;
-  compensationMs: number;
 }
 
-export interface CompensationPreset {
-  label: string;
-  ms: number;
-}
-
-export const DEFAULT_CHOICE: ExportChoice = { preset: "timing", beats: false, compensationMs: 0 };
-// same limit as the server, past it it's a typo and not a decoder
-export const MAX_COMPENSATION_MS = 1000;
-
-export function paddingMs(source: AudioSource): number {
-  return Math.round((source.decoder_padding_samples / source.sample_rate) * 1e6) / 1000;
-}
-
-// 0 for a player whose decoder honours the gapless info, the padding for one that doesn't
-export function compensationPresets(source: AudioSource): CompensationPreset[] {
-  const out: CompensationPreset[] = [{ label: "0 ms", ms: 0 }];
-  const padding = paddingMs(source);
-  if (padding > 0) out.push({ label: `${padding.toFixed(3)} ms, ${source.decoder_padding_samples} padding samples`, ms: padding });
-  return out;
-}
-
-export function validCompensation(ms: number): boolean {
-  return Number.isFinite(ms) && Math.abs(ms) <= MAX_COMPENSATION_MS;
-}
+export const DEFAULT_CHOICE: ExportChoice = { beats: false };
 
 export function exportPath(jobId: string, choice: ExportChoice): string {
-  const params = new URLSearchParams();
-  if (choice.preset === "sonolus") {
-    params.set("preset", "sonolus");
-    if (choice.compensationMs !== 0) params.set("decoder_compensation_ms", String(choice.compensationMs));
-  } else if (choice.beats) {
-    params.set("beats", "true");
-  }
-  const query = params.toString();
-  return `/api/jobs/${encodeURIComponent(jobId)}/export${query ? `?${query}` : ""}`;
+  const query = choice.beats ? "?beats=true" : "";
+  return `/api/jobs/${encodeURIComponent(jobId)}/export${query}`;
 }
 
 // the server's content-disposition, filename* has the real name and filename an ascii stand-in
