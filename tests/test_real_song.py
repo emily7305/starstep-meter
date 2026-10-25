@@ -17,6 +17,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from backend.analysis.confidence import assess
+from backend.analysis.cross_check import compare
 from backend.analysis.meter import infer_meter
 from backend.analysis.notation import feel_suggestions, fold_suggestions, from_fits, stored_features
 from backend.analysis.tempo_map import build_tempo_map
@@ -234,3 +236,65 @@ def test_younithm_suggestions_follow_the_measure_map():
         assert abs(s.start_ms - start) <= measure_ms, f"half from {s.start_ms:.0f}, chart {start:.0f}"
         assert abs(s.end_ms - end) <= measure_ms, f"half to {s.end_ms:.0f}, chart {end:.0f}"
         assert s.suggested_bpm == pytest.approx(segment.fit.bpm / 2)
+
+
+# --- confidence on the real songs (milestone 6) ---
+
+
+def _confidence(name):
+    """The confidence spans the pipeline gives on the rebuilt tempo map, and the map.
+
+    The cross-check needs librosa's beats, which a beats file has only from milestone 6 on.
+    Without them it's the residual part alone.
+    """
+    meter, _ = _analysis(name)
+    beats = BeatsFile.model_validate(upgrade_beats(json.loads((REAL / name / "beats.json").read_text(encoding="utf-8"))))
+    times = np.array([b.time_ms for b in beats.beats])
+    tempo = meter.tempo
+    cross = None
+    if beats.cross_check_beats:
+        felt = [(m.start_ms, m.end_ms) for s in tempo.segments for m in s.ratio_merges]
+        runs = [(r.start_ms, r.end_ms) for s in tempo.segments for r in s.offbeat_runs]
+        segments = [(s.start_ms, s.end_ms) for s in tempo.segments]
+        cross = compare(times, np.array(beats.cross_check_beats), segments, felt + runs)
+    return assess(tempo, times, cross), tempo
+
+
+def _low_over(conf, start, end):
+    return [s for s in conf.spans if s.low and s.start_ms < end and s.end_ms > start]
+
+
+def test_misoilepunch_felt_sections_are_not_low_confidence():
+    conf, tempo = _confidence("misoilepunch")
+    merges = tempo.segments[0].ratio_merges
+    assert len(merges) == 2
+    for m in merges:
+        assert _low_over(conf, m.start_ms, m.end_ms) == []
+
+
+def test_younithm_off_beat_runs_are_not_low_confidence():
+    conf, tempo = _confidence("younithm")
+    runs = tempo.segments[0].offbeat_runs
+    assert len(runs) == len(YOUNITHM_OFFBEAT_MS)
+    period = tempo.segments[0].fit.period_ms
+    for run in runs:
+        # with the ramps either side, up to 8 beats
+        assert _low_over(conf, run.start_ms - 8 * period, run.end_ms + 8 * period) == []
+
+
+def test_low_confidence_on_the_real_songs_is_where_the_tracker_struggled():
+    # what's shaded on the three songs: the fades at the end, ENDYMION's intro (its beats about
+    # 11 ms late) and 88 to 97 s where madmom lost a beat. every low span is inside one of these,
+    # and each of these has one. see docs/decisions.md (milestone 6)
+    struggles = {
+        "misoilepunch": [(128900.0, 134214.0)],
+        "younithm": [(169900.0, 174736.0)],
+        "endymion": [(1143.0, 5600.0), (88000.0, 97200.0)],
+    }
+    for name, regions in struggles.items():
+        conf, _ = _confidence(name)
+        low = [s for s in conf.spans if s.low]
+        for s in low:
+            assert any(a <= s.start_ms and s.end_ms <= b for a, b in regions), (name, s.start_ms, s.end_ms)
+        for a, b in regions:
+            assert any(a <= s.start_ms and s.end_ms <= b for s in low), (name, a, b)
