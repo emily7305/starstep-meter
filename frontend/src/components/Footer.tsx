@@ -3,7 +3,7 @@ const REPO_URL = "https://github.com/emily7305/starstep-meter";
 export function Footer() {
   return (
     <footer className="footer">
-      <span>made by Emily</span>
+      <span>made by emily</span>
       <a className="footer__link mono" href={REPO_URL} target="_blank" rel="noreferrer" title="the source on github">
         github.com/emily7305/starstep-meter
       </a>
