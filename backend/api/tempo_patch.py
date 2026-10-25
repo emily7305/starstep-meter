@@ -13,6 +13,8 @@ by each value's path under field, "" being the report itself.
   whole tempo_map or meter_map before and after.
 - applying a suggestion changes the tempo_map (the meter_map for a downbeat shift) and the
   suggestion's status, so it's logged at "" with both. dismissing one only changes its status.
+- x2 or /2 on an auto segment keeps it auto, so it's logged at the segment with bpm and
+  notation_scale.
 """
 
 from __future__ import annotations
@@ -160,6 +162,22 @@ def _suggestion_edit(report: TimingReport, body: ApplySuggestion | DismissSugges
     return _validated(changed)
 
 
+def _set_bpm(report: TimingReport, body: SetBpm) -> list[TempoSegment]:
+    old_map = report.tempo_map
+    tempo_edit.check_index(old_map, body.segment)
+    seg = old_map[body.segment]
+    # x2 then /2 has to land back where it started, so only the float noise is cut
+    bpm = round(body.bpm, 6)
+    scale = tempo_edit.notation_scale_of(bpm / seg.bpm)
+    if seg.source == "auto" and scale is not None and scale != 1.0:
+        return tempo_edit.rescale(old_map, body.segment, scale)
+    new_map = tempo_edit.set_bpm(old_map, body.segment, bpm)
+    # the ratio buttons can chain back to a power of two of the analysis' own bpm
+    if report.auto_result is not None:
+        new_map[body.segment] = tempo_edit.as_notation(new_map[body.segment], report.auto_result.tempo_map)
+    return new_map
+
+
 def apply_tempo_edit(report: TimingReport, body: TempoEdit, beats: BeatsFile | None, now: datetime) -> TimingReport:
     """The report with the edit applied and logged, or the same report when nothing changed.
 
@@ -174,8 +192,7 @@ def apply_tempo_edit(report: TimingReport, body: TempoEdit, beats: BeatsFile | N
         # same rounding as the pipeline, float steps of 1 ms pick up noise in the last digits
         new_map = tempo_edit.set_anchor(old_map, body.segment, round(body.anchor_ms, 3))
     elif isinstance(body, SetBpm):
-        # x2 then /2 has to land back where it started, so only the float noise is cut
-        new_map = tempo_edit.set_bpm(old_map, body.segment, round(body.bpm, 6))
+        new_map = _set_bpm(report, body)
     elif isinstance(body, Split):
         new_map = tempo_edit.split(old_map, body.at_ms, tracked_times(beats))
     elif isinstance(body, SplitOut):

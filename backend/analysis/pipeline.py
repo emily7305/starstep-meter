@@ -36,13 +36,14 @@ from backend.analysis.notation_edit import keep_decided
 from backend.analysis.octave import OctaveCheck, check_octave_per_segment, positions_on_grid, summary
 from backend.analysis.snap import DEFAULT_WINDOW_MS, SnapResult, onset_strengths, snap_to_onsets
 from backend.analysis.swing import SwingConfig, SwingSection, envelope, find_sections
-from backend.analysis.tempo_edit import keep_manual_segments
+from backend.analysis.tempo_edit import carry_notation, keep_manual_segments
 from backend.analysis.tempo_map import TempoMapConfig, TempoMapResult, build_tempo_map
 from backend.analysis.tempo_range import TempoRange
 from backend.analysis.trim import DEFAULT_THRESHOLD_DB, TrimResult, find_trim, stretch_level
 from backend.schema.models import CrossCheck as CrossCheckReport
 from backend.schema.models import (
     AudioSource,
+    AutoResult,
     Beat,
     BeatsFile,
     ConfidenceSpan,
@@ -244,11 +245,14 @@ def build_report(
     tempo_map = tempo_segments(tempo, confidence.segments if confidence is not None else None)
     meter_map = meter_segments(meter) if meter is not None else []
     notes = notation_suggestions(suggestions or [])
+    # before any manual segment goes back in, what a manual one gets compared with and reset to
+    auto = AutoResult(tempo_map=tempo_map, meter_map=meter_map)
     edits = []
     if previous is not None:
-        # re-analysis: manual segments stay exactly as they were, and so does the edit log.
-        # applied and dismissed suggestions are decisions too, they stay and aren't suggested again
-        tempo_map = keep_manual_segments(previous.tempo_map, tempo_map)
+        # re-analysis: manual segments stay exactly as they were, and so does the edit log. x2 and
+        # /2 go on top of the new auto segments. applied and dismissed suggestions are decisions
+        # too, they stay and aren't suggested again
+        tempo_map = carry_notation(previous.tempo_map, keep_manual_segments(previous.tempo_map, tempo_map))
         meter_map = keep_manual_meter(previous.meter_map, meter_map)
         notes = keep_decided(previous.notation_suggestions, notes, tempo_map)
         edits = list(previous.edits)
@@ -276,6 +280,7 @@ def build_report(
         subdivision_sections=subdivision_sections(subdivisions or []),
         confidence_spans=confidence_spans(confidence, tempo_map) if confidence is not None else [],
         cross_check=cross_check_report(cross),
+        auto_result=auto,
         edits=edits,
     )
 

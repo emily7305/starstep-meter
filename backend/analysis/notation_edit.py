@@ -117,16 +117,21 @@ def keep_decided(
     """Fresh suggestions plus every applied or dismissed one from before, which stay as they were.
 
     A fresh one goes when it's a decided one again (same kind, mostly the same span), or when
-    a manual tempo segment over it has another bpm than the one it was made on, the user has
-    already retimed that stretch.
+    a tempo segment over it was set to another bpm than the one it was made on, by hand or with
+    x2 or /2, the user has already retimed that stretch.
     """
     decided = [s for s in previous if s.status != "open"]
     out = list(decided)
     for f in fresh:
         if any(d.kind == f.kind and _overlap(d, f) > SAME_SPAN for d in decided):
             continue
-        retimed = any(
-            t.source == "manual" and t.end_ms > f.start_ms and t.start_ms < f.end_ms and not _same_bpm(t.bpm, f.grid_bpm)
+        # x2 or /2 counts as retimed too, a half made on 292 would halve a segment already at 146.
+        # a downbeat shift is about where bars restart, whatever the bpm
+        retimed = f.kind != "shift" and any(
+            (t.source == "manual" or t.notation_scale != 1.0)
+            and t.end_ms > f.start_ms
+            and t.start_ms < f.end_ms
+            and not _same_bpm(t.bpm, f.grid_bpm)
             for t in tempo
         )
         if not retimed:

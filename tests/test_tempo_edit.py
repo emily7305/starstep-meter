@@ -7,9 +7,12 @@ from backend.analysis.grid_fit import MIN_BEATS
 from backend.analysis.tempo_edit import (
     TempoEditError,
     TrackedTimes,
+    as_notation,
+    carry_notation,
     keep_manual_segments,
     match,
     merge,
+    rescale,
     set_anchor,
     set_bpm,
     split,
@@ -624,3 +627,58 @@ def test_keep_manual_segments_leaves_both_inputs_alone():
     assert out is not fresh
     assert previous == previous_before
     assert fresh == fresh_before
+
+
+# --- x2 and /2 as a notation choice (milestone 7b) ---
+
+
+def test_x2_and_halving_keep_an_auto_segment_auto():
+    segs = [_seg(1000.0, 60000.0, bpm=291.9899, anchor=1010.0, confidence=0.89)]
+    (half,) = rescale(segs, 0, 0.5)
+    assert (half.source, half.bpm, half.notation_scale, half.confidence, half.anchor_ms) == ("auto", 145.99495, 0.5, 0.89, 1010.0)
+    (back,) = rescale([half], 0, 2.0)
+    assert (back.bpm, back.notation_scale) == (291.9899, 1.0)
+
+
+def test_a_notation_choice_is_refused_on_a_manual_segment_or_past_8():
+    with pytest.raises(TempoEditError):
+        rescale([_hand(1000.0, 5000.0, 120.0)], 0, 2.0)
+    with pytest.raises(TempoEditError):
+        rescale([_seg(1000.0, 5000.0).model_copy(update={"notation_scale": 8.0})], 0, 2.0)
+
+
+def test_a_nudge_on_a_halved_segment_makes_it_manual_at_its_bpm():
+    half = rescale([_seg(1000.0, 60000.0, bpm=200.0)], 0, 0.5)
+    (nudged,) = set_anchor(half, 0, 1001.0)
+    assert (nudged.source, nudged.bpm, nudged.notation_scale) == ("manual", 100.0, 1.0)
+
+
+def test_ratio_buttons_that_chain_back_to_half_are_a_notation_choice_again():
+    auto = [_seg(1000.0, 60000.0, bpm=200.0, anchor=1010.0, confidence=0.9)]
+    three_quarters = set_bpm(auto, 0, 150.0)
+    (half,) = set_bpm(three_quarters, 0, 150.0 * 2 / 3)
+    assert as_notation(half, auto) == auto[0].model_copy(update={"bpm": 100.0, "notation_scale": 0.5})
+    # a nudge in between is a real change, it stays manual
+    moved = set_anchor(three_quarters, 0, 1011.0)
+    (still,) = set_bpm(moved, 0, 100.0)
+    assert as_notation(still, auto).source == "manual"
+
+
+def test_a_split_of_a_halved_segment_refits_at_half():
+    times = 1000.0 + np.arange(96) * 300.0
+    tracked = TrackedTimes(times_ms=times, is_downbeat=np.arange(96) % 4 == 0, downbeats_known=True)
+    half = rescale([_seg(1000.0, 1000.0 + 96 * 300.0, bpm=200.0, anchor=1000.0)], 0, 0.5)
+    left, right = split(half, 1000.0 + 48 * 300.0, tracked)
+    # the beats are at 200, the chart writes it at 100 on both sides
+    assert left.bpm == pytest.approx(100.0, abs=BPM_TOLERANCE)
+    assert right.bpm == pytest.approx(100.0, abs=BPM_TOLERANCE)
+
+
+def test_a_reanalysis_puts_the_same_factor_on_the_new_auto_segments():
+    previous = rescale([_seg(1000.0, 60000.0, bpm=291.98)], 0, 0.5)
+    fresh = [_seg(1000.0, 30000.0, bpm=291.99, anchor=1100.0), _seg(30000.0, 60000.0, bpm=292.01, anchor=30010.0)]
+    out = carry_notation(previous, fresh)
+    assert [(s.bpm, s.notation_scale, s.anchor_ms) for s in out] == [(145.995, 0.5, 1100.0), (146.005, 0.5, 30010.0)]
+    # a manual segment from before has nothing to carry
+    assert carry_notation([_hand(1000.0, 60000.0, 145.99)], fresh) == fresh
+

@@ -79,7 +79,8 @@ def test_reanalysis_runs_every_stage_and_replaces_every_auto_result(
     assert wait_for_job(client, job_id)["status"] == "done"
     first = client.get(f"/api/jobs/{job_id}/report").json()
     assert len(first["tempo_map"]) == 2
-    resp = client.patch(f"/api/jobs/{job_id}/report", json={"op": "set_bpm", "segment": 1, "bpm": 300.0})
+    # 3/2, x2 would be a notation choice and leave it auto
+    resp = client.patch(f"/api/jobs/{job_id}/report", json={"op": "set_bpm", "segment": 1, "bpm": 225.0})
     assert resp.status_code == 200, resp.text
     edited = resp.json()
 
