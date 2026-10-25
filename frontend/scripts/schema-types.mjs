@@ -10,6 +10,8 @@ const typesDir = path.resolve(here, "..", "src", "types");
 export const targets = [
   { schema: "timing_report.schema.json", types: "timingReport.ts" },
   { schema: "beats.schema.json", types: "beats.ts" },
+  { schema: "timing_export.schema.json", types: "timingExport.ts" },
+  { schema: "sonolus_export.schema.json", types: "sonolusExport.ts" },
 ].map((t) => ({
   schemaPath: path.join(schemaDir, t.schema),
   typesPath: path.join(typesDir, t.types),

@@ -18,6 +18,8 @@ dependencies = [
     "soundfile>=0.12",
     "librosa>=0.10.2",
     "python-multipart>=0.0.9",
+    # exports are checked against the committed json schema in shared/schema before they go out
+    "jsonschema>=4.18",
 ]
 
 [project.optional-dependencies]

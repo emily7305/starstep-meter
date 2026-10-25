@@ -99,13 +99,13 @@ def regions(tempo_map: Sequence[TempoLike], meter_map: Sequence[MeterLike]) -> l
     return out
 
 
-def bar_lines(
+def bar_starts(
     tempo_map: Sequence[TempoLike],
     meter_map: Sequence[MeterLike] = (),
     from_ms: float | None = None,
     to_ms: float | None = None,
-) -> list[float]:
-    """Every bar line in [from_ms, to_ms), by default from the first sound to the end of the tempo map."""
+) -> list[tuple[float, BarRegion]]:
+    """Every bar line in [from_ms, to_ms) with the region it starts a bar of."""
     if not tempo_map:
         return []
     first = tempo_map[0]
@@ -113,7 +113,7 @@ def bar_lines(
         from_ms = first.start_ms - EDGE_FRACTION * period_ms(first.bpm)
     if to_ms is None:
         to_ms = tempo_map[-1].end_ms
-    lines: list[float] = []
+    out: list[tuple[float, BarRegion]] = []
     for r in regions(tempo_map, meter_map):
         lo, hi = max(r.from_ms, from_ms), min(r.stop_ms, to_ms)
         if hi <= lo:
@@ -124,9 +124,19 @@ def bar_lines(
             t = r.ref_ms + k * r.bar_ms
             if t >= hi:
                 break
-            lines.append(t)
+            out.append((t, r))
             k += 1
-    return lines
+    return out
+
+
+def bar_lines(
+    tempo_map: Sequence[TempoLike],
+    meter_map: Sequence[MeterLike] = (),
+    from_ms: float | None = None,
+    to_ms: float | None = None,
+) -> list[float]:
+    """Every bar line in [from_ms, to_ms), by default from the first sound to the end of the tempo map."""
+    return [t for t, _ in bar_starts(tempo_map, meter_map, from_ms, to_ms)]
 
 
 def bar_count(lines: Sequence[float], start_ms: float, end_ms: float, tolerance_ms: float = 0.5) -> int:

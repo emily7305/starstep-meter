@@ -1,0 +1,657 @@
+{
+  "$defs": {
+    "AudioSource": {
+      "additionalProperties": false,
+      "properties": {
+        "codec": {
+          "description": "codec of the first audio stream as ffprobe names it, e.g. mp3, aac, vorbis",
+          "title": "Codec",
+          "type": "string"
+        },
+        "decoder_padding_samples": {
+          "description": "samples a decoder that ignores gapless info plays before ffmpeg's first sample, 0 if not applicable",
+          "minimum": 0,
+          "title": "Decoder Padding Samples",
+          "type": "integer"
+        },
+        "duration_ms": {
+          "description": "length of the decoded audio",
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "number"
+        },
+        "filename": {
+          "description": "original upload name, for display only",
+          "title": "Filename",
+          "type": "string"
+        },
+        "sample_rate": {
+          "description": "sample rate of the decoded audio in Hz",
+          "exclusiveMinimum": 0,
+          "title": "Sample Rate",
+          "type": "integer"
+        },
+        "sha256": {
+          "description": "sha256 of the original file, not the decoded wav",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename",
+        "sha256",
+        "duration_ms",
+        "sample_rate",
+        "codec",
+        "decoder_padding_samples"
+      ],
+      "title": "AudioSource",
+      "type": "object"
+    },
+    "Beat": {
+      "additionalProperties": false,
+      "properties": {
+        "bar": {
+          "minimum": 0,
+          "title": "Bar",
+          "type": "integer"
+        },
+        "beat_in_bar": {
+          "minimum": 1,
+          "title": "Beat In Bar",
+          "type": "integer"
+        },
+        "is_downbeat": {
+          "title": "Is Downbeat",
+          "type": "boolean"
+        },
+        "raw_time_ms": {
+          "description": "beat time as the tracker reported it, before bias correction and onset snap. halfway between two tracker beats when the octave check doubled the tempo",
+          "minimum": 0,
+          "title": "Raw Time Ms",
+          "type": "number"
+        },
+        "residual_ms": {
+          "description": "time_ms minus its tempo segment's fitted grid at this beat. a beat in a ratio merged section or an off-beat run is measured against the subdivision it sits on, half a beat for an off-beat run",
+          "title": "Residual Ms",
+          "type": "number"
+        },
+        "time_ms": {
+          "description": "beat time after onset snap",
+          "minimum": 0,
+          "title": "Time Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "time_ms",
+        "raw_time_ms",
+        "residual_ms",
+        "bar",
+        "beat_in_bar",
+        "is_downbeat"
+      ],
+      "title": "Beat",
+      "type": "object"
+    },
+    "BeatsFile": {
+      "additionalProperties": false,
+      "properties": {
+        "beats": {
+          "items": {
+            "$ref": "#/$defs/Beat"
+          },
+          "title": "Beats",
+          "type": "array"
+        },
+        "grid_features": {
+          "description": "band onset strengths at every grid line and half line of the analysis' tempo map, plus the lines the fold check carried into an edge stretch, sorted by time. what the notation suggestions are worked out from, so they can be checked again without the audio",
+          "items": {
+            "$ref": "#/$defs/GridFeature"
+          },
+          "title": "Grid Features",
+          "type": "array"
+        },
+        "octave": {
+          "description": "what the octave check did to the tracker's tempo, mixed when it differs between tempo segments, see docs/decisions.md",
+          "enum": [
+            "kept",
+            "doubled",
+            "halved",
+            "mixed"
+          ],
+          "title": "Octave",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "2.3",
+          "default": "2.3",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "same file as the report it belongs to",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "tracker": {
+          "enum": [
+            "madmom",
+            "librosa"
+          ],
+          "title": "Tracker",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "sha256",
+        "tracker",
+        "octave",
+        "beats",
+        "grid_features"
+      ],
+      "title": "BeatsFile",
+      "type": "object"
+    },
+    "Edit": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "description": "the deepest path that holds everything the change touched, e.g. tempo_map/0/bpm. with one changed value old and new are that value, with several they're objects keyed by each value's path under field, and an empty field is the report itself",
+          "title": "Field",
+          "type": "string"
+        },
+        "new": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "old": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "old",
+        "new",
+        "timestamp"
+      ],
+      "title": "Edit",
+      "type": "object"
+    },
+    "GridFeature": {
+      "additionalProperties": false,
+      "properties": {
+        "high": {
+          "description": "5-16 khz, hats, cymbals and the snare's noise",
+          "minimum": 0,
+          "title": "High",
+          "type": "number"
+        },
+        "low": {
+          "description": "30-150 hz, kick and bass attacks",
+          "minimum": 0,
+          "title": "Low",
+          "type": "number"
+        },
+        "mid": {
+          "description": "150-3000 hz, snare body and most other attacks",
+          "minimum": 0,
+          "title": "Mid",
+          "type": "number"
+        },
+        "time_ms": {
+          "description": "a grid line or half line of the analysis' tempo map",
+          "minimum": 0,
+          "title": "Time Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "time_ms",
+        "low",
+        "mid",
+        "high"
+      ],
+      "title": "GridFeature",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MeterSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "denominator": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Denominator",
+          "type": "integer"
+        },
+        "end_ms": {
+          "description": "where it stops, the same value as the next meter segment's start_ms",
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "numerator": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Numerator",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "start_ms": {
+          "description": "where this meter starts, the first starts at tempo_map[0].start_ms. inside a tempo segment it's a bar line and bars restart there, at a tempo segment's start the segment's anchor is bar 1",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "numerator",
+        "denominator",
+        "confidence",
+        "source"
+      ],
+      "title": "MeterSegment",
+      "type": "object"
+    },
+    "NotationSuggestion": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "grid_bpm": {
+          "description": "bpm of the tempo segment the suggestion was made on",
+          "exclusiveMinimum": 0,
+          "title": "Grid Bpm",
+          "type": "number"
+        },
+        "kind": {
+          "description": "half: the span feels like half the grid's tempo, double: twice it, fold: a first or last stretch that may be its neighbour's tempo the analysis didn't fold in",
+          "enum": [
+            "half",
+            "double",
+            "fold"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "score": {
+          "description": "how clear the evidence is, 1 is as clear as it gets",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "start_ms": {
+          "description": "a bar line, or the start of the tempo segment for a fold",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        },
+        "status": {
+          "default": "open",
+          "enum": [
+            "open",
+            "applied",
+            "dismissed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "suggested_bpm": {
+          "exclusiveMinimum": 0,
+          "title": "Suggested Bpm",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "kind",
+        "suggested_bpm",
+        "grid_bpm",
+        "score",
+        "status"
+      ],
+      "title": "NotationSuggestion",
+      "type": "object"
+    },
+    "OffbeatRun": {
+      "additionalProperties": false,
+      "properties": {
+        "beats": {
+          "description": "tracked beats in the run",
+          "minimum": 1,
+          "title": "Beats",
+          "type": "integer"
+        },
+        "end_ms": {
+          "description": "last tracked beat of the run",
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "start_ms": {
+          "description": "first tracked beat of the run",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "beats"
+      ],
+      "title": "OffbeatRun",
+      "type": "object"
+    },
+    "RatioMergedSection": {
+      "additionalProperties": false,
+      "properties": {
+        "bpm": {
+          "description": "what the stretch fitted to on its own",
+          "exclusiveMinimum": 0,
+          "title": "Bpm",
+          "type": "number"
+        },
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "fit": {
+          "description": "share of its beats on the segment's grid (lines, halves, thirds) over the share on its own grid",
+          "minimum": 0,
+          "title": "Fit",
+          "type": "number"
+        },
+        "ratio": {
+          "description": "its bpm over the segment's, near enough, e.g. 3/4 for a triplet feel or 2/3 for a dotted one",
+          "pattern": "^[1-9][0-9]*/[1-9][0-9]*$",
+          "title": "Ratio",
+          "type": "string"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "bpm",
+        "ratio",
+        "fit"
+      ],
+      "title": "RatioMergedSection",
+      "type": "object"
+    },
+    "Section": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ms": {
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "start_ms": {
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "start_ms",
+        "end_ms",
+        "source"
+      ],
+      "title": "Section",
+      "type": "object"
+    },
+    "TempoSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "anchor_ms": {
+          "description": "a downbeat on this segment's grid, which is anchor_ms + k * 60000 / bpm. the first segment's anchor is the song's first downbeat",
+          "title": "Anchor Ms",
+          "type": "number"
+        },
+        "bpm": {
+          "exclusiveMinimum": 0,
+          "title": "Bpm",
+          "type": "number"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "end_ms": {
+          "description": "where it stops, the same value as the next segment's start_ms",
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "ratio_merged": {
+          "description": "felt tempo sections (dotted, triplet feel) inside this segment that the analysis kept on its grid, splitting at a section's start_ms and end_ms gives it back its own tempo",
+          "items": {
+            "$ref": "#/$defs/RatioMergedSection"
+          },
+          "title": "Ratio Merged",
+          "type": "array"
+        },
+        "source": {
+          "enum": [
+            "auto",
+            "manual"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "start_ms": {
+          "description": "where this tempo starts, the first segment starts at trim.start_ms",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms",
+        "bpm",
+        "anchor_ms",
+        "confidence",
+        "source",
+        "ratio_merged"
+      ],
+      "title": "TempoSegment",
+      "type": "object"
+    },
+    "TimingReport": {
+      "additionalProperties": false,
+      "properties": {
+        "edits": {
+          "items": {
+            "$ref": "#/$defs/Edit"
+          },
+          "title": "Edits",
+          "type": "array"
+        },
+        "meter_map": {
+          "items": {
+            "$ref": "#/$defs/MeterSegment"
+          },
+          "title": "Meter Map",
+          "type": "array"
+        },
+        "notation_suggestions": {
+          "description": "places where a chart may write the pulse at another tempo (half or double time feel) or fold an edge into its neighbour. never applied by the analysis, an edit applies or dismisses each one",
+          "items": {
+            "$ref": "#/$defs/NotationSuggestion"
+          },
+          "title": "Notation Suggestions",
+          "type": "array"
+        },
+        "offbeat_runs": {
+          "description": "stretches where the analysis found the tracked beats half a beat off the tempo map's grid. the grid is on the real beats there, the tracker followed the off-beat. analysis output, edits don't change it",
+          "items": {
+            "$ref": "#/$defs/OffbeatRun"
+          },
+          "title": "Offbeat Runs",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "2.3",
+          "default": "2.3",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/Section"
+          },
+          "title": "Sections",
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/AudioSource"
+        },
+        "tempo_map": {
+          "items": {
+            "$ref": "#/$defs/TempoSegment"
+          },
+          "minItems": 1,
+          "title": "Tempo Map",
+          "type": "array"
+        },
+        "trim": {
+          "$ref": "#/$defs/Trim"
+        }
+      },
+      "required": [
+        "schema_version",
+        "source",
+        "trim",
+        "tempo_map",
+        "meter_map",
+        "sections",
+        "offbeat_runs",
+        "notation_suggestions",
+        "edits"
+      ],
+      "title": "TimingReport",
+      "type": "object"
+    },
+    "Trim": {
+      "additionalProperties": false,
+      "properties": {
+        "end_ms": {
+          "description": "end of the last audible sound",
+          "minimum": 0,
+          "title": "End Ms",
+          "type": "number"
+        },
+        "start_ms": {
+          "description": "first audible sound",
+          "minimum": 0,
+          "title": "Start Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start_ms",
+        "end_ms"
+      ],
+      "title": "Trim",
+      "type": "object"
+    }
+  },
+  "$id": "timing_export.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "beats": {
+      "$ref": "#/$defs/BeatsFile",
+      "description": "the beats file of the same analysis, only there when the export asked for it",
+      "title": "Beats"
+    },
+    "exported_at": {
+      "format": "date-time",
+      "title": "Exported At",
+      "type": "string"
+    },
+    "kind": {
+      "const": "timing",
+      "default": "timing",
+      "title": "Kind",
+      "type": "string"
+    },
+    "report": {
+      "$ref": "#/$defs/TimingReport"
+    }
+  },
+  "required": [
+    "kind",
+    "exported_at",
+    "report"
+  ],
+  "title": "TimingExport",
+  "type": "object"
+}

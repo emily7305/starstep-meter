@@ -14,16 +14,21 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from backend.schema.export_models import SonolusExport, TimingExport
 from backend.schema.models import BeatsFile, TimingReport
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_DIR = REPO_ROOT / "shared" / "schema"
 SCHEMA_PATH = SCHEMA_DIR / "timing_report.schema.json"
 BEATS_SCHEMA_PATH = SCHEMA_DIR / "beats.schema.json"
+TIMING_EXPORT_SCHEMA_PATH = SCHEMA_DIR / "timing_export.schema.json"
+SONOLUS_EXPORT_SCHEMA_PATH = SCHEMA_DIR / "sonolus_export.schema.json"
 
 SCHEMAS: dict[Path, type[BaseModel]] = {
     SCHEMA_PATH: TimingReport,
     BEATS_SCHEMA_PATH: BeatsFile,
+    TIMING_EXPORT_SCHEMA_PATH: TimingExport,
+    SONOLUS_EXPORT_SCHEMA_PATH: SonolusExport,
 }
 
 

@@ -16,7 +16,7 @@ This project's code is licensed under PolyForm Noncommercial 1.0.0 (see `LICENSE
 
 madmom is used for beat and downbeat tracking when it's installed. Without it, the librosa fallback runs with lower confidence and a guessed downbeat. madmom's code is BSD-licensed, and its pretrained models carry their own CC BY-NC-SA 4.0 terms. This project does not redistribute madmom or its models. Whoever runs the tool installs them separately.
 
-The licenses below were read from the installed packages' own metadata (Python `importlib.metadata`, npm `package.json`) on 2026-10-24.
+The licenses below were read from the installed packages' own metadata (Python `importlib.metadata`, npm `package.json`) on 2026-10-25.
 
 ### Python runtime
 
@@ -29,6 +29,7 @@ The licenses below were read from the installed packages' own metadata (Python `
 | soundfile | 0.14.0 | BSD-3-Clause | Wheels bundle libsndfile, which is LGPL-2.1 |
 | librosa | 0.11.0 | ISC | |
 | python-multipart | 0.0.32 | Apache-2.0 | |
+| jsonschema | 4.26.0 | MIT | Checks every export against the committed JSON Schema before it goes out |
 
 ### Pulled in by librosa
 
@@ -40,6 +41,17 @@ These come in through librosa. soxr is LGPL-2.1-or-later, so it is the one to wa
 | numba | 0.68.0 | BSD-2-Clause |
 | scikit-learn | 1.9.1 | BSD-3-Clause |
 | soxr | 1.1.0 | LGPL-2.1-or-later |
+
+### Pulled in by jsonschema
+
+These come in through jsonschema.
+
+| Package | Version | License |
+|---|---|---|
+| attrs | 26.1.0 | MIT |
+| jsonschema-specifications | 2025.9.1 | MIT |
+| referencing | 0.37.0 | MIT |
+| rpds-py | 2026.9.1 | MIT |
 
 ### Python dev and test
 
