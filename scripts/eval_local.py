@@ -31,7 +31,7 @@ COLUMNS = (
     "file", "duration_ms", "codec", "sample_rate", "tracker", "octave",
     "segments", "segment_starts_ms", "segment_bpms", "segment_confidences",
     "residual_rms_ms", "residual_p95_ms", "residual_max_ms", "outliers", "confidence",
-    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions", "cross_check_ms", "low_confidence",
+    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions", "subdivisions", "cross_check_ms", "low_confidence",
     "beats", "beats_snapped", "beats_not_snapped", "median_snap_move_ms", "error",
 )
 _CHUNK = 1024 * 1024
@@ -87,6 +87,9 @@ def _row(name: str, out: AnalysisOutput) -> dict[str, str]:
         offbeat_runs=" ".join(f"{r.start_ms:.0f}-{r.end_ms:.0f}" for s in tempo.segments for r in s.offbeat_runs),
         meter=" ".join(f"{r.numerator}/{r.denominator}:{r.start_ms:.0f}" for r in out.meter.runs),
         notation_suggestions=" ".join(f"{s.kind}:{s.start_ms:.0f}-{s.end_ms:.0f}:{s.score:.2f}" for s in out.report.notation_suggestions),
+        subdivisions=" ".join(
+            f"{d.kind}:{d.start_ms:.0f}-{d.end_ms:.0f}:{d.ratio:.2f}:1/{d.division}:{d.score:.2f}" for d in out.report.subdivision_sections
+        ),
         cross_check_ms=_cross_check(out),
         low_confidence=" ".join(f"{s.start_ms:.0f}-{s.end_ms:.0f}:{s.confidence:.2f}" for s in out.confidence.spans if s.low),
         beats=str(beats),

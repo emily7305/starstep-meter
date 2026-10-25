@@ -34,6 +34,7 @@ from backend.analysis.notation import (
 from backend.analysis.notation_edit import keep_decided
 from backend.analysis.octave import OctaveCheck, check_octave_per_segment, positions_on_grid, summary
 from backend.analysis.snap import DEFAULT_WINDOW_MS, SnapResult, onset_strengths, snap_to_onsets
+from backend.analysis.swing import SwingConfig, SwingSection, envelope, find_sections
 from backend.analysis.tempo_edit import keep_manual_segments
 from backend.analysis.tempo_map import TempoMapConfig, TempoMapResult, build_tempo_map
 from backend.analysis.tempo_range import TempoRange
@@ -50,6 +51,7 @@ from backend.schema.models import (
     NotationSuggestion,
     OffbeatRun,
     RatioMergedSection,
+    SubdivisionSection,
     TempoSegment,
     TimingReport,
     Trim,
@@ -79,6 +81,7 @@ class AnalysisConfig:
     tempo_map: TempoMapConfig = TempoMapConfig()
     meter: MeterConfig = MeterConfig()
     notation: NotationConfig = NotationConfig()
+    swing: SwingConfig = SwingConfig()
     cross_check: CrossCheckConfig = CrossCheckConfig()
     confidence: ConfidenceConfig = ConfidenceConfig()
 
@@ -98,6 +101,8 @@ class AnalysisOutput:
     meter: MeterResult
     features: GridFeatures
     suggestions: list[Suggestion]
+    # swing and gallop, read on the grid as it is
+    subdivisions: list[SwingSection]
     # librosa's snapped beats, empty when the main tracker is librosa itself
     second_ms: np.ndarray
     # None when the main tracker is librosa, there's nothing to compare it with then
@@ -167,6 +172,21 @@ def notation_suggestions(suggestions: list[Suggestion]) -> list[NotationSuggesti
     ]
 
 
+def subdivision_sections(sections: list[SwingSection]) -> list[SubdivisionSection]:
+    return [
+        SubdivisionSection(
+            start_ms=_ms(s.start_ms),
+            end_ms=_ms(s.end_ms),
+            kind=s.kind,
+            ratio=round(s.ratio, 2),
+            division=s.division,
+            grid_bpm=round(s.grid_bpm, 4),
+            score=round(min(1.0, max(0.0, s.score)), 3),
+        )
+        for s in sections
+    ]
+
+
 def confidence_spans(confidence: Confidence, tempo_map: list[TempoSegment]) -> list[ConfidenceSpan]:
     # only where an auto segment is, a manual one kept through re-analysis has its own grid
     auto = [(s.start_ms, s.end_ms) for s in tempo_map if s.source == "auto"]
@@ -218,6 +238,7 @@ def build_report(
     suggestions: list[Suggestion] | None = None,
     confidence: Confidence | None = None,
     cross: CrossCheck | None = None,
+    subdivisions: list[SwingSection] | None = None,
 ) -> TimingReport:
     tempo_map = tempo_segments(tempo, confidence.segments if confidence is not None else None)
     meter_map = meter_segments(meter) if meter is not None else []
@@ -250,6 +271,8 @@ def build_report(
             for r in seg.offbeat_runs
         ],
         notation_suggestions=notes,
+        # analysis output like the off-beat runs, a re-analysis replaces it
+        subdivision_sections=subdivision_sections(subdivisions or []),
         confidence_spans=confidence_spans(confidence, tempo_map) if confidence is not None else [],
         cross_check=cross_check_report(cross),
         edits=edits,
@@ -399,6 +422,9 @@ def run_analysis(
         suggestions = feel_suggestions(segments, meter.runs, features, config.notation) + fold_suggestions(
             segments, features, trim.start_ms, trim.end_ms, config.tempo_map, config.notation
         )
+        # where the notes between the beats sit, on the grid as it is. needs the audio, the band
+        # strengths only have the lines and half lines
+        subdivisions = find_sections(segments, meter.runs, envelope(samples, sample_rate, trim.start_ms, trim.end_ms), config.swing)
 
         enter("check")
         # librosa's tracker as a second opinion. with librosa as the main tracker it would only
@@ -414,7 +440,7 @@ def run_analysis(
         # keep whatever the stage said, the ui shows it as is
         raise StageError(stage, str(exc) or type(exc).__name__) from exc
 
-    report = build_report(filename, sha256, decoded, trim, tempo, previous, meter, suggestions, confidence, cross)
+    report = build_report(filename, sha256, decoded, trim, tempo, previous, meter, suggestions, confidence, cross, subdivisions)
     beats = build_beats_file(sha256, tracked, octave, snap, tempo, features, second)
     return AnalysisOutput(
         report=report,
@@ -428,6 +454,7 @@ def run_analysis(
         meter=meter,
         features=features,
         suggestions=suggestions,
+        subdivisions=subdivisions,
         second_ms=second,
         cross_check=cross,
         confidence=confidence,

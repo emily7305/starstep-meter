@@ -912,3 +912,44 @@ Limits:
 The Sonolus preset, its decoder compensation setting, `--sonolus` on the export CLI, `scripts/make_sonolus_test_level.py` and `shared/schema/sonolus_export.schema.json` are gone. The charts this tool is used for are set up in MikuMikuWorld, which takes the offset and the bpm and time signature changes from the chart setup list, and the Sonolus offset never got its check in the real app, so the preset was a second set of numbers nobody could vouch for. Its own beat 0, the bar line at or before the start of the audio, went with it, so there's one numbering left, the chart setup list's.
 
 What stays: `source.codec` and `source.decoder_padding_samples` in the report, the decoder padding row in the report column, and both offsets (with the wav from ffmpeg and with the original file) in the chart setup list and the `for your chart` card. The plain timing export is unchanged. An old `?preset=sonolus` link gets the timing export, FastAPI ignores query parameters a route doesn't declare.
+
+## swing and gallop (milestone 7)
+
+`backend/analysis/swing.py` finds stretches where the notes between the beats are uneven, and says which note division a chart editor needs for them. It reads where the onsets sit between the lines of the grid the tempo map already has. It never moves a beat or changes a bpm, and nothing applies its sections. They're listed with the notation suggestions and as a line in the chart setup panel.
+
+How it reads a beat. The onset envelope is a spectral flux over all bins, on log-compressed magnitude (`log1p`, after scaling the trimmed audio to a peak of 1), with a 512 sample window (11.6 ms at 44.1 kHz) and a 64 sample hop. Log, so that quiet hats count next to a loud kick, which is where swing usually lives. Each beat, from one grid line to the next, is read at 48 steps plus a quarter of a beat before its line, and divided by its own peak, so a loud bar doesn't outvote a quiet one. A beat whose peak is under 0.2 of the song's median beat is too quiet to read. The beats of a bar are averaged, and each bar is called on the average of a 3 bar window centred on it.
+
+What a profile is called. A position has a note when its peak over the profile's floor (the 20th percentile) reaches `present` (0.4) of the beat's own onset, and is empty under `absent` (0.2). Positions are read within a 48th of a beat either way.
+
+| kind | notes at | empty at | division |
+| --- | --- | --- | --- |
+| gallop | 1/2, 3/4 | 1/4, 1/3 | 1/16 |
+| reverse gallop | 1/4, 1/2 | 3/4, 2/3 | 1/16 |
+| gallop on a triplet base | 2/3, 5/6 | 1/3, 1/2 | 1/24 |
+| reverse gallop on a triplet base | 1/6, 1/3 | 2/3, 1/2 | 1/24 |
+| swing | one note between 0.62 and 0.71 | 1/2, 1/4, 1/3, 5/6 | 1/12 |
+
+Straight 8ths, straight 16ths and plain triplets come out as none of these and aren't reported, a chart's usual divisions hold them. A swing lighter than 0.62 (3:2 is 0.6) isn't reported either, a triplet division would put its notes 14 ms off at 290 bpm, and a chart writes it straight. 0.75 is a dotted 8th and 16th, which is on the 16th grid. The ratio is the long note over the short one, from where the notes are measured in the profile against the beat's own onset, so a constant lag of the envelope cancels out. The division is in notes per 4/4 measure at the bpm the section was read on, and the ui doubles it for a segment set to half that bpm.
+
+Sections. A bar is called by its window, or by itself when a bar next to it reads the same on its own. A run of the same kind and division of at least `min_bars` (2) bars is a section, and each edge moves to where the bars read on their own change, since the window blurs an edge by up to a bar. The score is the average over the run of how clear the notes are against the empty positions. Bars that touch a felt section (a ratio merge) are left out, their notes follow another pulse.
+
+What broke on the way:
+
+- A triplet gallop came out as swing. Its late note at 2/3 is a swing's, and swing was checked first without looking at 5/6. The gallops are checked first now, and swing also needs 5/6 empty.
+- A 3:2 light swing at 0.6 read as nothing at all, not even a late note, while 2/3 was found. The flux of a click is a spike a few frames wide, and reading the envelope at the centre of each 48th (every 8.6 ms at 146 bpm) stepped over it. 2/3 is exactly on a step. Each step now takes the mean of the envelope over its whole width.
+- A section 2 bars long was never found, a 3 bar window centred on its bars is a third straight. That's why a bar can also be called by itself together with its neighbour.
+
+Measured, with the grid known:
+
+- Click tracks with softer, higher ticks between the beat clicks at 100, 146, 220 and 292 bpm, a section of 8 bars between straight 8ths: swing, both gallops and both triplet gallops are found with both edges on the true bar lines. Straight 8ths, straight 16ths and triplets give none. The ratios read 2.00 and 4.00 at 100 bpm and drift as the notes get shorter: at 220 a 2:1 swing reads 1.87 and a reverse gallop 2.19, at 292 1.84 and up to 2.24, and a 4:1 triplet gallop up to 4.6. The beat click's flux peaks about 3 ms later than the tick's, which is a lot of a 34 ms triplet 16th at 292. The kind and the division come out right at every tempo.
+- Drum tracks (kick, snare, hats) at 110, 146, 200 and 260 bpm with swung or galloping hats for 12 bars: found on the true bar lines, with scores of 0.42 to 0.56. The plain backbeat, with quiet hats on the half, and straight 16th hats give none.
+- Through the pipeline with madmom, a 146 bpm click track with 8 bars each of 16ths, swing, gallop and 8ths gives the swing and the gallop within a bar of their edges and nothing else.
+
+Each threshold has a test in `tests/test_swing.py` that flips its decision.
+
+Limits:
+
+- Nothing here has run on real music. The band strengths in the beats file only have the grid's lines and half lines, which can't show a note at 2/3, so the real-song tests can't check it without the audio. `scripts/eval_local.py` has a `subdivisions` column for that.
+- One envelope over all bins. A swung hat over a straight 8th guitar has a note on the half, and comes out as neither.
+- 16th swing (long-short inside each 8th) and quintuplet or other tuplet feels aren't looked for.
+- `present` and `absent` are tuned on clicks and generated drums. A busy mix has more between the beats and a higher floor, which pushes contrasts down.

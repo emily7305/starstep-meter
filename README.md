@@ -185,6 +185,7 @@ With `-v`, stage progress and debug numbers go to stderr, so stdout stays pipeab
 - `tempo`: the number of segments, the residual rms, the outliers and the confidence, followed by one `[i]` line per segment with its start and end, bpm, anchor and beat count.
 - `meter`: how many meter segments and how many grid positions were read, with one `[i]` line per meter segment (start, end, numerator/denominator and confidence).
 - `suggest`: one line per notation suggestion, with its kind, start and end, the suggested bpm and the bpm it was made on, and the score.
+- `swing`: one line per swing or gallop section, with its kind, start and end, the ratio of the long note to the short one, the division a chart needs at the bpm it was read on (like `1/12 at 146.0000 bpm`), and the score.
 - `check`: the librosa cross-check, with how many beats librosa found and the distance above which a segment is flagged. One `[i]` line per tempo segment gives the median distance between the two trackers' beats, how many beats were compared, and `flagged` when it is over the limit (or `too few beats to compare`). When librosa is the main tracker, the line says there is no cross-check.
 - `conf`: the confidence of each tempo segment and how many of the 16 beat spans are low, followed by one `low` line per low span with its start and end and its confidence.
 
@@ -353,6 +354,7 @@ The columns:
 - `confidence` is the share of all beats within 10 ms of their grid, halved for the librosa fallback.
 - `ratio_merged` lists the felt sections kept on their segment's grid, like `3/4:44511-58724` (the ratio, then start and end in ms), and `offbeat_runs` the stretches where the tracker followed the off-beat, like `48664-52872`. Both are separated by spaces and empty when there are none.
 - `meter` lists the meter segments, like `4/4:97 7/4:27948` (the signature, then start in ms), and `notation_suggestions` the suggestions, like `half:97-37020:0.62` (the kind, start and end in ms, then the score). Both are separated by spaces and empty when there are none.
+- `subdivisions` lists the swing and gallop sections, like `swing:32000-45150:2.00:1/12:0.85` (the kind, start and end in ms, the ratio, the division at the segment's bpm, then the score), separated by spaces and empty when there are none. The real-song tests can't check these without the audio, so this column is the way to see them on your own songs.
 - `cross_check_ms` has one value per tempo segment, separated by spaces: the median distance in ms between madmom's and librosa's beats. A `-` means there were too few beats to compare, and a `!` after the number means the segment was flagged. It is empty when there was no cross-check.
 - `low_confidence` lists the spans of 16 grid beats with a confidence under 0.5 as `start-end:confidence`, with start and end in ms, separated by spaces and empty when there are none.
 - `beats`, `beats_snapped` and `beats_not_snapped` are how many beats the tracker found and how many did and did not find an onset inside the snap window.

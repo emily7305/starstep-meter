@@ -15,7 +15,7 @@ HEADER = [
     "file", "duration_ms", "codec", "sample_rate", "tracker", "octave",
     "segments", "segment_starts_ms", "segment_bpms", "segment_confidences",
     "residual_rms_ms", "residual_p95_ms", "residual_max_ms", "outliers", "confidence",
-    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions", "cross_check_ms", "low_confidence",
+    "ratio_merged", "offbeat_runs", "meter", "notation_suggestions", "subdivisions", "cross_check_ms", "low_confidence",
     "beats", "beats_snapped", "beats_not_snapped", "median_snap_move_ms", "error",
 ]
 
@@ -72,6 +72,8 @@ def test_two_songs_give_two_rows_and_the_txt_is_ignored(capsys, tmp_path):
         assert int(row["beats_snapped"]) + int(row["beats_not_snapped"]) == int(row["beats"])
         assert row["meter"].startswith("4/4:")
         assert row["notation_suggestions"] == ""
+        # plain clicks, nothing between the beats
+        assert row["subdivisions"] == ""
         assert row["error"] == ""
     # progress and the summary line go to stderr
     assert captured.out == ""

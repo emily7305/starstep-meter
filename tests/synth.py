@@ -56,6 +56,10 @@ class ClickTrackSpec:
     # the beat, the tempo underneath stays the same. positions are in beats from each 4 beat
     # bar's start, e.g. (0, 1.5, 3) for a dotted 3-3-2 bar, (0, 4/3, 8/3) for a triplet feel
     patterns: tuple[tuple[int, int, tuple[float, ...]], ...] = ()
+    # (first beat, beat count, fractions of a beat) sections with a softer, higher click at those
+    # fractions of every beat, over the beat clicks. swung hats are (2/3,), a gallop (1/2, 3/4)
+    subdivisions: tuple[tuple[int, int, tuple[float, ...]], ...] = ()
+    subdivision_level: float = 0.5
     seed: int = 0
 
     def cache_name(self) -> str:
@@ -159,6 +163,14 @@ def click_track(spec: ClickTrackSpec = ClickTrackSpec()) -> ClickTrack:
     if spec.offbeat_level > 0.0:
         for start in (onset_idx[:-1] + onset_idx[1:]) // 2:
             audio[start:start + click_len] += plain * spec.offbeat_level
+    if spec.subdivisions:
+        # its own timbre, so it can't be taken for a beat click
+        tick = _click(sr, spec.click_freq_hz * 3.0, spec.click_ms, spec.click_decay_ms / 2.0) * spec.amplitude
+        for first, count, fractions in spec.subdivisions:
+            for k in range(first, min(first + count, spec.beats - 1)):
+                for f in fractions:
+                    start = int(round((grid_s[k] + f * (grid_s[k + 1] - grid_s[k])) * sr))
+                    audio[start:start + click_len] += tick[: total - start] * spec.subdivision_level
 
     if spec.noise_floor_db is not None:
         rng = np.random.default_rng(spec.seed)
@@ -216,6 +228,10 @@ class DrumTrackSpec:
     # followed the double time section to twice the tempo and stayed there
     hat_level: float = 0.4
     offbeat_hat_level: float = 0.12
+    # (first bar, bar count, fractions of a beat) sections where the hats between the beats play
+    # at those fractions instead of the half beat, at pattern_hat_level. (2/3,) swings them
+    hat_patterns: tuple[tuple[int, int, tuple[float, ...]], ...] = ()
+    pattern_hat_level: float = 0.3
     seed: int = 0
 
     def cache_name(self) -> str:
@@ -308,14 +324,23 @@ def drum_track(spec: DrumTrackSpec = DrumTrackSpec()) -> DrumTrack:
         stop = min(total, start + len(wave))
         audio[start:stop] += wave[: stop - start]
 
+    between: dict[int, tuple[float, ...]] = {}
+    for first, count, fractions in spec.hat_patterns:
+        for bar in range(first, min(first + count, spec.bars)):
+            between[bar] = fractions
     for bar, feel in enumerate(drum_feels(spec)):
         kicks, snares = _PATTERNS[feel]
         for b in kicks:
             put(kick, 4 * bar + b)
         for b in snares:
             put(snare, 4 * bar + b)
-        for half in range(8):
-            put(hat * (spec.offbeat_hat_level if half % 2 else spec.hat_level), 4 * bar + half / 2.0)
+        for beat in range(4):
+            put(hat * spec.hat_level, 4 * bar + beat)
+            if bar in between:
+                for f in between[bar]:
+                    put(hat * spec.pattern_hat_level, 4 * bar + beat + f)
+            else:
+                put(hat * spec.offbeat_hat_level, 4 * bar + beat + 0.5)
     first_ms = round(spec.lead_silence_s * sr) / sr * 1000.0
     beat_ms = beat_s * 1000.0
     sections = [

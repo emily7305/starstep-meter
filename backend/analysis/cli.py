@@ -87,6 +87,8 @@ def _analyze(src: Path, work_dir: Path, args: argparse.Namespace) -> int:
         log(f"  [{i}]   {run.start_ms:.3f} -> {run.end_ms:.3f} ms, {run.numerator}/{run.denominator}, confidence {run.confidence:.2f}")
     for s in sorted(out.suggestions, key=lambda s: s.start_ms):
         log(f"suggest {s.kind} {s.start_ms:.3f} -> {s.end_ms:.3f} ms, {s.suggested_bpm:.4f} bpm from {s.grid_bpm:.4f}, score {s.score:.2f}")
+    for d in out.subdivisions:
+        log(f"swing   {d.kind} {d.start_ms:.3f} -> {d.end_ms:.3f} ms, ratio {d.ratio:.2f}, 1/{d.division} at {d.grid_bpm:.4f} bpm, score {d.score:.2f}")
     if out.cross_check is None:
         log("check   no cross-check, librosa is the main tracker")
     else:
