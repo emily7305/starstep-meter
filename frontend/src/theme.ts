@@ -7,6 +7,7 @@ export interface Palette {
   bgSunk: string;
   accent: string;
   mint: string;
+  danger: string;
   fontMono: string;
 }
 
@@ -25,6 +26,7 @@ export function readPalette(): Palette {
     bgSunk: cssVar("--bg-sunk", "#ebe4ec"),
     accent: cssVar("--accent", "#e0136f"),
     mint: cssVar("--mint", "#3cc2a4"),
+    danger: cssVar("--danger", "#a3123f"),
     fontMono: cssVar("--font-mono", "monospace"),
   };
 }

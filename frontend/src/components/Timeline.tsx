@@ -1,6 +1,7 @@
 import { type KeyboardEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { BeatGridPlugin } from "../beatGridPlugin";
+import { changeLabels, chartSetup } from "../chartSetup";
 import { ClickScheduler, clickSamples } from "../clickTrack";
 import { ClockPlayer } from "../clockPlayer";
 import { formatDeltaMs, formatFineMs, formatMs } from "../format";
@@ -19,6 +20,7 @@ import type { TempoEditOp } from "../types/api";
 import type { BeatsFile } from "../types/beats";
 import type { TimingReport } from "../types/timingReport";
 import type { PcmAudio } from "../wav";
+import { ChartSetup } from "./ChartSetup";
 import { Loupe } from "./Loupe";
 import { MeterControl } from "./MeterControl";
 import { SegmentControl } from "./SegmentControl";
@@ -82,6 +84,8 @@ export function Timeline(props: Props) {
   const [centerMs, setCenterMs] = useState<number | null>(null);
   const palette = useMemo(readPalette, []);
   const [latency, setLatency] = useState<{ seconds: number; output: boolean; base: boolean } | null>(null);
+  const [bpmDecimals, setBpmDecimals] = useState(2);
+  const [setupRow, setSetupRow] = useState<number | null>(null);
 
   const [suggestion, setSuggestion] = useState<number | null>(null);
 
@@ -110,6 +114,31 @@ export function Timeline(props: Props) {
     () => (offbeatRuns ?? []).map((run) => ({ startMs: run.start_ms, endMs: run.end_ms })),
     [offbeatRuns],
   );
+  const spans = report?.confidence_spans;
+  // only under auto segments, an edited segment has a grid the spans weren't measured on
+  const lowShades = useMemo(
+    () =>
+      (spans ?? []).flatMap((s) => {
+        const seg = tempoMap?.[segmentAt(tempoMap, (s.start_ms + s.end_ms) / 2)];
+        return s.low && seg?.source === "auto" ? [{ startMs: s.start_ms, endMs: s.end_ms }] : [];
+      }),
+    [spans, tempoMap],
+  );
+  const source = report?.source ?? null;
+  const setup = useMemo(
+    () => (grid !== null && tempoMap !== null && source !== null ? chartSetup(grid, tempoMap, meterMap, source) : null),
+    [grid, tempoMap, meterMap, source],
+  );
+  const changes = useMemo(
+    () =>
+      setup === null
+        ? []
+        : changeLabels(setup, bpmDecimals).map((label, i, all) => {
+            const next = all[i + 1]?.row ?? Infinity;
+            return { timeMs: label.timeMs, text: label.text, selected: setupRow !== null && label.row <= setupRow && setupRow < next };
+          }),
+    [setup, bpmDecimals, setupRow],
+  );
   const trackedMs = useMemo(() => beats?.beats.map((b) => b.time_ms) ?? [], [beats]);
   // the loupe opens on the first tracked downbeat, that's the first segment's anchor
   const firstDownbeatMs = beats?.beats.find((b) => b.is_downbeat)?.time_ms ?? null;
@@ -128,8 +157,7 @@ export function Timeline(props: Props) {
       grid: null,
       bands: [],
       selected: null,
-      offbeat: [],
-      marks: [],
+      marks: { offbeat: [], suggestions: [], lowConfidence: [], changes: [] },
       colors: {
         beat: palette.inkFaint,
         bar: palette.mint,
@@ -140,6 +168,8 @@ export function Timeline(props: Props) {
         bandLabel: palette.inkSoft,
         offbeat: palette.inkSoft,
         suggestion: palette.inkSoft,
+        change: palette.ink,
+        lowConfidence: palette.danger,
       },
       labelFont: `500 10px ${palette.fontMono}`,
     });
@@ -221,8 +251,13 @@ export function Timeline(props: Props) {
   }, [clickTrack, audio.kind]);
 
   useEffect(() => {
-    gridRef.current?.setMap(grid, segmentBands, tempoMap !== null && tempoMap.length > 1 ? selected : null, offbeatShades, marks);
-  }, [grid, segmentBands, selected, tempoMap, offbeatShades, marks, audio.kind]);
+    gridRef.current?.setMap(grid, segmentBands, tempoMap !== null && tempoMap.length > 1 ? selected : null, {
+      offbeat: offbeatShades,
+      suggestions: marks,
+      lowConfidence: lowShades,
+      changes,
+    });
+  }, [grid, segmentBands, selected, tempoMap, offbeatShades, marks, lowShades, changes, audio.kind]);
 
   // a new report can renumber the suggestions, the pick doesn't carry over
   useEffect(() => setSuggestion(null), [suggestions]);
@@ -258,6 +293,15 @@ export function Timeline(props: Props) {
     // the playhead and the zoomed view jump to its start, the waveform scrolls along with the playhead
     setCenterMs(nearest(trackedMs, s.start_ms) ?? s.start_ms);
     if (ready) wsRef.current?.setTime(s.start_ms / 1000);
+  }
+
+  function goToChange(row: number) {
+    const r = setup?.rows[row];
+    if (r === undefined) return;
+    setSetupRow(row);
+    if (tempoMap !== null) onSelect(segmentAt(tempoMap, r.timeMs));
+    setCenterMs(r.timeMs);
+    if (ready) wsRef.current?.setTime(Math.max(0, r.timeMs) / 1000);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -428,6 +472,17 @@ export function Timeline(props: Props) {
             onSelect={goToSuggestion}
             onEdit={onEdit}
           />
+
+          {setup !== null && (
+            <ChartSetup
+              setup={setup}
+              filename={report.source.filename}
+              bpmDecimals={bpmDecimals}
+              onBpmDecimals={setBpmDecimals}
+              selected={setupRow}
+              onSelect={goToChange}
+            />
+          )}
         </div>
       )}
     </div>

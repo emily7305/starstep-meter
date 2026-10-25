@@ -1,4 +1,5 @@
-// wavesurfer plugin that draws the tempo bands, the beat grid and the suggestion marks over the waveform
+// wavesurfer plugin that draws the tempo bands, the beat grid, the suggestion marks, the tempo and
+// meter change labels and the low confidence shading over the waveform
 // only the visible part gets drawn, a zoomed 4 minute song is far wider than any canvas can be
 
 import BasePlugin, { type BasePluginEvents } from "wavesurfer.js/dist/base-plugin.js";
@@ -16,6 +17,8 @@ export interface BeatGridColors {
   bandLabel: string;
   offbeat: string;
   suggestion: string;
+  change: string;
+  lowConfidence: string;
 }
 
 // a stretch where the tracker followed the off-beat, shaded so it can be found and listened to
@@ -31,12 +34,31 @@ export interface SuggestionMark {
   selected: boolean;
 }
 
+// a stretch the analysis isn't sure of, see backend/analysis/confidence.py
+export interface LowConfidenceShade {
+  startMs: number;
+  endMs: number;
+}
+
+// "m.21 · 130.00 bpm" at the line the change is on, from chartSetup.ts
+export interface ChangeMark {
+  timeMs: number;
+  text: string;
+  selected: boolean;
+}
+
+export interface TimelineMarks {
+  offbeat: OffbeatShade[];
+  suggestions: SuggestionMark[];
+  lowConfidence: LowConfidenceShade[];
+  changes: ChangeMark[];
+}
+
 export interface BeatGridOptions {
   grid: TempoGrid | null;
   bands: Band[];
   selected: number | null;
-  offbeat: OffbeatShade[];
-  marks: SuggestionMark[];
+  marks: TimelineMarks;
   colors: BeatGridColors;
   labelFont: string;
 }
@@ -51,6 +73,10 @@ const HATCH_SPACING_PX = 7;
 // under the bar number labels, which end at 16 px
 const MARK_Y_PX = 19;
 const MARK_TICK_PX = 5;
+// the change labels go under the suggestion marks
+const CHANGE_Y_PX = 27;
+const CHANGE_H_PX = 14;
+const LOW_LABEL = "low confidence";
 
 export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions> {
   private canvas: HTMLCanvasElement | null = null;
@@ -86,11 +112,10 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
     redraw();
   }
 
-  setMap(grid: TempoGrid | null, bands: Band[], selected: number | null, offbeat: OffbeatShade[], marks: SuggestionMark[]): void {
+  setMap(grid: TempoGrid | null, bands: Band[], selected: number | null, marks: TimelineMarks): void {
     this.options.grid = grid;
     this.options.bands = bands;
     this.options.selected = selected;
-    this.options.offbeat = offbeat;
     this.options.marks = marks;
     this.schedule();
   }
@@ -145,7 +170,8 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
   }
 
   private drawOffbeat(ctx: CanvasRenderingContext2D, view: View, heightPx: number): void {
-    const { offbeat, colors } = this.options;
+    const { colors } = this.options;
+    const { offbeat } = this.options.marks;
     const { durationMs, totalWidthPx, scrollLeftPx, viewWidthPx } = view;
     const bottom = heightPx - BAND_LABEL_H_PX;
     ctx.strokeStyle = colors.offbeat;
@@ -171,8 +197,56 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
     ctx.globalAlpha = 1;
   }
 
+  private drawLowConfidence(ctx: CanvasRenderingContext2D, view: View, heightPx: number): void {
+    const { colors } = this.options;
+    const { durationMs, totalWidthPx, scrollLeftPx, viewWidthPx } = view;
+    const bottom = heightPx - BAND_LABEL_H_PX;
+    ctx.fillStyle = colors.lowConfidence;
+    for (const shade of this.options.marks.lowConfidence) {
+      const left = timeToX(shade.startMs, durationMs, totalWidthPx) - scrollLeftPx;
+      const right = timeToX(shade.endMs, durationMs, totalWidthPx) - scrollLeftPx;
+      if (right < 0 || left > viewWidthPx) continue;
+      // a darker wash plus a dotted edge with a label above the bpm labels. not a pink tint, that
+      // means the selected segment
+      ctx.fillStyle = colors.band;
+      ctx.globalAlpha = 0.1;
+      ctx.fillRect(left, 0, right - left, bottom);
+      ctx.fillStyle = colors.lowConfidence;
+      ctx.globalAlpha = 0.8;
+      for (let x = Math.max(left, 0); x < Math.min(right, viewWidthPx); x += 4) ctx.fillRect(x, bottom - 3, 2, 2);
+      ctx.globalAlpha = 1;
+      ctx.font = this.options.labelFont;
+      ctx.textBaseline = "middle";
+      const x = Math.max(left, 0) + 4;
+      if (x + ctx.measureText(LOW_LABEL).width + 4 < Math.min(right, viewWidthPx)) ctx.fillText(LOW_LABEL, x, bottom - 10);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  private drawChanges(ctx: CanvasRenderingContext2D, view: View): void {
+    const { colors } = this.options;
+    const { durationMs, totalWidthPx, scrollLeftPx, viewWidthPx } = view;
+    ctx.font = this.options.labelFont;
+    ctx.textBaseline = "middle";
+    let freeFrom = -Infinity;
+    for (const change of this.options.marks.changes) {
+      const x = timeToX(change.timeMs, durationMs, totalWidthPx) - scrollLeftPx;
+      const w = ctx.measureText(change.text).width + 8;
+      if (x + w < 0 || x > viewWidthPx) continue;
+      // zoomed out, labels that would run into the one before are left out, the panel lists them all
+      if (x < freeFrom && !change.selected) continue;
+      ctx.fillStyle = colors.labelBg;
+      ctx.fillRect(x, CHANGE_Y_PX, w, CHANGE_H_PX);
+      ctx.fillStyle = change.selected ? colors.selected : colors.change;
+      ctx.fillRect(x, CHANGE_Y_PX, 2, CHANGE_H_PX);
+      ctx.fillText(change.text, x + 5, CHANGE_Y_PX + CHANGE_H_PX / 2);
+      freeFrom = x + w + 4;
+    }
+  }
+
   private drawMarks(ctx: CanvasRenderingContext2D, view: View): void {
-    const { marks, colors } = this.options;
+    const { colors } = this.options;
+    const marks = this.options.marks.suggestions;
     const { durationMs, totalWidthPx, scrollLeftPx, viewWidthPx } = view;
     for (const mark of marks) {
       const left = timeToX(mark.startMs, durationMs, totalWidthPx) - scrollLeftPx;
@@ -215,6 +289,7 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
     const view: View = { durationMs, totalWidthPx, scrollLeftPx: this.scrollLeft, viewWidthPx };
     ctx.scale(dpr, dpr);
     this.drawBands(ctx, view, heightPx);
+    this.drawLowConfidence(ctx, view, heightPx);
     this.drawOffbeat(ctx, view, heightPx);
     this.drawMarks(ctx, view);
 
@@ -254,5 +329,6 @@ export class BeatGridPlugin extends BasePlugin<BasePluginEvents, BeatGridOptions
         ctx.fillText(text, x + 5, 9);
       }
     }
+    this.drawChanges(ctx, view);
   }
 }

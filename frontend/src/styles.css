@@ -1316,3 +1316,147 @@ body {
     padding: 0 8px 8px;
   }
 }
+
+/* chart setup, what to type into a chart editor, under the suggestions */
+
+.setup {
+  grid-column: 1 / -1;
+}
+
+.setup__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.setup__title {
+  margin: 0 auto 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+}
+
+.setup__head .btn {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.setup__copied {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.setup__steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px 32px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.setup__steps > li {
+  counter-increment: step;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.setup__step {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.setup__step::before {
+  content: counter(step) "  ";
+  color: var(--mint);
+  font-family: var(--font-mono);
+}
+
+.setup__note {
+  margin: 4px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.setup__offsets {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  gap: 2px 16px;
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.setup__offsets dt {
+  color: var(--ink-soft);
+}
+
+.setup__offsets dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  text-align: right;
+}
+
+.setup__command {
+  margin: 4px 0;
+  padding: 6px 8px;
+  overflow-x: auto;
+  background: var(--bg-sunk);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.setup__rows {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.setup__row {
+  display: grid;
+  grid-template-columns: 7ch 13ch 13ch minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 12px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent;
+  background: none;
+  color: var(--ink);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.setup__row:hover {
+  background: var(--bg-sunk);
+}
+
+.setup__row[aria-current="true"] {
+  border-left-color: var(--accent);
+}
+
+.setup__row:focus-visible {
+  outline-offset: -2px;
+}
+
+.setup__beat,
+.setup__value {
+  text-align: right;
+}
+
+.setup__beat {
+  color: var(--ink-soft);
+}
+
+.setup__warn {
+  color: var(--danger);
+}
