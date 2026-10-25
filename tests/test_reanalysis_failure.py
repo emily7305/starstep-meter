@@ -36,7 +36,8 @@ SILENT = {"stage": "trim", "message": "audio is silent"}
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path / "data")
+    # the hand-built jobs carry fixed dates from early 2026, retention would delete them at startup
+    return Settings(data_dir=tmp_path / "data", retention_days=0)
 
 
 @pytest.fixture
@@ -443,28 +444,36 @@ def test_leftover_staging_folder_is_emptied_before_a_run(
 
 
 @pytest.mark.parametrize(
-    ("status", "stage", "recovered"),
-    [("running", "beats", 1), ("queued", "queued", 1), ("done", "done", 0), ("failed", "failed", 0)],
+    ("status", "stage", "requeued", "failed"),
+    [("running", "beats", False, 1), ("queued", "queued", True, 0), ("done", "done", False, 0), ("failed", "failed", False, 0)],
 )
-def test_recover_removes_a_leftover_staging_folder(settings: Settings, status: str, stage: str, recovered: int) -> None:
+def test_recover_removes_a_leftover_staging_folder(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, status: str, stage: str, requeued: bool, failed: int
+) -> None:
     job_id = write_job(settings, status, stage, SILENT if status == "failed" else None)
     job_dir = settings.jobs_dir / job_id
     (job_dir / RERUN).mkdir()
     (job_dir / RERUN / "decoded.wav").write_bytes(CUT_OFF_WAV)
     before = good_files(job_dir)
+    # a queued job is only handed to the runner here, a real run would make the staging folder again
+    submitted: list[str] = []
+    monkeypatch.setattr(JobRunner, "submit", lambda self, queued_id: submitted.append(queued_id))
+    expected = [job_id] if requeued else []
 
     store = JobStore(settings.jobs_dir)
     runner = JobRunner(store, settings)
     try:
-        assert runner.recover() == recovered
+        assert runner.recover() == (expected, failed)
     finally:
         runner.shutdown()
 
+    assert submitted == expected
     assert not (job_dir / RERUN).exists()
     assert good_files(job_dir) == before
     status_now = store.read_status(job_id)
     assert status_now is not None
-    assert (status_now.status == "failed") is (status in ("running", "queued", "failed"))
+    # only a running job is failed, a queued one stays queued on disk until the runner takes it
+    assert status_now.status == ("failed" if status == "running" else status)
 
 
 def test_restart_during_a_reanalysis_still_serves_the_last_good_report(settings: Settings) -> None:

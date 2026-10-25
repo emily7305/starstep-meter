@@ -10,7 +10,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -59,6 +59,11 @@ def is_job_id(value: str) -> bool:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _aware(stamp: datetime) -> datetime:
+    # a hand edited file might drop the offset, read that as utc rather than fail to compare
+    return stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=timezone.utc)
 
 
 def _replace_with_retry(src: Path, dst: Path) -> None:
@@ -110,6 +115,56 @@ class JobStore:
     def remove(self, job_id: str) -> None:
         # ignore_errors, windows can still be holding a file for a moment and this is only cleanup
         shutil.rmtree(self.job_dir(job_id), ignore_errors=True)
+
+    def delete(self, job_id: str) -> None:
+        """Delete one job folder for good. Raises OSError when a file in it can't go, e.g. one still open on windows."""
+        job_dir = self.job_dir(job_id)
+        if not job_dir.is_dir():
+            raise JobNotFoundError(job_id)
+        # under the report lock, so an edit can't be halfway through writing into it
+        with self._report_lock:
+            shutil.rmtree(job_dir)
+
+    def last_activity(self, job_id: str) -> datetime:
+        """When the job last changed: the upload, a status change or an edit.
+
+        Exports and plain reads don't count. A folder where none of those can be read
+        goes by its own mtime, which covers an upload that never finished.
+        """
+        job_dir = self.job_dir(job_id)
+        stamps: list[datetime] = []
+        try:
+            stamps.append(datetime.fromisoformat(self.read_job(job_id).created_at))
+        except (OSError, ValueError):
+            pass
+        try:
+            status = _StatusFile.model_validate_json((job_dir / STATUS_FILE).read_text(encoding="utf-8"))
+            stamps.append(datetime.fromisoformat(status.updated_at))
+        except (OSError, ValueError):
+            pass
+        try:
+            edits = self.read_report(job_id).edits
+            if edits:
+                stamps.append(edits[-1].timestamp)
+        except (OSError, ValueError):
+            pass
+        if not stamps:
+            stamps.append(datetime.fromtimestamp(job_dir.stat().st_mtime, timezone.utc))
+        return max(_aware(s) for s in stamps)
+
+    def remove_expired(self, now: datetime, retention: timedelta) -> list[str]:
+        """Delete every job folder that hasn't changed within retention, its decoded wav with it."""
+        removed = []
+        for job_id in self.job_ids():
+            try:
+                expired = self.last_activity(job_id) < now - retention
+            except OSError:
+                # gone or unreadable since the listing, nothing to judge it by
+                continue
+            if expired:
+                self.remove(job_id)
+                removed.append(job_id)
+        return removed
 
     def job_ids(self) -> list[str]:
         if not self.jobs_dir.is_dir():

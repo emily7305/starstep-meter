@@ -51,7 +51,8 @@ SEGMENT_OPS = {
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(data_dir=tmp_path / "data")
+    # the hand-built jobs carry fixed dates from early 2026, retention would delete them at startup
+    return Settings(data_dir=tmp_path / "data", retention_days=0)
 
 
 @pytest.fixture

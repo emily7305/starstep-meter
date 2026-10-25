@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
@@ -21,9 +22,11 @@ from backend.analysis.tempo_edit import TempoEditError
 from backend.api.jobs import JobRunner
 from backend.api.models import Health, JobCreated, JobStatus, JobSummary, TempoEdit
 from backend.api.settings import Settings
-from backend.api.storage import JobStore
+from backend.api.storage import JobNotFoundError, JobStore
 from backend.api.tempo_patch import apply_tempo_edit
 from backend.schema.models import SCHEMA_VERSION, BeatsFile, TimingReport
+
+log = logging.getLogger("starstep.api")
 
 # multipart boundaries and part headers add a few hundred bytes on top of the file
 # only reject on the header when it's over the limit by more than that, ingest counts the real bytes
@@ -61,6 +64,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # expired first, so a job that sat queued past the retention isn't started only to be lost
+        if settings.retention_days > 0:
+            removed = store.remove_expired(datetime.now(timezone.utc), timedelta(days=settings.retention_days))
+            if removed:
+                log.info("deleted %d job folder(s) unchanged for %d days", len(removed), settings.retention_days)
         runner.recover()
         # warm the cache, the import takes about a second and the first health check shouldn't pay for it
         madmom_import_error()
@@ -186,6 +194,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         store.write_status(job_id, JobStatus(status="queued", stage="queued"))
         runner.submit(job_id)
         return JobCreated(job_id=job_id)
+
+    @router.delete("/jobs/{job_id}", status_code=204)
+    def delete_job(job_id: str) -> Response:
+        # the whole folder, upload, decoded wav, report and edits. there's no undo
+        status = store.read_status(job_id)
+        if status is not None and status.status in ("queued", "running"):
+            raise HTTPException(409, f"job is still at {status.stage}, wait for it to finish")
+        try:
+            store.delete(job_id)
+        except JobNotFoundError as exc:
+            raise HTTPException(404, "job not found") from exc
+        except OSError as exc:
+            raise HTTPException(409, f"could not delete every file, one may still be open: {exc.strerror or exc}") from exc
+        return Response(status_code=204)
 
     @router.get("/jobs/{job_id}/beats", response_model=BeatsFile)
     def get_beats(job_id: str) -> BeatsFile:

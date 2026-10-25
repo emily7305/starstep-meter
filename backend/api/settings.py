@@ -39,6 +39,8 @@ class Settings:
     max_bpm: float = DEFAULT_MAX_BPM
     # one worker is plenty, analysis is cpu bound and it's just me using it
     workers: int = 1
+    # job folders untouched for this long are deleted at startup, 0 keeps them forever
+    retention_days: int = 14
 
     def __post_init__(self) -> None:
         if self.max_upload_mb < 1:
@@ -47,6 +49,8 @@ class Settings:
             raise ValueError("workers must be at least 1")
         if self.snap_window_ms <= 0:
             raise ValueError("snap_window_ms must be positive")
+        if self.retention_days < 0:
+            raise ValueError("retention_days must be 0 or more")
         # TempoRange checks the bounds and names them in its error
         TempoRange(self.min_bpm, self.max_bpm)
 
@@ -73,4 +77,5 @@ class Settings:
             min_bpm=_read_env("STARSTEP_MIN_BPM", float, defaults.min_bpm),
             max_bpm=_read_env("STARSTEP_MAX_BPM", float, defaults.max_bpm),
             workers=_read_env("STARSTEP_WORKERS", int, defaults.workers),
+            retention_days=_read_env("STARSTEP_RETENTION_DAYS", int, defaults.retention_days),
         )

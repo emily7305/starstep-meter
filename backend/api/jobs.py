@@ -37,27 +37,40 @@ class JobRunner:
     def submit(self, job_id: str) -> Future[None]:
         return self._executor.submit(self._run, job_id)
 
-    def recover(self) -> int:
-        # whatever was queued or running died with the old process, say so instead of polling forever
-        # todo: re-queue jobs that were only queued instead of failing them
-        recovered = 0
+    def recover(self) -> tuple[list[str], int]:
+        """Jobs that were queued go back in the queue, ones that were running are marked failed.
+
+        Returns the re-queued job ids and how many were marked failed.
+        """
+        requeued: list[str] = []
+        failed = 0
         for job_id in self._store.job_ids():
             try:
                 # a re-analysis that died mid-run leaves its staging folder behind
                 self._store.clear_rerun(job_id)
                 status = self._store.read_status(job_id)
-                if status is None or status.status not in ("queued", "running"):
+                if status is None:
                     continue
-                self._mark_failed(job_id, _error_stage(status.stage), RESTART_MESSAGE)
-                recovered += 1
+                if status.status == "queued":
+                    # nothing ran yet, so the stored upload is all it needs. a queued re-analysis
+                    # still has its report, the runner sees that and keeps the manual segments
+                    self.submit(job_id)
+                    requeued.append(job_id)
+                elif status.status == "running":
+                    # it may be what took the server down, running it again on every start could loop.
+                    # re-analyze in the ui runs it again by hand
+                    self._mark_failed(job_id, _error_stage(status.stage), RESTART_MESSAGE)
+                    failed += 1
             except (OSError, ValueError):
                 log.warning("skipping job %s, could not read or update its status.json", job_id)
-        if recovered:
-            log.warning("marked %d unfinished job(s) as failed after a restart", recovered)
-        return recovered
+        if requeued:
+            log.info("re-queued %d job(s) that were waiting when the server stopped", len(requeued))
+        if failed:
+            log.warning("marked %d unfinished job(s) as failed after a restart", failed)
+        return requeued, failed
 
     def shutdown(self) -> None:
-        # a job that's mid-analysis keeps going, queued ones stay queued on disk and recover() deals with them
+        # a job that's mid-analysis keeps going, queued ones stay queued on disk and recover() picks them up
         self._executor.shutdown(wait=False, cancel_futures=True)
 
     def _previous_report(self, job_id: str) -> TimingReport | None:
