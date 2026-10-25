@@ -132,3 +132,55 @@ def test_reanalysis_runs_every_stage_and_replaces_every_auto_result(
     assert len(client.get(f"/api/jobs/{job_id}/beats").json()["beats"]) == beats_count
     assert (job_dir / "decoded.wav").read_bytes() == decoded
     assert client.get("/api/jobs").json()[0]["reanalyzed_at"] is not None
+
+
+# --- reset to auto (milestone 7b) ---
+
+
+def _click_job(client: TestClient) -> tuple[str, dict]:
+    spec = ClickTrackSpec(bpm=120, beats=64, lead_silence_s=1.0, accent_downbeats=True)
+    path, _ = cached_click_wav(spec)
+    job_id = client.post("/api/jobs", files={"file": ("steady.wav", path.read_bytes(), "application/octet-stream")}).json()["job_id"]
+    assert wait_for_job(client, job_id)["status"] == "done"
+    return job_id, client.get(f"/api/jobs/{job_id}/report").json()
+
+
+def _patch(client: TestClient, job_id: str, body: dict) -> dict:
+    resp = client.patch(f"/api/jobs/{job_id}/report", json=body)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+@pytest.mark.ffmpeg
+def test_a_manual_segment_one_beat_off_resets_to_the_analysis(client: TestClient) -> None:
+    job_id, first = _click_job(client)
+    (auto,) = first["tempo_map"]
+    _patch(client, job_id, {"op": "set_bpm", "segment": 0, "bpm": auto["bpm"] / 2})
+    # one beat at the halved bpm late, the way a stale hand-halved segment kept its old anchor
+    late = auto["anchor_ms"] + 2 * 60000.0 / auto["bpm"]
+    nudged = _patch(client, job_id, {"op": "set_anchor", "segment": 0, "anchor_ms": late})
+    assert nudged["tempo_map"][0]["source"] == "manual"
+
+    assert reanalyze(client, job_id)["status"] == "done"
+    kept = client.get(f"/api/jobs/{job_id}/report").json()
+    # the manual segment stays as it was, the analysis under it is in auto_result
+    assert kept["tempo_map"] == nudged["tempo_map"]
+    assert kept["auto_result"]["tempo_map"][0]["anchor_ms"] == auto["anchor_ms"]
+
+    reset = _patch(client, job_id, {"op": "reset_segment", "segment": 0})
+    (seg,) = reset["tempo_map"]
+    assert (seg["source"], seg["notation_scale"], seg["anchor_ms"]) == ("auto", 0.5, auto["anchor_ms"])
+    assert seg["bpm"] == auto["bpm"] / 2
+    assert len(reset["edits"]) == len(kept["edits"]) + 1
+    assert reset["edits"][-1]["field"] == "tempo_map"
+    assert reset["edits"][-1]["new"] == reset["tempo_map"]
+    # nothing left to reset
+    assert client.patch(f"/api/jobs/{job_id}/report", json={"op": "reset_segment", "segment": 0}).status_code == 422
+
+
+def test_reset_on_a_report_without_an_analysis_result_says_why(client: TestClient, settings: Settings) -> None:
+    job_id = write_job(settings, "done", "done")
+    _patch(client, job_id, {"op": "set_bpm", "segment": 0, "bpm": 91.0})
+    resp = client.patch(f"/api/jobs/{job_id}/report", json={"op": "reset_segment", "segment": 0})
+    assert resp.status_code == 422
+    assert "analyze it again" in resp.json()["detail"]

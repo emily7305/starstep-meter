@@ -13,6 +13,7 @@ from backend.analysis.tempo_edit import (
     match,
     merge,
     rescale,
+    reset_to_auto,
     set_anchor,
     set_bpm,
     split,
@@ -682,3 +683,33 @@ def test_a_reanalysis_puts_the_same_factor_on_the_new_auto_segments():
     # a manual segment from before has nothing to carry
     assert carry_notation([_hand(1000.0, 60000.0, 145.99)], fresh) == fresh
 
+
+# --- reset to auto ---
+
+
+def test_reset_puts_back_the_analysis_with_a_hand_halving_kept():
+    # set to 146 by hand and its anchor one 146 beat late, the analysis has the first beat at 8078.5
+    auto = [_seg(8068.5, 133707.9, bpm=291.9899, anchor=8078.498, confidence=0.89)]
+    manual = [_seg(8068.5, 133707.9, bpm=146.0, anchor=8078.498 + 60000.0 / 146.0, confidence=None, source="manual")]
+    (reset,) = reset_to_auto(manual, 0, auto)
+    assert (reset.source, reset.notation_scale, reset.confidence) == ("auto", 0.5, 0.89)
+    assert reset.bpm == pytest.approx(145.99495)
+    assert reset.anchor_ms == 8078.498
+
+
+def test_reset_of_a_middle_piece_joins_the_analysis_segment_up_again():
+    auto = [_seg(1000.0, 60000.0, bpm=120.0, anchor=1000.0)]
+    pieces = [
+        _seg(1000.0, 20000.0, bpm=120.0, anchor=1000.0),
+        _seg(20000.0, 40000.0, bpm=121.0, anchor=20010.0, confidence=None, source="manual"),
+        _seg(40000.0, 60000.0, bpm=120.0, anchor=1000.0),
+    ]
+    assert reset_to_auto(pieces, 1, auto) == auto
+
+
+def test_reset_needs_a_manual_segment_and_an_analysis_result():
+    auto = [_seg(1000.0, 60000.0)]
+    with pytest.raises(TempoEditError):
+        reset_to_auto(auto, 0, auto)
+    with pytest.raises(TempoEditError):
+        reset_to_auto([_hand(1000.0, 60000.0, 121.0)], 0, [])

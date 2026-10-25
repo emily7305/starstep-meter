@@ -14,7 +14,8 @@ by each value's path under field, "" being the report itself.
 - applying a suggestion changes the tempo_map (the meter_map for a downbeat shift) and the
   suggestion's status, so it's logged at "" with both. dismissing one only changes its status.
 - x2 or /2 on an auto segment keeps it auto, so it's logged at the segment with bpm and
-  notation_scale.
+  notation_scale. reset to auto logs the whole tempo_map, and the meter_map with it at ""
+  when that changed too.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from backend.api.models import (
     Match,
     Merge,
     MergeMeter,
+    ResetSegment,
     SetAnchor,
     SetBpm,
     SetMeter,
@@ -162,6 +164,28 @@ def _suggestion_edit(report: TimingReport, body: ApplySuggestion | DismissSugges
     return _validated(changed)
 
 
+def _reset_edit(report: TimingReport, body: ResetSegment, now: datetime) -> TimingReport:
+    auto = report.auto_result
+    if auto is None:
+        raise TempoEditError("this report has no analysis result to reset to, analyze it again first")
+    tempo_map = tempo_edit.reset_to_auto(report.tempo_map, body.segment, auto.tempo_map)
+    seg = report.tempo_map[body.segment]
+    # a manual meter inside the segment goes with it, the analysis' meter fills in there again
+    kept = [m for m in report.meter_map if m.source == "manual" and not (m.start_ms >= seg.start_ms and m.end_ms <= seg.end_ms)]
+    meter_map = meter_edit.keep_manual_meter(kept, auto.meter_map) if auto.meter_map else report.meter_map
+    if meter_map == report.meter_map:
+        edit = _whole("tempo_map", report.tempo_map, tempo_map, now)
+    else:
+        edit = Edit(
+            field="",
+            old={"tempo_map": _dumped(report.tempo_map), "meter_map": _dumped(report.meter_map)},
+            new={"tempo_map": _dumped(tempo_map), "meter_map": _dumped(meter_map)},
+            timestamp=now,
+        )
+    changed = report.model_copy(update={"tempo_map": tempo_map, "meter_map": meter_map, "edits": [*report.edits, edit]})
+    return _validated(changed)
+
+
 def _set_bpm(report: TimingReport, body: SetBpm) -> list[TempoSegment]:
     old_map = report.tempo_map
     tempo_edit.check_index(old_map, body.segment)
@@ -187,6 +211,8 @@ def apply_tempo_edit(report: TimingReport, body: TempoEdit, beats: BeatsFile | N
         return _meter_edit(report, body, now)
     if isinstance(body, (ApplySuggestion, DismissSuggestion)):
         return _suggestion_edit(report, body, now)
+    if isinstance(body, ResetSegment):
+        return _reset_edit(report, body, now)
     old_map = report.tempo_map
     if isinstance(body, SetAnchor):
         # same rounding as the pipeline, float steps of 1 ms pick up noise in the last digits

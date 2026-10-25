@@ -130,9 +130,16 @@ class DismissSuggestion(_Op):
     suggestion: _Index
 
 
+class ResetSegment(_Op):
+    # a manual tempo segment back to what the latest analysis has there, x2 or /2 kept
+    op: Literal["reset_segment"]
+    segment: _Index
+
+
 TempoEdit = Annotated[
     SetAnchor
     | SetBpm
+    | ResetSegment
     | Split
     | SplitOut
     | Merge

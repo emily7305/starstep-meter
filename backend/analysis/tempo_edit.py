@@ -36,6 +36,9 @@ MIN_SPLIT_BEATS = 0.5
 EDGE_FRACTION = 0.25
 # a ratio merged section within this of both its segment's edges is the segment itself
 SAME_EDGE_MS = 1.0
+# a bpm typed by hand this close to x2 or /2 of the analysis' is taken as that notation choice on a
+# reset, 146 for an analysis at 291.99. the buttons themselves are exact
+NOTATION_MATCH = 0.01
 # an anchor this close to the analysis' is the same one, reports keep 3 decimals
 SAME_ANCHOR_MS = 0.001
 
@@ -116,6 +119,44 @@ def as_notation(seg: TempoSegment, auto: list[TempoSegment]) -> TempoSegment:
     if inside[0].start_ms > seg.start_ms + SAME_EDGE_MS or inside[0].end_ms < seg.end_ms - SAME_EDGE_MS:
         return seg
     return piece.model_copy(update={"bpm": piece.bpm * scale, "notation_scale": scale})
+
+
+def _join_auto(segments: list[TempoSegment]) -> list[TempoSegment]:
+    # neighbours that are pieces of one analysis segment with the same notation are one segment again
+    out: list[TempoSegment] = []
+    for seg in segments:
+        prev = out[-1] if out else None
+        if (
+            prev is not None
+            and prev.source == seg.source == "auto"
+            and prev.bpm == seg.bpm
+            and prev.notation_scale == seg.notation_scale
+            and abs(prev.anchor_ms - seg.anchor_ms) <= SAME_ANCHOR_MS
+            and prev.end_ms == seg.start_ms
+        ):
+            out[-1] = prev.model_copy(update={"end_ms": seg.end_ms, "ratio_merged": [*prev.ratio_merged, *seg.ratio_merged]})
+            continue
+        out.append(seg)
+    return out
+
+
+def reset_to_auto(segments: list[TempoSegment], index: int, auto: list[TempoSegment]) -> list[TempoSegment]:
+    """Manual segment index replaced by what the analysis has over its span, as auto segments.
+
+    A bpm that is x2 or /2 of the analysis' (within NOTATION_MATCH) is how the chart writes it, so
+    the new segments get that notation scale. Pieces of one analysis segment either side join up.
+    """
+    check_index(segments, index)
+    seg = segments[index]
+    if seg.source != "manual":
+        raise TempoEditError(f"segment {index} is already the analysis' own")
+    if not auto:
+        raise TempoEditError("this report has no analysis result to reset to, analyze it again first")
+    pieces = []
+    for piece in _pieces(auto, seg.start_ms, seg.end_ms):
+        scale = notation_scale_of(seg.bpm / piece.bpm, NOTATION_MATCH) or 1.0
+        pieces.append(piece if scale == 1.0 else piece.model_copy(update={"bpm": piece.bpm * scale, "notation_scale": scale}))
+    return _join_auto([*segments[:index], *pieces, *segments[index + 1:]])
 
 
 def carry_notation(previous: list[TempoSegment], fresh: list[TempoSegment]) -> list[TempoSegment]:
