@@ -624,3 +624,48 @@ Dismissing only logs the status. A re-analysis keeps every applied and dismissed
 - The kick leaking into the snare band lowers the score of every class. Real kicks with a hard beater will leak more than the test drums, and a snare buried under guitars and synths in the 150–3000 Hz band will read weaker. The thresholds are tuned on synthetic drums only.
 - A double time feel with kick and snare both on every beat isn't a plain backbeat and comes out unknown.
 - The accent rule is tuned on clicks. On music it should mostly stay out of madmom's way, which is the point, but a song whose loudest attack keeps landing on the same odd beat for 4 bars would get that meter.
+
+## tuning on real songs (milestone 4b)
+
+The three songs were analyzed again with milestone 4, and their `beats.json` (with `grid_features`) and `report.json` are in `tests/real/`. All three got no notation suggestions in the app. The real-song tests now rebuild what the pipeline does from `beats.json` alone: the tempo map from the snapped beats, the meter with the accents read from the stored band strengths, and the suggestions on that map. Not on the report's own map, since MisoilePunch♪'s report holds a hand split of its felt section, and the band strengths were never measured on that grid. The rebuilt maps match the reports the app wrote (same anchors, same meters).
+
+Before and after, per song:
+
+| song | should be | milestone 4 | 4b |
+| --- | --- | --- | --- |
+| MisoilePunch♪ | 270, 4/4 all through, no suggestions | 270.0038, 4/4 then 3/4 over the last 4.2 s, none | 4/4 all through, none |
+| YOUNITHM | 260, 4/4, half on measures 1–21, 69–79, 139 to the end | 259.9963, 4/4, none | the same, still none |
+| ENDYMION | fold for 114338 ms to the end, half or double only where the chart switches between 440 and 220 | 219.9965 then 292.75 and 267.87, 4/4 with a restart at 94706 ms, none | the same map and meter, fold from 114338.4 ms to the end at 219.9965 bpm, score 0.54 |
+
+### the 3/4 at the end of MisoilePunch♪
+
+That was the accent rule reading the fade-out. madmom's downbeats are 4/4 to the end, but over the last 13 beats the band strengths are 0.00 to 0.05 against a median of about 1, and "the first beat is 1.3 times every other beat in its bar" holds on noise at that level, for 5 bars of 3. An accent bar now also needs its first beat at `accent_min_level` (0.25) of the segment's median beat strength or more. Accented clicks are 1.6 to 1.8 of it, so nothing synthetic moved.
+
+### the restart at 94.7 s in ENDYMION
+
+madmom lost a beat between 88 and 95 s (24 tracked beats over 25 grid beats, which the tempo map already folds as a run of short segments). It counts bar positions per tracked beat, so its downbeats come back one grid beat later and stay there to the outro, and the meter restarts its bars there. That looked like madmom miscounting, so I checked the accents per position in the bar. Before the stumble the strong beats are the grid beats 0 and 2 of each bar (1.13 and 1.15 against 1.09 and 1.10), after it they're 1 and 3 (1.12 and 1.13 against 1.01 and 1.06). The strong-beat pattern itself moved by a beat, so the song has an odd bar in there and madmom's new phase follows it. The differences are 5 to 10%, but they agree with madmom, so the restart stays.
+
+### ENDYMION's fold
+
+The outro was a candidate (both outro segments together are 6.3% of the song, its neighbour is longer), and it scored 0.48, just under 0.5. Per segment the evidence is clear. In the 292.75 part, madmom's beats sit on every third quarter of the 220 grid (a 4/3 feel), and the carried grid catches 1.36 against 1.05 on its own grid, 0.57. The 267.87 part is a fade with no distinct attacks left, 0.365 against 0.367, a draw. Pooling every position into one median let the fade, which has twice the positions, outweigh the part with the evidence. Now each segment of the stretch is scored on its own and weighted by its level times its length, so a quiet fade counts for little and a loud real change still decides. ENDYMION comes out at 0.54. The synthetic cases didn't move: a drifting outro on clicks is still 1.0, a real change near the end 0.0, and an outro whose loud part sits on its own grid stays under 0.5 however long its fade.
+
+### half and double on these songs: stopped, nothing changed
+
+I looked for why YOUNITHM gets no half suggestions before touching any threshold, and the answer is that the feature has nothing to give, not that a threshold is too tight.
+
+The detector reads a plain backbeat: the snare band folded over four beats has its hits half a cycle apart, and half or double time moves them. In the drum sections of all three songs that fold is flat. The depth of the pattern, (max − min) / mean of the 8 step profile, is 0.15 to 0.31 in the snare band, against 1.0 to 5.5 on the test drums. Normalizing each bar on its own first gives 0.17 to 0.31. The kick band is flat the same way. It isn't the kick leaking in: a least squares fit of the snare band on the kick band gives a share of 2.3 to 6, the two rise and fall together because the whole mix does, and what's left after taking it out still has no backbeat shape. In these songs the attacks are about as strong on every 8th, and at half beat resolution in three wide bands there's no 2-and-4 to find. Every window comes out unknown, before the kick check and after it.
+
+YOUNITHM's stretches charted at 130 aren't a half-time backbeat either. They're the stretches without drums: the kick band drops from 0.08–0.16 to 0.00–0.04, and nothing much plays between the 260 beats (the beats are 1.34 to 2.7 times the half beats over 8 bar windows, against 0.9 to 1.3 in the 260 parts). The edges of all three stretches are exactly where the drums stop and start. A rule for that would find them, but:
+
+- MisoilePunch♪ has stretches without drums too (bars 0–7 and 21–33), charted at 270. Its intro's beats are 1.43 times its half beats, more than YOUNITHM's 1.35 at 15–30 s, so no ratio separates the two songs. Only the length would, MisoilePunch♪'s are 8 and 13 bars and YOUNITHM's 20 and more, and that's two songs' worth of margin.
+- A click track is exactly that shape, no kick and nothing between the beats, so every one would get a half suggestion.
+
+So the detector stays as it was, and the milestone 4 synthetic results all still hold. A missed suggestion is cheaper than a wrong one, and MisoilePunch♪ stays at none. The YOUNITHM measure map test is marked as an expected failure with the reason, strict, so it shows up the day something finds those stretches. Two things that might, both for later and both needing more labelled songs: telling drum sections from drumless ones and treating a long drumless stretch as a candidate only when the chart history says so, or a feature that needs the audio again (percussive separation before the bands, narrower bands for the snare's body and noise), which needs another schema change and another analysis of the songs to test.
+
+### thresholds added
+
+| setting | value |
+| --- | --- |
+| `MeterConfig.accent_min_level` | 0.25 |
+
+Its test in `tests/test_meter.py` flips the MisoilePunch♪ case on a beat list, and `tests/test_notation.py` has the fold weighting on hand-made band strengths shaped like ENDYMION's outro, with `fold_min_score` flipping it.
